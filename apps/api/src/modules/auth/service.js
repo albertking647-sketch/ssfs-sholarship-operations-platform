@@ -2,6 +2,7 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  TooManyRequestsError,
   UnauthorizedError,
   ValidationError
 } from "../../lib/errors.js";
@@ -65,21 +66,6 @@ function toFallbackActor(entry, userIndex) {
   };
 }
 
-function sanitizeUser(user) {
-  if (!user) {
-    return null;
-  }
-
-  return {
-    id: user.id,
-    fullName: user.fullName,
-    username: user.username || "",
-    email: user.email || null,
-    roleCode: user.roleCode,
-    status: user.status
-  };
-}
-
 function mapUserToActor(user) {
   return {
     userId: user.id,
@@ -91,10 +77,65 @@ function mapUserToActor(user) {
   };
 }
 
-export function createAuthService({ config, users = [], repository = null }) {
+function normalizeLoginRateLimitConfig(settings = {}) {
+  const maxAttempts = Number(settings.maxAttempts);
+  const windowMs = Number(settings.windowMs);
+  const blockMs = Number(settings.blockMs);
+
+  return {
+    enabled: settings.enabled !== false,
+    maxAttempts: Number.isFinite(maxAttempts) && maxAttempts > 0 ? Math.floor(maxAttempts) : 5,
+    windowMs: Number.isFinite(windowMs) && windowMs > 0 ? Math.floor(windowMs) : 10 * 60 * 1000,
+    blockMs: Number.isFinite(blockMs) && blockMs > 0 ? Math.floor(blockMs) : 15 * 60 * 1000
+  };
+}
+
+function normalizeRemoteAddress(requestContext = {}) {
+  const forwardedFor = String(requestContext.forwardedFor || "")
+    .split(",")[0]
+    .trim();
+  const remoteAddress = String(requestContext.remoteAddress || "").trim();
+
+  return forwardedFor || remoteAddress || "unknown";
+}
+
+function buildLoginThrottleKeys(username, requestContext = {}) {
+  const source = normalizeRemoteAddress(requestContext);
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  const keys = [`ip:${source}`];
+
+  if (normalizedUsername) {
+    keys.push(`ip:${source}:user:${normalizedUsername}`);
+  }
+
+  return keys;
+}
+
+function createLoginThrottleBucket(now, windowMs) {
+  return {
+    failureCount: 0,
+    windowExpiresAt: now + windowMs,
+    blockedUntil: 0
+  };
+}
+
+function shouldResetLoginThrottleBucket(bucket, now) {
+  if (!bucket) {
+    return true;
+  }
+
+  if (bucket.blockedUntil && bucket.blockedUntil <= now) {
+    return true;
+  }
+
+  return !bucket.blockedUntil && bucket.windowExpiresAt <= now;
+}
+
+export function createAuthService({ config, users = [], repository = null, clock = { now: () => Date.now() } }) {
   const userIndex = new Map(users.map((user) => [user.id, user]));
   const tokenIndex = new Map((config.auth.devTokens || []).map((entry) => [entry.token, toFallbackActor(entry, userIndex)]));
   const revokedSessionIds = new Set();
+  const protectedBootstrapAdmin = normalizeBootstrapAdmin(config.auth.bootstrapAdmin);
   const sessionSecret = String(config.auth.sessionSecret || "");
   const sessionTtlMs = Math.max(
     1,
@@ -102,6 +143,98 @@ export function createAuthService({ config, users = [], repository = null }) {
       ? Math.floor(Number(config.auth.sessionTtlHours) * 60 * 60 * 1000)
       : 12 * 60 * 60 * 1000
   );
+  const loginRateLimit = normalizeLoginRateLimitConfig(config.auth.loginRateLimit || {});
+  const loginThrottleState = new Map();
+
+  if (config.auth.mode === "password" && !sessionSecret.trim()) {
+    throw new Error("AUTH_SESSION_SECRET must be configured when AUTH_MODE=password.");
+  }
+
+  function getClockNow() {
+    const value = Number(clock?.now?.());
+    return Number.isFinite(value) ? value : Date.now();
+  }
+
+  function isProtectedBootstrapAdminUser(user) {
+    const protectedUsername = String(protectedBootstrapAdmin.username || "").trim().toLowerCase();
+    const currentUsername = String(user?.username || "").trim().toLowerCase();
+
+    return Boolean(protectedUsername && currentUsername && currentUsername === protectedUsername);
+  }
+
+  function sanitizeUser(user) {
+    if (!user) {
+      return null;
+    }
+
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      username: user.username || "",
+      email: user.email || null,
+      roleCode: user.roleCode,
+      status: user.status,
+      isProtectedAdmin: isProtectedBootstrapAdminUser(user)
+    };
+  }
+
+  function getLoginThrottleBucket(key, now) {
+    const existing = loginThrottleState.get(key);
+    if (shouldResetLoginThrottleBucket(existing, now)) {
+      const resetBucket = createLoginThrottleBucket(now, loginRateLimit.windowMs);
+      loginThrottleState.set(key, resetBucket);
+      return resetBucket;
+    }
+
+    return existing;
+  }
+
+  function clearLoginThrottle(username, requestContext = {}) {
+    for (const key of buildLoginThrottleKeys(username, requestContext)) {
+      loginThrottleState.delete(key);
+    }
+  }
+
+  function assertLoginAllowed(username, requestContext = {}) {
+    if (!loginRateLimit.enabled) {
+      return;
+    }
+
+    const now = getClockNow();
+    let blockedUntil = 0;
+
+    for (const key of buildLoginThrottleKeys(username, requestContext)) {
+      const bucket = getLoginThrottleBucket(key, now);
+      if (bucket.blockedUntil > now) {
+        blockedUntil = Math.max(blockedUntil, bucket.blockedUntil);
+      }
+    }
+
+    if (blockedUntil > now) {
+      throw new TooManyRequestsError(
+        "Too many login attempts. Please wait before trying again.",
+        Math.ceil((blockedUntil - now) / 1000)
+      );
+    }
+  }
+
+  function recordFailedLogin(username, requestContext = {}) {
+    if (!loginRateLimit.enabled) {
+      return;
+    }
+
+    const now = getClockNow();
+
+    for (const key of buildLoginThrottleKeys(username, requestContext)) {
+      const bucket = getLoginThrottleBucket(key, now);
+      bucket.failureCount += 1;
+
+      if (bucket.failureCount >= loginRateLimit.maxAttempts) {
+        bucket.blockedUntil = now + loginRateLimit.blockMs;
+        bucket.windowExpiresAt = bucket.blockedUntil;
+      }
+    }
+  }
 
   async function getRepositoryUser(userId) {
     if (!repository || !userId) {
@@ -278,7 +411,7 @@ export function createAuthService({ config, users = [], repository = null }) {
     async hydrateDevTokenActors() {
       await hydrateDevTokenActors();
     },
-    async login(credentials = {}) {
+    async login(credentials = {}, requestContext = {}) {
       if (!repository) {
         throw new UnauthorizedError("Login is not available until authentication setup is complete.");
       }
@@ -289,15 +422,21 @@ export function createAuthService({ config, users = [], repository = null }) {
         throw new ValidationError("Username and password are required.");
       }
 
+      assertLoginAllowed(username, requestContext);
+
       const user = await repository.findUserByUsername(username);
       if (!user || user.status !== "active") {
+        recordFailedLogin(username, requestContext);
         throw new UnauthorizedError("Username or password is incorrect.");
       }
 
       const passwordMatches = await verifyPassword(password, user.passwordHash);
       if (!passwordMatches) {
+        recordFailedLogin(username, requestContext);
         throw new UnauthorizedError("Username or password is incorrect.");
       }
+
+      clearLoginThrottle(username, requestContext);
 
       const actor = mapUserToActor(user);
       const token = createSignedSessionToken(actor, user.passwordHash, sessionSecret, sessionTtlMs);
@@ -394,6 +533,19 @@ export function createAuthService({ config, users = [], repository = null }) {
       await assertUsernameAvailable(normalizedInput.username, currentUser.id);
       await assertEmailAvailable(normalizedInput.email, currentUser.id);
 
+      if (
+        isProtectedBootstrapAdminUser(currentUser) &&
+        (
+          normalizedInput.username !== currentUser.username ||
+          normalizedInput.roleCode !== "admin" ||
+          normalizedInput.status !== "active"
+        )
+      ) {
+        throw new ConflictError(
+          "The protected admin account cannot be renamed, deactivated, or removed from the admin role."
+        );
+      }
+
       const isLastActiveAdmin =
         currentUser.roleCode === "admin" &&
         currentUser.status === "active" &&
@@ -437,6 +589,10 @@ export function createAuthService({ config, users = [], repository = null }) {
       const currentUser = await repository.findUserById(String(userId || "").trim());
       if (!currentUser) {
         throw new NotFoundError("User account was not found.");
+      }
+
+      if (isProtectedBootstrapAdminUser(currentUser)) {
+        throw new ConflictError("The protected admin account cannot be removed.");
       }
 
       const isLastActiveAdmin = currentUser.roleCode === "admin" && currentUser.status === "active";

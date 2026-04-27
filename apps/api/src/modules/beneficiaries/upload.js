@@ -1,7 +1,10 @@
-import path from "node:path";
 import { read, utils } from "xlsx";
 import { AppError } from "../../lib/errors.js";
 import { readJsonBody, readRequestBody } from "../../lib/http.js";
+import {
+  assertAcceptedUploadCount,
+  assertSafeSpreadsheetUpload
+} from "../../lib/uploadSecurity.js";
 
 function getContentType(req) {
   return String(req.headers["content-type"] || "");
@@ -172,19 +175,16 @@ function rowsFromWorkbook(buffer, fileName) {
 }
 
 function rowsFromUploadedFile(file) {
-  const extension = path.extname(file.filename || "").toLowerCase();
-  if (![".csv", ".xlsx"].includes(extension)) {
-    throw new AppError(400, "Only .csv and .xlsx files are supported for beneficiary imports.");
-  }
+  const { extension, fileName } = assertSafeSpreadsheetUpload(file, "beneficiary imports");
 
-  if ((file.filename || "").startsWith("~$")) {
+  if (fileName.startsWith("~$")) {
     return null;
   }
 
   return {
-    fileName: file.filename,
+    fileName,
     fileType: extension === ".csv" ? "csv" : "xlsx",
-    rows: rowsFromWorkbook(file.body, file.filename || "uploaded.xlsx")
+    rows: rowsFromWorkbook(file.body, fileName)
   };
 }
 
@@ -258,6 +258,7 @@ export async function resolveBeneficiaryImportPayload(req, maxBytes) {
     if (!fileParts.length) {
       throw new AppError(400, "Select at least one beneficiary file to preview or import.");
     }
+    assertAcceptedUploadCount(fileParts, "Beneficiary import");
 
     const merged = mergeResults(fileParts.map(rowsFromUploadedFile));
     return {

@@ -25,6 +25,13 @@ export class ForbiddenError extends AppError {
   }
 }
 
+export class TooManyRequestsError extends AppError {
+  constructor(message = "Too many requests. Please try again later.", retryAfterSeconds = null) {
+    super(429, message);
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = "Resource not found.") {
     super(404, message);

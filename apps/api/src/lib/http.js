@@ -1,4 +1,4 @@
-import { AppError } from "./errors.js";
+import { AppError, TooManyRequestsError } from "./errors.js";
 
 export function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
@@ -16,6 +16,10 @@ export function notFound(res) {
 
 export function sendError(res, error) {
   if (error instanceof AppError) {
+    if (error instanceof TooManyRequestsError && Number.isFinite(error.retryAfterSeconds)) {
+      res.setHeader("Retry-After", String(Math.max(1, Math.ceil(error.retryAfterSeconds))));
+    }
+
     return sendJson(res, error.statusCode, {
       ok: false,
       message: error.message,

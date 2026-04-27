@@ -4,7 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createRuntime } from "../src/bootstrap/createRuntime.js";
-import { ConflictError, UnauthorizedError } from "../src/lib/errors.js";
+import {
+  ConflictError,
+  TooManyRequestsError,
+  UnauthorizedError
+} from "../src/lib/errors.js";
 import { canRoleAccessModule } from "../src/modules/auth/roleAccess.js";
 import { createAuthService } from "../src/modules/auth/service.js";
 import {
@@ -239,26 +243,46 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
 }
 
 function createBaseConfig(overrides = {}) {
+  const authOverrides = overrides.auth || {};
+  const bootstrapAdminOverrides = authOverrides.bootstrapAdmin || {};
+  const databaseOverrides = overrides.database || {};
+  const messagingOverrides = overrides.messaging || {};
+
   return {
     database: {
       enabled: false,
       url: "",
-      sslMode: "disable"
+      sslMode: "disable",
+      ...databaseOverrides
     },
     auth: {
       mode: "dev-token",
       requiredForWrite: true,
+      sessionSecret: "test-session-secret",
+      loginRateLimit: {
+        enabled: true,
+        maxAttempts: 5,
+        windowMs: 10 * 60 * 1000,
+        blockMs: 15 * 60 * 1000
+      },
       devTokens: [],
       bootstrapAdmin: {
         fullName: "",
         username: "",
         password: ""
+      },
+      ...authOverrides,
+      bootstrapAdmin: {
+        fullName: "",
+        username: "",
+        password: "",
+        ...bootstrapAdminOverrides
       }
     },
     messaging: {
-      enabled: false
-    },
-    ...overrides
+      enabled: false,
+      ...messagingOverrides
+    }
   };
 }
 
@@ -631,6 +655,111 @@ async function passwordModeRejectsConfiguredDevTokens() {
   );
 }
 
+function passwordModeRequiresSessionSecret() {
+  assert.throws(
+    () =>
+      createAuthService({
+        config: createBaseConfig({
+          auth: {
+            mode: "password",
+            requiredForWrite: true,
+            sessionSecret: "",
+            devTokens: [],
+            bootstrapAdmin: {
+              fullName: "Platform Admin",
+              username: "admin",
+              password: "StrongPass!23"
+            }
+          }
+        }),
+        repository: createAuthRepository({ database: { enabled: false } }),
+        users: []
+      }),
+    /AUTH_SESSION_SECRET/i
+  );
+}
+
+async function repeatedFailedLoginsAreRateLimited() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const clockState = {
+    now: 1_000
+  };
+  const service = createAuthService({
+    config: createBaseConfig({
+      auth: {
+        mode: "password",
+        requiredForWrite: true,
+        sessionSecret: "rate-limit-secret",
+        loginRateLimit: {
+          enabled: true,
+          maxAttempts: 3,
+          windowMs: 60_000,
+          blockMs: 120_000
+        },
+        devTokens: [],
+        bootstrapAdmin: {
+          fullName: "Platform Admin",
+          username: "admin",
+          password: "StrongPass!23"
+        }
+      }
+    }),
+    repository,
+    users: [],
+    clock: {
+      now() {
+        return clockState.now;
+      }
+    }
+  });
+
+  await service.ensureBootstrapAdmin();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await assert.rejects(
+      () =>
+        service.login(
+          {
+            username: "admin",
+            password: "wrong-password"
+          },
+          {
+            remoteAddress: "203.0.113.10"
+          }
+        ),
+      UnauthorizedError
+    );
+  }
+
+  await assert.rejects(
+    () =>
+      service.login(
+        {
+          username: "admin",
+          password: "StrongPass!23"
+        },
+        {
+          remoteAddress: "203.0.113.10"
+        }
+      ),
+    TooManyRequestsError
+  );
+
+  clockState.now += 121_000;
+
+  const login = await service.login(
+    {
+      username: "admin",
+      password: "StrongPass!23"
+    },
+    {
+      remoteAddress: "203.0.113.10"
+    }
+  );
+
+  assert.equal(login.actor.username, "admin");
+}
+
 async function passwordSessionsSurviveFreshServiceInstances() {
   const repository = createAuthRepository({ database: { enabled: false } });
   const config = createBaseConfig({
@@ -720,6 +849,15 @@ async function passwordResetInvalidatesExistingSessionTokensAcrossServiceInstanc
 
 async function lastActiveAdminCannotBeDeletedOrDemoted() {
   const repository = createAuthRepository({ database: { enabled: false } });
+  const passwordHash = await hashPassword("StrongPass!23");
+  await repository.createUser({
+    fullName: "Platform Admin",
+    username: "admin",
+    email: null,
+    passwordHash,
+    roleCode: "admin",
+    status: "active"
+  });
   const service = createAuthService({
     config: createBaseConfig({
       auth: {
@@ -727,9 +865,9 @@ async function lastActiveAdminCannotBeDeletedOrDemoted() {
         requiredForWrite: true,
         devTokens: [],
         bootstrapAdmin: {
-          fullName: "Platform Admin",
-          username: "admin",
-          password: "StrongPass!23"
+          fullName: "",
+          username: "",
+          password: ""
         }
       }
     }),
@@ -737,7 +875,6 @@ async function lastActiveAdminCannotBeDeletedOrDemoted() {
     users: []
   });
 
-  await service.ensureBootstrapAdmin();
   const login = await service.login({ username: "admin", password: "StrongPass!23" });
   const bootstrapAdmin = (await repository.listUsers())[0];
 
@@ -781,6 +918,102 @@ async function lastActiveAdminCannotBeDeletedOrDemoted() {
       return true;
     }
   );
+}
+
+async function protectedBootstrapAdminCannotBeRenamedDemotedDeactivatedOrDeleted() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const service = createAuthService({
+    config: createBaseConfig({
+      auth: {
+        mode: "password",
+        requiredForWrite: true,
+        sessionSecret: "protected-admin-secret",
+        devTokens: [],
+        bootstrapAdmin: {
+          fullName: "Platform Admin",
+          username: "admin",
+          password: "StrongPass!23"
+        }
+      }
+    }),
+    repository,
+    users: []
+  });
+
+  await service.ensureBootstrapAdmin();
+  const login = await service.login({ username: "admin", password: "StrongPass!23" });
+  const reviewerAdmin = await service.createUser(
+    {
+      fullName: "Second Admin",
+      username: "second-admin",
+      password: "SecondPass!23",
+      roleCode: "admin"
+    },
+    login.actor
+  );
+
+  const listedUsers = await service.listUsers(login.actor);
+  const protectedAdmin = listedUsers.find((item) => item.username === "admin");
+  assert.equal(protectedAdmin?.isProtectedAdmin, true);
+
+  await assert.rejects(
+    () =>
+      service.updateUser(
+        protectedAdmin.id,
+        {
+          username: "renamed-admin"
+        },
+        login.actor
+      ),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.match(error.message, /protected admin/i);
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      service.updateUser(
+        protectedAdmin.id,
+        {
+          roleCode: "reviewer"
+        },
+        login.actor
+      ),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.match(error.message, /protected admin/i);
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      service.updateUser(
+        protectedAdmin.id,
+        {
+          status: "inactive"
+        },
+        login.actor
+      ),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.match(error.message, /protected admin/i);
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () => service.deleteUser(protectedAdmin.id, login.actor),
+    (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.match(error.message, /protected admin/i);
+      return true;
+    }
+  );
+
+  assert.equal(reviewerAdmin.roleCode, "admin");
 }
 
 function reviewerCannotAccessRestrictedModules() {
@@ -1020,9 +1253,12 @@ await shippedReviewerDefaultTokenResolvesToDatabaseUserId();
 await shippedAuditorDefaultTokenResolvesToDatabaseUserId();
 await loginAndAdminUserManagementWork();
 await passwordModeRejectsConfiguredDevTokens();
+passwordModeRequiresSessionSecret();
+await repeatedFailedLoginsAreRateLimited();
 await passwordSessionsSurviveFreshServiceInstances();
 await passwordResetInvalidatesExistingSessionTokensAcrossServiceInstances();
 await lastActiveAdminCannotBeDeletedOrDemoted();
+await protectedBootstrapAdminCannotBeRenamedDemotedDeactivatedOrDeleted();
 reviewerCannotAccessRestrictedModules();
 initialMigrationMatchesSchemaFile();
 

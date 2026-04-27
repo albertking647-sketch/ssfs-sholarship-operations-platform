@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { Readable } from "node:stream";
 
 import { createApp } from "../src/app.js";
+import { TooManyRequestsError } from "../src/lib/errors.js";
 
 function createRuntime(overrides = {}) {
   return {
@@ -9,6 +11,9 @@ function createRuntime(overrides = {}) {
       auth: {
         mode: "password",
         requiredForWrite: true
+      },
+      limits: {
+        jsonBodyBytes: 1024 * 1024
       },
       cors: {
         allowedOrigins: ["http://127.0.0.1:4400"]
@@ -150,8 +155,46 @@ async function allowsConfiguredTrustedOrigins() {
   assert.equal(response.headers["access-control-allow-origin"], "http://127.0.0.1:4400");
 }
 
+async function loginRateLimitResponsesIncludeRetryAfter() {
+  const app = createApp(
+    createRuntime({
+      authService: {
+        async resolveRequestActor() {
+          return null;
+        },
+        async login() {
+          throw new TooManyRequestsError(
+            "Too many login attempts. Please wait before trying again.",
+            30
+          );
+        }
+      }
+    })
+  );
+  const response = await invokeApp(app, {
+    method: "POST",
+    url: "/api/auth/login",
+    headers: {
+      host: "127.0.0.1:4300",
+      "content-type": "application/json"
+    },
+    body: [Buffer.from(JSON.stringify({ username: "admin", password: "wrong-password" }))]
+  });
+
+  assert.equal(response.statusCode, 429);
+  assert.equal(response.headers["retry-after"], "30");
+}
+
+function configDoesNotShipHardcodedDemoBearerTokens() {
+  const source = readFileSync(new URL("../src/config.js", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /admin-demo-token|reviewer-demo-token|auditor-demo-token/u);
+}
+
 await rejectsApplicationReadsWithoutAuthentication();
 await rejectsUnexpectedCrossOriginRequests();
 await allowsConfiguredTrustedOrigins();
+await loginRateLimitResponsesIncludeRetryAfter();
+configDoesNotShipHardcodedDemoBearerTokens();
 
 console.log("app-security-tests: ok");

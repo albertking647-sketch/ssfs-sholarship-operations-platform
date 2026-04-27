@@ -1,7 +1,10 @@
-import path from "node:path";
 import { read, utils } from "xlsx";
 import { AppError } from "../../lib/errors.js";
 import { readJsonBody, readRequestBody } from "../../lib/http.js";
+import {
+  assertAcceptedUploadCount,
+  assertSafeSpreadsheetUpload
+} from "../../lib/uploadSecurity.js";
 
 function getContentType(req) {
   return String(req.headers["content-type"] || "");
@@ -225,24 +228,25 @@ function mapCwaRowsFromSheet(sheet, sheetName, fileName, context = {}) {
 }
 
 function rowsFromWorkbookFile(file, context) {
+  const { fileName } = assertSafeSpreadsheetUpload(file, "academic history imports");
   const workbook = read(file.body, { type: "buffer", raw: false, dense: true });
   const rows = [];
 
   for (const sheetName of workbook.SheetNames) {
     rows.push(
-      ...mapCwaRowsFromSheet(workbook.Sheets[sheetName], sheetName, file.filename || "uploaded.xlsx", context)
+      ...mapCwaRowsFromSheet(workbook.Sheets[sheetName], sheetName, fileName, context)
     );
   }
 
   if (!rows.length) {
     throw new AppError(
       400,
-      `The uploaded workbook ${file.filename} does not contain recognizable CWA rows.`
+      `The uploaded workbook ${fileName} does not contain recognizable CWA rows.`
     );
   }
 
   return {
-    fileName: file.filename,
+    fileName,
     fileType: "xlsx",
     rows
   };
@@ -292,6 +296,7 @@ export async function resolveStudentHistoryImportPayload(req, maxBytes) {
     if (!files.length) {
       throw new AppError(400, "Academic history imports must include one or more workbook files.");
     }
+    assertAcceptedUploadCount(files, "Academic history import");
 
     return {
       source: "upload",

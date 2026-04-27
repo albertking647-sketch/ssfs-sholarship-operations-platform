@@ -27,3 +27,24 @@ export function writeStoredAuthToken(storage, token) {
     return "";
   }
 }
+
+export function readStoredAuthTokenFromStorages(storages = []) {
+  for (const storage of storages) {
+    const token = readStoredAuthToken(storage);
+    if (token) {
+      return token;
+    }
+  }
+
+  return "";
+}
+
+export function writeStoredAuthTokenToStorages(storages = [], token) {
+  const normalizedToken = normalizeToken(token);
+
+  for (const storage of storages) {
+    writeStoredAuthToken(storage, normalizedToken);
+  }
+
+  return normalizedToken;
+}

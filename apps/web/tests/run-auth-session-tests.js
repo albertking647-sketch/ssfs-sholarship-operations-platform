@@ -4,7 +4,9 @@ import fs from "node:fs";
 import {
   AUTH_SESSION_TOKEN_KEY,
   readStoredAuthToken,
-  writeStoredAuthToken
+  readStoredAuthTokenFromStorages,
+  writeStoredAuthToken,
+  writeStoredAuthTokenToStorages
 } from "../src/authSession.js";
 
 function createFakeStorage() {
@@ -33,6 +35,23 @@ function persistsAuthTokensInSessionStorage() {
   assert.equal(readStoredAuthToken(storage), "");
 }
 
+function fallsBackAcrossBrowserStorages() {
+  const sessionStorage = createFakeStorage();
+  const localStorage = createFakeStorage();
+
+  assert.equal(
+    writeStoredAuthTokenToStorages([sessionStorage, localStorage], "  abc123  "),
+    "abc123"
+  );
+  assert.equal(readStoredAuthTokenFromStorages([sessionStorage, localStorage]), "abc123");
+
+  sessionStorage.removeItem(AUTH_SESSION_TOKEN_KEY);
+  assert.equal(readStoredAuthTokenFromStorages([sessionStorage, localStorage]), "abc123");
+
+  assert.equal(writeStoredAuthTokenToStorages([sessionStorage, localStorage], ""), "");
+  assert.equal(readStoredAuthTokenFromStorages([sessionStorage, localStorage]), "");
+}
+
 function hidesApiUrlFromLoginForm() {
   const html = fs.readFileSync(
     new URL("../index.html", import.meta.url),
@@ -54,6 +73,7 @@ function usesStableStorageKey() {
 }
 
 persistsAuthTokensInSessionStorage();
+fallsBackAcrossBrowserStorages();
 hidesApiUrlFromLoginForm();
 usesStableStorageKey();
 

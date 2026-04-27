@@ -21,7 +21,10 @@ export function createAuthRoutes({ authService, config }) {
       auth: "optional",
       async handler({ req, res }) {
         const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
-        const session = await authService.login(payload);
+        const session = await authService.login(payload, {
+          remoteAddress: req.socket?.remoteAddress || "",
+          forwardedFor: req.headers["x-forwarded-for"] || ""
+        });
 
         return sendJson(res, 200, {
           ok: true,

@@ -8,7 +8,8 @@
     "check": "node scripts/check.js",
     "migrate": "node scripts/migrate.js",
     "seed": "node scripts/seed.js",
-    "status": "node scripts/status.js"
+    "status": "node scripts/status.js",
+    "sync:local-to-hosted": "node scripts/sync-local-to-hosted.js"
   },
   "dependencies": {
     "pg": "^8.16.0"

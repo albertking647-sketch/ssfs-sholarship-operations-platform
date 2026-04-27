@@ -5,8 +5,8 @@ import {
   resolveModuleForRole
 } from "./roleAccess.js";
 import {
-  readStoredAuthToken,
-  writeStoredAuthToken
+  readStoredAuthTokenFromStorages,
+  writeStoredAuthTokenToStorages
 } from "./authSession.js";
 
 const STORAGE_KEY = "sop-theme";
@@ -754,7 +754,10 @@ function persistPanelState() {
 function persistConnectionState() {
   safeLocalStorageSet(API_URL_KEY, elements.apiUrl?.value?.trim() || "");
   safeLocalStorageSet(AUTH_USERNAME_KEY, elements.loginUsername?.value?.trim() || "");
-  writeStoredAuthToken(globalThis.sessionStorage, elements.authToken?.value?.trim() || "");
+  writeStoredAuthTokenToStorages(
+    [globalThis.sessionStorage, globalThis.localStorage],
+    elements.authToken?.value?.trim() || ""
+  );
 }
 
 function restoreConnectionState() {
@@ -771,7 +774,10 @@ function restoreConnectionState() {
   if (elements.loginApiUrl) {
     elements.loginApiUrl.value = elements.apiUrl.value;
   }
-  elements.authToken.value = readStoredAuthToken(globalThis.sessionStorage);
+  elements.authToken.value = readStoredAuthTokenFromStorages([
+    globalThis.sessionStorage,
+    globalThis.localStorage
+  ]);
   if (storedUsername && elements.loginUsername) {
     elements.loginUsername.value = storedUsername;
   }
@@ -866,10 +872,12 @@ function renderAccessUsers() {
   elements.accessManagementList.innerHTML = users
       .map((item) => {
         const isActive = String(item.status || "").toLowerCase() === "active";
+        const isProtectedBootstrapAdmin = Boolean(item.isProtectedAdmin);
         const isProtectedLastAdmin =
           isActive &&
           String(item.roleCode || "").toLowerCase() === "admin" &&
           activeAdminCount <= 1;
+        const isProtectedAdmin = isProtectedBootstrapAdmin || isProtectedLastAdmin;
         const roleLabel =
           String(item.roleCode || "")
             .split("_")
@@ -888,7 +896,7 @@ function renderAccessUsers() {
               <div class="detail-flags">
                 ${createFlagPill(isActive ? "Active" : "Inactive", isActive ? "success" : "warning")}
                 ${
-                  isProtectedLastAdmin
+                  isProtectedAdmin
                     ? createFlagPill("Protected admin", "warning")
                     : ""
                 }
@@ -908,12 +916,12 @@ function renderAccessUsers() {
               <button class="action-button tertiary" type="button" data-access-action="role" data-access-user-id="${escapeHtml(
                 item.id
               )}" data-access-role="${escapeHtml(alternateRole)}"${
-                isProtectedLastAdmin ? " disabled" : ""
+                isProtectedAdmin ? " disabled" : ""
               }>${escapeHtml(alternateRoleLabel)}</button>
               <button class="action-button secondary" type="button" data-access-action="status" data-access-user-id="${escapeHtml(
                 item.id
               )}" data-access-status="${isActive ? "inactive" : "active"}"${
-                isProtectedLastAdmin ? " disabled" : ""
+                isProtectedAdmin ? " disabled" : ""
               }>${isActive ? "Deactivate" : "Activate"}</button>
               <button class="action-button ghost" type="button" data-access-action="reset-password" data-access-user-id="${escapeHtml(
                 item.id
@@ -921,7 +929,7 @@ function renderAccessUsers() {
               <button class="action-button ghost" type="button" data-access-action="remove" data-access-user-id="${escapeHtml(
                 item.id
               )}" data-access-user-name="${escapeHtml(item.fullName || item.username || "this staff account")}"${
-                isProtectedLastAdmin ? " disabled" : ""
+                isProtectedAdmin ? " disabled" : ""
               }>Remove</button>
             </div>
           </article>
@@ -957,12 +965,15 @@ async function loadAccessUsers() {
         const isActive = String(item.status || "").toLowerCase() === "active";
         return isActive && String(item.roleCode || "").toLowerCase() === "admin";
       }).length;
+      const hasProtectedAdmin = state.accessUsers.some((item) => Boolean(item.isProtectedAdmin));
       renderAccessUsers();
       if (elements.accessManagementMessage) {
         elements.accessManagementMessage.textContent =
-          activeAdminCount <= 1
-            ? "The last active admin account is protected from role changes, deactivation, and removal."
-            : "Admin-created accounts can be activated, deactivated, reset, and removed from the list below.";
+          hasProtectedAdmin
+            ? "The protected bootstrap admin cannot be renamed, deactivated, demoted, or removed. The last active admin is also protected."
+            : activeAdminCount <= 1
+              ? "The last active admin account is protected from role changes, deactivation, and removal."
+              : "Admin-created accounts can be activated, deactivated, reset, and removed from the list below.";
         elements.accessManagementMessage.className = "inline-note tone-success";
       }
     } catch (error) {

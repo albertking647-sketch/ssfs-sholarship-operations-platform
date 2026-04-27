@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   deriveDefaultApiUrl,
+  getSanitizedLoginUrl,
   shouldUseStoredApiUrl
 } from "../src/network.js";
 
@@ -43,7 +44,27 @@ function prefersDynamicDefaultOverLoopbackOnRemoteClients() {
   );
 }
 
+function stripsSensitiveLoginQueryParams() {
+  assert.equal(
+    getSanitizedLoginUrl(
+      "https://ssfs-sholarship-operations-platform.vercel.app/?apiUrl=&authToken=&loginApiUrl=&loginUsername=aeking&loginPassword=secret"
+    ),
+    "/"
+  );
+  assert.equal(
+    getSanitizedLoginUrl(
+      "https://ssfs-sholarship-operations-platform.vercel.app/?foo=bar&loginUsername=aeking#top"
+    ),
+    "/?foo=bar#top"
+  );
+  assert.equal(
+    getSanitizedLoginUrl("https://ssfs-sholarship-operations-platform.vercel.app/?foo=bar"),
+    ""
+  );
+}
+
 derivesApiUrlFromCurrentHost();
 prefersDynamicDefaultOverLoopbackOnRemoteClients();
+stripsSensitiveLoginQueryParams();
 
 console.log("network-helper-tests: ok");

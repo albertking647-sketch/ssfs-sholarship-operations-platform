@@ -56,7 +56,7 @@ function showsNormalLoginWhenNoSessionExists() {
       loginFormHidden: false,
       appShellHidden: true,
       logoutHidden: true,
-      loginMessage: "",
+      loginMessage: "Enter your username and password to continue.",
       loginTone: ""
     }
   );

@@ -19,6 +19,14 @@ function parseUrlHost(value) {
   }
 }
 
+const SENSITIVE_LOGIN_QUERY_PARAMS = new Set([
+  "apiUrl",
+  "authToken",
+  "loginApiUrl",
+  "loginUsername",
+  "loginPassword"
+]);
+
 export function deriveDefaultApiUrl(locationLike, fallback = "http://127.0.0.1:4400") {
   const protocol = String(locationLike?.protocol || "http:").trim() || "http:";
   const host = String(locationLike?.host || "").trim();
@@ -56,4 +64,31 @@ export function shouldUseStoredApiUrl(storedApiUrl, locationLike) {
   }
 
   return true;
+}
+
+export function getSanitizedLoginUrl(locationLike) {
+  try {
+    const source =
+      typeof locationLike === "string"
+        ? locationLike
+        : String(locationLike?.href || "");
+    const url = new URL(source);
+    let mutated = false;
+
+    for (const key of SENSITIVE_LOGIN_QUERY_PARAMS) {
+      if (url.searchParams.has(key)) {
+        url.searchParams.delete(key);
+        mutated = true;
+      }
+    }
+
+    if (!mutated) {
+      return "";
+    }
+
+    const search = url.searchParams.toString();
+    return `${url.pathname}${search ? `?${search}` : ""}${url.hash || ""}`;
+  } catch {
+    return "";
+  }
 }

@@ -1,4 +1,8 @@
-﻿import { deriveDefaultApiUrl, shouldUseStoredApiUrl } from "./network.js";
+import {
+  deriveDefaultApiUrl,
+  getSanitizedLoginUrl,
+  shouldUseStoredApiUrl
+} from "./network.js";
 
 import {
   getVisibleModulesForRole,
@@ -12372,6 +12376,10 @@ function bindEvents() {
 }
 
 function init() {
+  const sanitizedLoginUrl = getSanitizedLoginUrl(globalThis.location);
+  if (sanitizedLoginUrl && globalThis.history?.replaceState) {
+    globalThis.history.replaceState(null, "", sanitizedLoginUrl);
+  }
   restoreConnectionState();
   sanitizeWorkspaceState();
   syncTokenPresetButtons();

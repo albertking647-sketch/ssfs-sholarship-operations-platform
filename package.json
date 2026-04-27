@@ -1,0 +1,26 @@
+{
+  "name": "scholarship-operations-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Monorepo scaffold for the Scholarship Operations Platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm --workspace apps/api run dev",
+    "dev:web": "npm --workspace apps/web run dev",
+    "check:api": "npm --workspace apps/api run check",
+    "check:database": "npm --workspace packages/database run check",
+    "check:web": "npm --workspace apps/web run check",
+    "test:api": "npm --workspace apps/api run test",
+    "test:web": "npm --workspace apps/web run test",
+    "test": "npm run test:api && npm run test:web",
+    "check": "npm run check:api && npm run check:database && npm run check:web && npm run test",
+    "db:migrate": "npm --workspace packages/database run migrate",
+    "db:status": "npm --workspace packages/database run status",
+    "db:seed": "npm --workspace packages/database run seed",
+    "db:setup": "npm run db:migrate && npm run db:seed"
+  }
+}

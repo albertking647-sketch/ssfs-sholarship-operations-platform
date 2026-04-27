@@ -1,0 +1,3107 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SSFS Scholarship Operations Hub</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <section class="login-shell" id="loginGate">
+    <div class="login-card">
+      <p class="panel-eyebrow">Staff Login</p>
+      <h1>Sign in to SSFS Scholarship Operations Hub</h1>
+      <p class="login-copy">
+        Admins and reviewers must sign in before using the platform.
+      </p>
+      <form id="loginForm" class="login-form">
+        <input id="apiUrl" name="apiUrl" type="hidden" value="" />
+        <input id="authToken" name="authToken" type="hidden" value="" />
+        <input id="loginApiUrl" name="loginApiUrl" type="hidden" value="" />
+        <label class="field">
+          <span>Username</span>
+          <input id="loginUsername" name="loginUsername" type="text" autocomplete="username" />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="loginPassword" name="loginPassword" type="password" autocomplete="current-password" />
+        </label>
+        <div class="action-row">
+          <button id="loginButton" class="action-button primary" type="submit">Sign in</button>
+        </div>
+      </form>
+      <div class="inline-note" id="loginMessage">
+        Enter your username and password to continue.
+      </div>
+    </div>
+  </section>
+
+  <div class="app-shell" id="appShell" hidden>
+
+    <aside class="sidebar">
+
+      <!-- Brand -->
+      <div class="sidebar-brand">
+        <div class="brand-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#0D1B2A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <div>
+          <p class="brand-name">SSFS</p>
+          <p class="brand-sub">Scholarship Operations Hub</p>
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="sidebar-nav" aria-label="Primary modules">
+
+        <span class="nav-section-label">Operations</span>
+
+        <button class="nav-item is-active" type="button" data-module="dashboard">
+          <span class="nav-item-title">Dashboard</span>
+          <span class="nav-item-copy">At-a-glance activity, workload, and operational alerts.</span>
+        </button>
+
+        <button class="nav-item" type="button" data-module="registry">
+          <span class="nav-item-title">Student Registry</span>
+          <span class="nav-item-copy">Import, validate, and manage student records.</span>
+        </button>
+
+        <button class="nav-item" type="button" data-module="applications">
+          <span class="nav-item-title">Applications</span>
+          <span class="nav-item-copy">Application intake, eligibility, and scoring setup.</span>
+        </button>
+
+        <button class="nav-item" type="button" data-module="waitlist">
+          <span class="nav-item-title">Recommended Students</span>
+          <span class="nav-item-copy">Students recorded by SSFS and recommended into support schemes.</span>
+        </button>
+
+        <button class="nav-item" type="button" data-module="awards">
+          <span class="nav-item-title">Beneficiaries &amp; Support</span>
+          <span class="nav-item-copy">Beneficiary lists, paid support, and recommendation-linked support records.</span>
+        </button>
+
+        <span class="nav-section-label">Programs</span>
+
+        <button class="nav-item" type="button" data-module="support">
+          <span class="nav-item-title">Food &amp; Clothing Support</span>
+          <span class="nav-item-copy">Food and clothing registration, counselor-list intake, and served-status tracking.</span>
+        </button>
+
+        <span class="nav-section-label">Reporting</span>
+
+        <button class="nav-item" type="button" data-module="reports">
+          <span class="nav-item-title">Reports</span>
+          <span class="nav-item-copy">Operational summaries, exports, and audit views.</span>
+        </button>
+
+      </nav>
+
+      <!-- Theme Switcher in footer -->
+      <div class="sidebar-footer">
+        <div class="theme-switcher" role="group" aria-label="Theme switcher">
+          <button class="theme-button is-active" type="button" data-theme-choice="light">Light</button>
+          <button class="theme-button" type="button" data-theme-choice="dark">Dark</button>
+        </div>
+      </div>
+
+    </aside>
+
+    <main class="workspace">
+
+      <!-- Top Bar -->
+      <header class="workspace-topbar">
+        <button class="hamburger-button" id="sidebarToggle" type="button" aria-label="Toggle navigation" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+        <div>
+          <span>SSFS Scholarship Operations Hub</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          <h2 id="moduleTitle">Dashboard</h2>
+        </div>
+        <p class="workspace-copy" id="moduleDescription"></p>
+        <div class="topbar-actions">
+          <div class="session-summary" id="sessionSummary">Not signed in</div>
+          <button class="action-button danger" id="logoutButton" type="button" hidden>Sign out</button>
+        </div>
+      </header>
+      <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
+
+      <!-- Module Tabs (registry-specific) -->
+      <section class="module-tabs" aria-label="Registry sections">
+        <button class="module-tab is-active" type="button" data-section="import">Student Import</button>
+        <button class="module-tab" type="button" data-section="search">Search &amp; Records</button>
+        <button class="module-tab" type="button" data-section="duplicates">Duplicates &amp; Flags</button>
+        <button class="module-tab" type="button" data-section="history">Academic History</button>
+      </section>
+
+      <section class="module-view is-active" data-module-view="dashboard">
+        <section class="hero dashboard-hero">
+          <div class="hero-copy">
+            <p class="hero-kicker">Operations Overview</p>
+            <h3>Track review progress, pending actions, and scholarship workload from one landing page.</h3>
+            <p class="lede">
+              This dashboard brings together application decisions, review momentum, active scheme coverage,
+              and the operational signals that need attention next.
+            </p>
+            <div class="hero-pills">
+              <span class="pill">Live review metrics</span>
+              <span class="pill">Scheme progress</span>
+              <span class="pill">Actionable drill-downs</span>
+            </div>
+          </div>
+          <div class="hero-board dashboard-hero-board" aria-hidden="true">
+            <div class="board-frame">
+              <div class="chalk-line"></div>
+              <div class="chalk-line short"></div>
+              <div class="stats-stack">
+                <div class="stats-chip">Qualified</div>
+                <div class="stats-chip">Pending</div>
+                <div class="stats-chip">Awaiting review</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Overview</p>
+                <h3>At-a-glance metrics</h3>
+              </div>
+            </div>
+            <div id="dashboardMessage" class="inline-note">Dashboard data will appear here after the API responds.</div>
+            <div class="summary-cards dashboard-metric-grid" id="dashboardMetricCards">
+              <article class="metric-card"><span class="metric-label">Total applications</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Qualified</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Pending</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Disqualified</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Yet to review</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Active schemes</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Active academic years</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Recommended students</span><strong class="metric-value">0</strong></article>
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid dashboard-layout">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Beneficiaries &amp; Support</p>
+                <h3>Current-year support statistics</h3>
+              </div>
+              <div class="action-row">
+                <button id="dashboardBeneficiaryHistoricalToggleButton" class="action-button tertiary" type="button">Show earlier academic years</button>
+              </div>
+            </div>
+            <p class="detail-subcopy">
+              This dashboard block foregrounds the <strong>active academic year</strong> and keeps older academic years collapsed until you choose to reveal them.
+            </p>
+            <div class="inline-note tone-warning">
+              Beneficiary and support figures update from imported beneficiary lists. If no lists have been imported yet, this section will stay at zero until records are added.
+            </div>
+            <div class="summary-cards summary-cards-wide" id="dashboardBeneficiaryMetricCards">
+              <article class="metric-card"><span class="metric-label">Total beneficiaries</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Amount totals</span><strong class="metric-value">GHS 0</strong></article>
+              <article class="metric-card"><span class="metric-label">Imported lists</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Recommendation-linked beneficiaries</span><strong class="metric-value">0</strong></article>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Support Mix</p>
+                <h3>Internal vs external support</h3>
+              </div>
+            </div>
+            <div id="dashboardBeneficiarySupportChart" class="dashboard-chart-surface">
+              <p class="empty-state">Beneficiary support chart will appear here.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid dashboard-layout">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Support Distribution</p>
+                <h3>Scheme and sponsor coverage for the active academic year</h3>
+              </div>
+            </div>
+            <div id="dashboardBeneficiarySchemeChart" class="dashboard-chart-surface">
+              <p class="empty-state">Beneficiary distribution chart will appear here.</p>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">College Coverage</p>
+                <h3>College breakdown for categorized beneficiary lists</h3>
+              </div>
+            </div>
+            <div id="dashboardBeneficiaryCollegeChart" class="dashboard-chart-surface">
+              <p class="empty-state">College beneficiary distribution will appear here when imported lists include college data.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid dashboard-layout">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Earlier Academic Years</p>
+                <h3>Historical beneficiary totals</h3>
+              </div>
+            </div>
+            <div id="dashboardBeneficiaryHistoricalBody" hidden>
+              <div id="dashboardBeneficiaryHistoricalYears" class="dashboard-year-list">
+                <p class="empty-state">Older academic years will appear here when expanded.</p>
+              </div>
+            </div>
+            <div id="dashboardBeneficiaryHistoricalHint" class="inline-note tone-warning">
+              Earlier academic years are currently hidden to keep the dashboard focused on the active academic year.
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid dashboard-layout">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Decision Chart</p>
+                <h3>Decision distribution</h3>
+              </div>
+            </div>
+            <div id="dashboardDecisionChart" class="dashboard-chart-surface">
+              <p class="empty-state">Decision chart will appear here.</p>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Scheme Chart</p>
+                <h3>Review progress by scheme</h3>
+              </div>
+            </div>
+            <div id="dashboardSchemeChart" class="dashboard-chart-surface">
+              <p class="empty-state">Scheme progress chart will appear here.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid dashboard-layout">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Review Progress By Scheme</p>
+                <h3>How far reviewers have gone</h3>
+              </div>
+            </div>
+            <div id="dashboardSchemeProgress" class="dashboard-progress-list">
+              <p class="empty-state">Scheme progress will appear here.</p>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Pending Actions</p>
+                <h3>Operational alerts</h3>
+              </div>
+            </div>
+            <div id="dashboardAlertsList" class="dashboard-alert-list">
+              <p class="empty-state">Pending actions will appear here.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid dashboard-layout">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Recent Activity</p>
+                <h3>Latest operational events</h3>
+              </div>
+              <div class="action-row">
+                <button id="dashboardActivityToggleButton" class="action-button tertiary" type="button">Hide activity</button>
+              </div>
+            </div>
+            <div id="dashboardActivityBody">
+              <div id="dashboardActivityFeed" class="dashboard-activity-feed">
+                <p class="empty-state">Recent activity will appear here.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Reviewer Leaderboard</p>
+                <h3>Decision workload by reviewer</h3>
+              </div>
+            </div>
+            <div id="dashboardReviewerLeaderboard" class="dashboard-leaderboard">
+              <p class="empty-state">Reviewer workload will appear here.</p>
+            </div>
+          </section>
+        </section>
+        <section class="panel admin-access-panel" id="accessManagementPanel" hidden>
+          <div class="panel-heading">
+            <div>
+              <p class="panel-eyebrow">Admin Access</p>
+              <h3>Create and manage staff accounts</h3>
+            </div>
+          </div>
+          <section class="results-grid">
+            <section class="panel">
+              <form id="accessManagementForm" class="import-form">
+                <label class="field">
+                  <span>Full name</span>
+                  <input id="accessFullName" name="accessFullName" type="text" />
+                </label>
+                <label class="field">
+                  <span>Username</span>
+                  <input id="accessUsername" name="accessUsername" type="text" />
+                </label>
+                <label class="field">
+                  <span>Role</span>
+                  <select id="accessRole" name="accessRole" class="select-field">
+                    <option value="reviewer">Reviewer</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Password</span>
+                  <input id="accessPassword" name="accessPassword" type="password" />
+                </label>
+                <div class="action-row">
+                  <button id="accessCreateButton" class="action-button primary" type="submit">Create account</button>
+                </div>
+              </form>
+              <div class="inline-note" id="accessManagementMessage">
+                Admin-created accounts can be activated, deactivated, reset, and removed from the list below.
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Staff Accounts</p>
+                  <h3>Current platform access</h3>
+                </div>
+              </div>
+              <div id="accessManagementList" class="search-results-list">
+                <p class="empty-state">Staff accounts will appear here after the session loads.</p>
+              </div>
+            </section>
+          </section>
+        </section>
+      </section>
+
+      <section class="module-view" data-module-view="registry">
+
+        <!-- Hero Banner -->
+        <section class="hero">
+          <div class="hero-copy">
+            <p class="hero-kicker">Intake Flow</p>
+            <h3>Upload, preview, validate, and import student records in one place.</h3>
+            <p class="lede">
+              This first live workspace handles registry intake. Upload one or more college class-list workbooks,
+              review the merged rows and issues, then import only the valid records into the student registry.
+            </p>
+            <div class="hero-pills">
+              <span class="pill">Unified reference ID</span>
+              <span class="pill">CWA + WASSCE support</span>
+              <span class="pill">Merged multi-college preview</span>
+            </div>
+          </div>
+          <div class="hero-board" aria-hidden="true">
+            <div class="board-frame">
+              <div class="chalk-line"></div>
+              <div class="chalk-line short"></div>
+              <div class="chalk-line tiny"></div>
+              <div class="doodle doodle-circle"></div>
+              <div class="doodle doodle-star"></div>
+              <div class="doodle doodle-wave"></div>
+              <p class="board-title">Registry Intake</p>
+              <p class="board-copy">Guided and ready for review.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Import Section -->
+        <section class="registry-section is-active" data-section-view="import">
+
+          <section class="workspace-grid">
+            <section class="panel import-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Import Controls</p>
+                  <h3>Student file upload</h3>
+                </div>
+                <span class="status-dot" id="apiHealthBadge">API not checked</span>
+              </div>
+
+              <form id="importForm" class="import-form">
+                <label class="field">
+                  <span>Import mode</span>
+                  <select id="studentImportMode" class="select-field">
+                    <option value="strict_new_only">Add new students only</option>
+                    <option value="skip_existing">Skip students already in the registry</option>
+                  </select>
+                </label>
+
+                <label class="upload-zone" for="studentFile">
+                  <input id="studentFile" name="studentFile" type="file" accept=".csv,.xlsx" multiple />
+                  <span class="upload-title">Choose class-list workbooks</span>
+                  <span class="upload-subtitle">Upload one or more college class-list files in .xlsx format</span>
+                  <span class="upload-file-name" id="selectedFileName">No file selected yet</span>
+                </label>
+
+                <div class="action-row">
+                  <button id="previewButton" class="action-button primary" type="submit">Preview import</button>
+                  <button id="importButton" class="action-button secondary" type="button" disabled>Import valid rows</button>
+                  <button id="clearRegistryButton" class="action-button danger" type="button" disabled>Clear registry</button>
+                </div>
+              </form>
+
+              <div class="inline-note" id="formMessage">
+                Upload one or more class-list workbooks to preview the merged registry rows before importing them.
+              </div>
+            </section>
+
+            <section class="panel guidance-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Supported Data</p>
+                  <h3>Header mapping guide</h3>
+                </div>
+              </div>
+              <div class="guidance-list">
+                <div class="guidance-card">
+                  <strong>Student reference ID</strong>
+                  <p>`Student ID`, `Reference Number`, `Ref No`, and similar headers map here.</p>
+                </div>
+                  <div class="guidance-card">
+                    <strong>Core required fields</strong>
+                    <p>Academic year, support name, full name, student reference ID, amount paid, and support type should be present on every row. If the list is categorized into colleges, include college too.</p>
+                  </div>
+                <div class="guidance-card">
+                  <strong>Academic performance</strong>
+                  <p>CWA and WASSCE can stay blank for now while the registry is built from the master class lists.</p>
+                </div>
+                <div class="guidance-card">
+                  <strong>Merge safety</strong>
+                  <p>The preview merges rows from multiple class-list workbooks and flags duplicates or existing students.</p>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel summary-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Preview Summary</p>
+                  <h3>Import readiness</h3>
+                </div>
+              </div>
+              <div class="summary-cards" id="summaryCards">
+                <article class="metric-card">
+                  <span class="metric-label">Total rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Valid rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Invalid rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Existing students in registry</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+              </div>
+            </section>
+
+            <section class="panel session-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Session</p>
+                  <h3>Current access</h3>
+                </div>
+              </div>
+              <div class="session-card" id="sessionCard">
+                <p class="session-status">Sign in to view session details.</p>
+              </div>
+            </section>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel table-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Valid Preview</p>
+                  <h3>Mapped rows ready for import</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Row</th>
+                      <th>Name</th>
+                      <th>Reference ID</th>
+                      <th>Index Number</th>
+                      <th>Program</th>
+                      <th>Year</th>
+                      <th>CWA</th>
+                      <th>WASSCE</th>
+                    </tr>
+                  </thead>
+                  <tbody id="validRowsTable">
+                    <tr><td colspan="8" class="empty-cell">No preview data yet.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel issues-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Issues</p>
+                  <h3>Rows that need attention</h3>
+                </div>
+              </div>
+              <div class="issue-list" id="issueList">
+                <p class="empty-state">Invalid rows and duplicate warnings will appear here after preview.</p>
+              </div>
+            </section>
+          </section>
+
+          <section class="panel duplicate-resolution-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Duplicate Resolution</p>
+                <h3>Choose which duplicate row to keep</h3>
+              </div>
+              <div class="action-row">
+                <button id="autoResolveDuplicatesButton" class="action-button secondary" type="button" disabled>Auto-resolve duplicates</button>
+                <button id="applyDuplicateResolutionButton" class="action-button tertiary" type="button" disabled>Apply duplicate decisions</button>
+              </div>
+            </div>
+            <div class="inline-note" id="duplicateResolutionMessage">
+              Duplicate groups will appear here after preview when the import finds repeated student reference IDs or index numbers.
+            </div>
+            <div id="duplicateResolutionList" class="duplicate-case-list">
+              <p class="empty-state">No duplicate groups to review yet.</p>
+            </div>
+          </section>
+
+          <section class="panel import-results-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Import Results</p>
+                <h3>Latest import activity</h3>
+              </div>
+            </div>
+            <div class="import-results-grid">
+              <div class="result-column">
+                <h4>Imported rows</h4>
+                <div id="importedRowsList" class="result-list">
+                  <p class="empty-state">Imported rows will appear here after a successful import.</p>
+                </div>
+              </div>
+              <div class="result-column">
+                <h4>Rejected rows</h4>
+                <div id="rejectedRowsList" class="result-list">
+                  <p class="empty-state">Rejected rows will appear here with their issues.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+        </section><!-- /import section -->
+
+        <!-- Search Section -->
+        <section class="registry-section" data-section-view="search">
+          <section class="workspace-grid search-grid">
+            <section class="panel search-form-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Search &amp; Records</p>
+                  <h3>Find a student</h3>
+                </div>
+              </div>
+
+              <form id="searchForm" class="import-form">
+                <label class="field">
+                  <span>Reference ID or name</span>
+                  <input id="searchQuery" name="searchQuery" type="text" placeholder="Akosua Mensah or 20261234" />
+                </label>
+                <label class="field">
+                  <span>Student reference ID</span>
+                  <input id="searchReferenceId" name="searchReferenceId" type="text" placeholder="20261234" />
+                </label>
+                <label class="field">
+                  <span>Index number</span>
+                  <input id="searchIndexNumber" name="searchIndexNumber" type="text" placeholder="ENG/24/001" />
+                </label>
+                <div class="action-row">
+                  <button id="searchButton" class="action-button primary" type="submit">Search records</button>
+                  <button id="searchResetButton" class="action-button tertiary" type="button">Reset</button>
+                </div>
+              </form>
+
+              <div class="inline-note" id="searchMessage">
+                Search by name, student reference ID, or index number to find individual student records.
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Search Results</p>
+                  <h3>Matching students</h3>
+                </div>
+              </div>
+              <div id="searchResultsList" class="result-list">
+                <p class="empty-state">Search results will appear here.</p>
+              </div>
+            </section>
+          </section>
+
+          <section class="panel search-results-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Student Detail</p>
+                <h3>Selected record</h3>
+              </div>
+            </div>
+            <div id="studentDetailCard" class="student-detail-card">
+              <p class="empty-state">Select a student from the results to view their full record here.</p>
+            </div>
+          </section>
+        </section><!-- /search section -->
+
+        <!-- Duplicates & Flags Section -->
+        <section class="registry-section" data-section-view="duplicates">
+          <section class="workspace-grid search-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Duplicate &amp; Flag Review</p>
+                  <h3>Review flagged students</h3>
+                </div>
+              </div>
+
+              <form id="flagReviewForm" class="import-form">
+                <label class="field">
+                  <span>Review mode</span>
+                  <select id="flagMode" class="select-field">
+                    <option value="duplicates">Duplicate flags</option>
+                    <option value="conflicts">Data conflicts</option>
+                    <option value="all">All flags</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Filter query (optional)</span>
+                  <input id="flagQuery" name="flagQuery" type="text" placeholder="Search within flagged records" />
+                </label>
+                <div class="action-row">
+                  <button id="flagReviewButton" class="action-button primary" type="submit">Review flags</button>
+                  <button id="flagResetButton" class="action-button tertiary" type="button">Reset</button>
+                </div>
+              </form>
+
+              <div class="inline-note" id="flagReviewMessage">
+                Run a flag review to surface students with duplicate IDs, conflicting records, or data quality issues.
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Flagged Students</p>
+                  <h3>Records needing review</h3>
+                </div>
+              </div>
+              <div id="flaggedResultsList" class="result-list">
+                <p class="empty-state">Flagged records will appear here after a review run.</p>
+              </div>
+            </section>
+          </section>
+
+          <section class="panel student-detail-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Flagged Student Detail</p>
+                <h3>Selected flagged record</h3>
+              </div>
+            </div>
+            <div id="flaggedDetailCard" class="student-detail-card">
+              <p class="empty-state">Select a flagged student to inspect duplicate and conflict indicators.</p>
+            </div>
+          </section>
+        </section><!-- /duplicates section -->
+
+        <!-- Academic History Section -->
+        <section class="registry-section" data-section-view="history">
+          <section class="workspace-grid">
+            <section class="panel import-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">CWA Import</p>
+                  <h3>Upload semester CWA workbooks</h3>
+                </div>
+              </div>
+
+              <form id="academicHistoryImportForm" class="import-form">
+                <label class="field">
+                  <span>Semester label</span>
+                  <select id="academicHistorySemesterLabel" class="select-field">
+                    <option value="Final Results">Final Results</option>
+                    <option value="First Semester">First Semester</option>
+                    <option value="Second Semester">Second Semester</option>
+                    <option value="Special Semester">Special Semester</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Academic year override (optional)</span>
+                  <input
+                    id="academicHistoryAcademicYearOverride"
+                    type="text"
+                    placeholder="Leave blank to use the workbook year, for example 2024/2025"
+                  />
+                </label>
+
+                <label class="upload-zone" for="academicHistoryFile">
+                  <input id="academicHistoryFile" name="academicHistoryFile" type="file" accept=".xlsx" multiple />
+                  <span class="upload-title">Choose CWA workbooks</span>
+                  <span class="upload-subtitle">Upload one or more CWA Excel workbooks and match them to the registry by index number</span>
+                  <span class="upload-file-name" id="selectedAcademicHistoryFileName">No CWA workbook selected yet</span>
+                </label>
+
+                <div class="action-row">
+                  <button id="academicHistoryPreviewButton" class="action-button primary" type="submit">Preview CWA import</button>
+                  <button id="academicHistoryImportButton" class="action-button secondary" type="button" disabled>Import matched CWA rows</button>
+                </div>
+              </form>
+
+              <div class="inline-note" id="academicHistoryMessage">
+                Upload CWA workbooks to preview index-number matches, name mismatches, and the semester results that are ready to update academic history.
+              </div>
+            </section>
+
+            <section class="panel guidance-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">History Rules</p>
+                  <h3>How CWA matching works</h3>
+                </div>
+              </div>
+              <div class="guidance-list">
+                <div class="guidance-card">
+                  <strong>Registry match key</strong>
+                  <p>CWA rows are matched to the registry with the student index number, then carried into academic history and latest registry CWA.</p>
+                </div>
+                <div class="guidance-card">
+                  <strong>Semester-aware timeline</strong>
+                  <p>Each import keeps the academic year and semester label so later searches can show the most recent CWA without losing older records.</p>
+                </div>
+                <div class="guidance-card">
+                  <strong>Name mismatch warnings</strong>
+                  <p>If the workbook name differs from the registry name, the row stays valid but is surfaced for reviewer attention before import.</p>
+                </div>
+                <div class="guidance-card">
+                  <strong>Workbook flexibility</strong>
+                  <p>The importer reads context from the workbook and sheet text, so repeated result blocks and college-grouped files can still be merged safely.</p>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel summary-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Preview Summary</p>
+                  <h3>CWA import readiness</h3>
+                </div>
+              </div>
+              <div class="summary-cards summary-cards-wide" id="academicHistorySummaryCards">
+                <article class="metric-card">
+                  <span class="metric-label">Total rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Matched rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Ready rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Missing CWA</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Name mismatches</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Existing academic history records</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">History Search</p>
+                  <h3>Find CWA records in the registry</h3>
+                </div>
+              </div>
+
+              <form id="academicHistorySearchForm" class="import-form">
+                <label class="field">
+                  <span>Search query</span>
+                  <input id="academicHistorySearchQuery" type="text" placeholder="Search by student name, reference ID, index number, or programme" />
+                </label>
+                <div class="form-grid application-context-grid">
+                  <label class="field">
+                    <span>Student reference ID</span>
+                    <input id="academicHistorySearchReferenceId" type="text" placeholder="20261234" />
+                  </label>
+                  <label class="field">
+                    <span>Index number</span>
+                    <input id="academicHistorySearchIndexNumber" type="text" placeholder="ENG/24/001" />
+                  </label>
+                </div>
+                <div class="action-row">
+                  <button id="academicHistorySearchButton" class="action-button tertiary" type="submit">Search history</button>
+                  <button id="academicHistorySearchResetButton" class="action-button tertiary" type="button">Reset</button>
+                </div>
+              </form>
+
+              <div class="inline-note" id="academicHistorySearchMessage">
+                Search academic history to review imported CWA records by student, reference ID, or index number.
+              </div>
+            </section>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel table-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Matched Preview</p>
+                  <h3>CWA rows ready for history import</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Row</th>
+                      <th>Index Number</th>
+                      <th>Workbook Student Name</th>
+                      <th>Registry Match</th>
+                      <th>Programme</th>
+                      <th>Academic Year</th>
+                      <th>Semester</th>
+                      <th>CWA</th>
+                    </tr>
+                  </thead>
+                  <tbody id="academicHistoryValidRowsTable">
+                    <tr><td colspan="8" class="empty-cell">No CWA preview data yet.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel issues-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Issues</p>
+                  <h3>Rows needing review before import</h3>
+                </div>
+              </div>
+              <div class="issue-list" id="academicHistoryIssueList">
+                <p class="empty-state">Missing matches, missing CWA values, and name mismatch warnings will appear here after preview.</p>
+              </div>
+            </section>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Academic Timeline</p>
+                  <h3>Imported CWA history records</h3>
+                </div>
+              </div>
+              <div id="academicHistoryResultsList" class="result-list">
+                <p class="empty-state">Academic history search results will appear here.</p>
+              </div>
+            </section>
+
+            <section class="panel import-results-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Import Results</p>
+                  <h3>Latest academic history import activity</h3>
+                </div>
+              </div>
+              <div class="import-results-grid">
+                <div class="result-column">
+                  <h4>Imported rows</h4>
+                  <div id="academicHistoryImportedRowsList" class="result-list">
+                    <p class="empty-state">Imported CWA rows will appear here after a successful import.</p>
+                  </div>
+                </div>
+                <div class="result-column">
+                  <h4>Rejected rows</h4>
+                  <div id="academicHistoryRejectedRowsList" class="result-list">
+                    <p class="empty-state">Rejected CWA rows will appear here with their issues.</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+        </section>
+
+      </section><!-- /registry module -->
+
+      <section class="module-view" data-module-view="applications">
+
+        <section class="panel application-context-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-eyebrow">Application Context</p>
+              <h3>Set the active scheme and academic year</h3>
+            </div>
+          </div>
+          <div class="form-grid application-context-grid">
+            <label class="field">
+              <span>Scheme</span>
+              <select id="applicationSchemeSelect" class="select-field"></select>
+            </label>
+            <label class="field">
+              <span>Academic year</span>
+              <select id="applicationCycleSelect" class="select-field"></select>
+            </label>
+          </div>
+        </section>
+
+        <nav class="application-tabs">
+            <button class="chip is-active" type="button" data-application-section="import">Import &amp; Setup</button>
+            <button class="chip" type="button" data-application-section="registry">Application Registry</button>
+            <button class="chip" type="button" data-application-section="review">Review &amp; Exceptions</button>
+            <button class="chip" type="button" data-application-section="exports">Interview &amp; Exports</button>
+            <button class="chip" type="button" data-application-section="outcomes">Outcomes</button>
+            <button class="chip" type="button" data-application-section="messaging">Messaging</button>
+          </nav>
+
+        <section class="application-section is-active" data-application-section-view="import">
+
+        <!-- Import Flow Stepper -->
+        <section class="import-stepper-wrap">
+          <div class="import-stepper" id="applicationImportStepper" role="list">
+            <div class="stepper-step is-active" data-step="1" role="listitem">
+              <div class="stepper-circle">1</div>
+              <div class="stepper-label">Set context</div>
+            </div>
+            <div class="stepper-connector"></div>
+            <div class="stepper-step" data-step="2" role="listitem">
+              <div class="stepper-circle">2</div>
+              <div class="stepper-label">Upload file</div>
+            </div>
+            <div class="stepper-connector"></div>
+            <div class="stepper-step" data-step="3" role="listitem">
+              <div class="stepper-circle">3</div>
+              <div class="stepper-label">Preview rows</div>
+            </div>
+            <div class="stepper-connector"></div>
+            <div class="stepper-step" data-step="4" role="listitem">
+              <div class="stepper-circle">4</div>
+              <div class="stepper-label">Resolve issues</div>
+            </div>
+            <div class="stepper-connector"></div>
+            <div class="stepper-step" data-step="5" role="listitem">
+              <div class="stepper-circle">5</div>
+              <div class="stepper-label">Import</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace-grid applications-top-grid">
+          <section class="panel import-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Applications Import</p>
+                <h3>Import application or selected-applicant sheets</h3>
+              </div>
+            </div>
+
+            <form id="applicationsImportForm" class="import-form">
+              <label class="field">
+                <span>Import type</span>
+                <select id="applicationImportMode" class="select-field">
+                  <option value="applications">Applications</option>
+                  <option value="selected_applicants">Selected Applicants</option>
+                  <option value="award_list">Award List</option>
+                  <option value="waitlist_candidates">Recommended Students</option>
+                </select>
+              </label>
+              <label class="upload-zone" for="applicationFile">
+                <input id="applicationFile" name="applicationFile" type="file" accept=".csv,.xlsx" multiple />
+                <span class="upload-title">Choose application workbooks</span>
+                <span class="upload-subtitle">Upload one or more application, selection, or award sheets in .xlsx or .csv format</span>
+                <span class="upload-file-name" id="selectedApplicationFileName">No file selected yet</span>
+              </label>
+              <div class="action-row">
+                <button id="applicationPreviewButton" class="action-button primary" type="submit">Preview applications</button>
+                <button id="applicationImportButton" class="action-button secondary" type="button" disabled>Import valid applications</button>
+              </div>
+            </form>
+
+            <div class="inline-note" id="applicationsFormMessage">
+              Choose the active scheme and academic year above, then preview the uploaded rows before saving them as applications.
+            </div>
+          </section>
+
+          <section class="panel scheme-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Scheme Management</p>
+                <h3>Add, edit, or remove schemes</h3>
+              </div>
+              <div class="action-row">
+                <button id="schemePanelToggleButton" class="action-button tertiary" type="button">Hide manager</button>
+              </div>
+            </div>
+            <div id="schemePanelBody">
+              <form id="schemeForm" class="import-form">
+                <label class="field">
+                  <span>Scheme name</span>
+                  <input id="schemeNameInput" type="text" placeholder="Merit and Needs Scholarship" />
+                </label>
+                <label class="field">
+                  <span>Category</span>
+                  <select id="schemeCategoryInput" class="select-field">
+                    <option value="scholarship">Scholarship</option>
+                    <option value="bursary">Bursary</option>
+                    <option value="grant">Grant</option>
+                  </select>
+                </label>
+              <label class="field">
+                <span>Academic year</span>
+                <select id="schemeAcademicYearSelect" class="select-field"></select>
+              </label>
+              <label class="field" id="schemeAcademicYearManualField" hidden>
+                <span>Manual academic year</span>
+                <input id="schemeAcademicYearManualInput" type="text" placeholder="Example: 2029/2030" />
+                <small class="detail-subcopy">Use this when the year is not yet listed. The system will create it and reuse it later.</small>
+              </label>
+              <div class="action-row">
+                <button id="schemeSaveButton" class="action-button tertiary" type="submit">Add scheme</button>
+                <button id="schemeCancelButton" class="action-button tertiary" type="button" hidden>Cancel edit</button>
+              </div>
+              </form>
+              <div class="inline-note" id="schemeMessage">
+                Admins can add, edit, and remove schemes here. Removing a scheme also removes its linked scheme records.
+              </div>
+              <div id="schemeList" class="result-list">
+                <p class="empty-state">Schemes will appear here once loaded.</p>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="workspace-grid applications-admin-grid">
+          <section class="panel guidance-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Criteria Management</p>
+                <h3>Screening rules for this scheme and academic year</h3>
+              </div>
+              <div class="action-row">
+                <button id="criteriaToggleButton" class="action-button tertiary" type="button">Hide criteria</button>
+              </div>
+            </div>
+            <div id="criteriaPanelBody">
+              <form id="applicationCriteriaForm" class="import-form">
+                <label class="field">
+                  <span>Required documents</span>
+                  <textarea id="applicationRequiredDocuments" class="textarea-field" rows="5" placeholder="Admission Letter&#10;Results Slip&#10;Application Form&#10;Statement of Need"></textarea>
+                </label>
+                <label class="field">
+                  <span>CWA cut-off</span>
+                  <input id="applicationCwaCutoff" type="number" step="0.01" min="0" />
+                </label>
+                <label class="field">
+                  <span>WASSCE cut-off for first-year applicants</span>
+                  <input id="applicationWassceCutoff" type="number" step="0.01" min="0" />
+                </label>
+                <label class="field checkbox-field">
+                  <input id="applicationInterviewRequired" type="checkbox" />
+                  <span>Interview is required for this scheme and academic year</span>
+                </label>
+                <label class="field">
+                  <span>Admin notes</span>
+                  <textarea id="applicationCriteriaNotes" class="textarea-field" rows="4" placeholder="Add any extra guidance for reviewers here."></textarea>
+                </label>
+                <div class="action-row">
+                  <button id="applicationCriteriaSaveButton" class="action-button tertiary" type="submit">Save criteria</button>
+                </div>
+              </form>
+              <div class="inline-note" id="applicationCriteriaMessage">
+                Admins can define document requirements and academic cut-offs here. Reviewers will see the saved rules as read-only guidance.
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid">
+          <section class="panel summary-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Applications Preview</p>
+                <h3>Import readiness</h3>
+              </div>
+            </div>
+            <div class="summary-cards" id="applicationsSummaryCards">
+              <article class="metric-card">
+                <span class="metric-label">Total rows</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Matched rows</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Ready rows</span>
+                <strong class="metric-value">0</strong>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel issues-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Application Issues</p>
+                <h3>Rows that need attention</h3>
+              </div>
+            </div>
+            <div class="issue-list" id="applicationsIssueList">
+              <p class="empty-state">Unmatched or duplicate application rows will appear here after preview.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid">
+          <section class="panel table-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Matched Preview</p>
+                <h3>Rows ready to become applications</h3>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Row</th>
+                    <th>Name</th>
+                    <th>Reference ID</th>
+                    <th>Registry match</th>
+                    <th>Program</th>
+                    <th>Score</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="applicationsValidRowsTable">
+                  <tr><td colspan="7" class="empty-cell">No application preview data yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel import-results-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Import Results</p>
+                <h3>Latest application import activity</h3>
+              </div>
+            </div>
+            <div class="import-results-grid">
+              <div class="result-column">
+                <h4>Imported applications</h4>
+                <div id="applicationsImportedRowsList" class="result-list">
+                  <p class="empty-state">Imported applications will appear here after a successful run.</p>
+                </div>
+              </div>
+              <div class="result-column">
+                <h4>Rejected rows</h4>
+                <div id="applicationsRejectedRowsList" class="result-list">
+                  <p class="empty-state">Rejected application rows will appear here with their issues.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        </section>
+
+        <section class="application-section" data-application-section-view="registry">
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-eyebrow">Applications Registry</p>
+              <h3>Imported applications for the active scheme and academic year</h3>
+            </div>
+            <div class="action-row">
+              <button id="applicationsToggleButton" class="action-button tertiary" type="button">Hide registry</button>
+              <button id="applicationsReloadButton" class="action-button tertiary" type="button">Reload list</button>
+            </div>
+          </div>
+          <div id="applicationsRegistryBody">
+            <div id="applicationsListMessage" class="inline-note">
+              Imported applications will appear here and can be refreshed at any time.
+            </div>
+            <div id="applicationsList" class="result-list">
+              <p class="empty-state">No application records loaded yet.</p>
+            </div>
+          </div>
+        </section>
+
+        </section>
+
+        <section class="application-section" data-application-section-view="review">
+        <section class="results-grid">
+          <section class="panel summary-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Review Progress</p>
+                <h3>Reviewer workload and decision counts</h3>
+              </div>
+            </div>
+            <div class="summary-cards summary-cards-wide" id="applicationReviewSummaryCards">
+              <article class="metric-card">
+                <span class="metric-label">Reviewed</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Qualified</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Pending</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Disqualified</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Yet to review</span>
+                <strong class="metric-value">0</strong>
+              </article>
+            </div>
+            <div id="applicationReviewMetricsMessage" class="inline-note">
+              Reviewer progress will appear here for the active scheme and academic year.
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Review Search</p>
+                <h3>Find an application by reference number and review it</h3>
+              </div>
+            </div>
+            <form id="applicationReviewSearchForm" class="import-form">
+              <label class="field">
+                <span>Reference ID</span>
+                <input id="applicationReviewSearchReference" type="text" placeholder="Search with the student reference ID" />
+              </label>
+              <div class="action-row">
+                <button id="applicationReviewSearchButton" class="action-button tertiary" type="submit">Search applications</button>
+                <button id="applicationReviewSearchResetButton" class="action-button tertiary" type="button">Reset search</button>
+                <button id="applicationReviewResultsToggleButton" class="action-button tertiary" type="button">Hide applicants</button>
+              </div>
+            </form>
+            <div id="applicationReviewResultsBody">
+              <div id="applicationReviewResultsList" class="result-list">
+                <p class="empty-state">Search results for review will appear here.</p>
+              </div>
+              <div class="action-row review-search-actions">
+                <button id="applicationReviewResultsTopButton" class="action-button tertiary" type="button" hidden>Go to top</button>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-eyebrow">CWA Coverage</p>
+              <h3>Imported CWA coverage for the active application list</h3>
+            </div>
+            <div class="action-row">
+              <button id="applicationCwaCoverageToggleButton" class="action-button tertiary" type="button">Hide coverage</button>
+            </div>
+          </div>
+          <div id="applicationCwaCoverageBody">
+            <div id="applicationCwaCoverageMessage" class="inline-note">
+              CWA coverage for the selected scheme and academic year will appear here.
+            </div>
+            <div class="summary-cards summary-cards-wide" id="applicationCwaCoverageCards">
+              <article class="metric-card">
+                <span class="metric-label">Total applications</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Matched imported CWA</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Missing imported CWA</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Coverage</span>
+                <strong class="metric-value">0%</strong>
+              </article>
+            </div>
+            <div id="applicationCwaCoverageList" class="result-list">
+              <p class="empty-state">Applicants missing imported CWA will appear here.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="applicationReviewSection">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-eyebrow">Application Review</p>
+              <h3>Qualification decisions and reviewer guidance</h3>
+            </div>
+            <div class="action-row">
+              <button id="applicationReviewToggleButton" class="action-button tertiary" type="button">Hide review</button>
+            </div>
+          </div>
+          <div id="applicationsReviewBody">
+            <section class="panel-mini">
+              <div class="panel-heading compact-heading">
+                <div>
+                  <p class="panel-eyebrow">Bulk Interview Update</p>
+                  <h4>Apply shared interview details to the active list</h4>
+                </div>
+                <div class="action-row">
+                  <button id="applicationBulkInterviewToggleButton" class="action-button tertiary" type="button">Hide bulk update</button>
+                </div>
+              </div>
+              <div id="applicationBulkInterviewBody">
+                <form id="applicationBulkInterviewForm" class="import-form">
+                  <div class="form-grid application-review-grid">
+                    <label class="field">
+                      <span>Interview status</span>
+                      <select id="applicationBulkInterviewStatus">
+                        <option value="">Choose a shared interview status</option>
+                        <option value="pending">Pending</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="completed">Completed</option>
+                        <option value="waived">Waived</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>Interview date</span>
+                      <input id="applicationBulkInterviewDate" type="date" />
+                    </label>
+                  </div>
+                  <label class="field">
+                    <span>Shared interview notes</span>
+                    <input
+                      id="applicationBulkInterviewNotes"
+                      type="text"
+                      placeholder="Apply a common interview note or schedule detail to the active list"
+                    />
+                  </label>
+                  <div class="action-row">
+                    <button id="applicationBulkInterviewApplyButton" class="action-button tertiary" type="button">
+                      Apply to active application list
+                    </button>
+                  </div>
+                </form>
+                <div id="applicationBulkInterviewMessage" class="inline-note">
+                  Apply shared interview details to every application in the selected scheme and academic year.
+                </div>
+              </div>
+            </section>
+            <div id="applicationReviewMessage" class="inline-note">
+              Search or select an application, reconcile applicant details, and save the reviewer decision.
+            </div>
+            <div id="applicationReviewSummary" class="student-detail-card">
+              <p class="empty-state">No application selected for review yet.</p>
+            </div>
+            <form id="applicationReviewForm" class="import-form">
+              <div class="detail-grid review-comparison-grid" id="applicationReviewComparison">
+                <div class="detail-item">
+                  <span>Uploaded Name</span>
+                  <strong>N/A</strong>
+                </div>
+                <div class="detail-item">
+                  <span>Registry Name</span>
+                  <strong>N/A</strong>
+                </div>
+                <div class="detail-item">
+                  <span>Uploaded Ref ID</span>
+                  <strong>N/A</strong>
+                </div>
+                <div class="detail-item">
+                  <span>Registry Ref ID</span>
+                  <strong>N/A</strong>
+                </div>
+                <div class="detail-item">
+                  <span>Data Check</span>
+                  <strong>No application selected</strong>
+                </div>
+              </div>
+                <div class="inline-note" id="applicationReviewCriteria">
+                  Screening criteria for the selected scheme and academic year will appear here.
+                </div>
+                <div class="panel-mini document-checklist-panel">
+                  <div class="panel-heading compact-heading">
+                    <div>
+                      <p class="panel-eyebrow">Academic Standing</p>
+                      <h4>Add or update CWA and WASSCE Aggregate</h4>
+                    </div>
+                  </div>
+                  <div id="applicationAcademicEntryForm" class="import-form compact-form">
+                    <div class="form-grid application-review-grid">
+                      <label class="field">
+                        <span>CWA</span>
+                        <input
+                          id="applicationAcademicEntryCwa"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Enter or update CWA"
+                        />
+                      </label>
+                      <label class="field">
+                        <span>WASSCE Aggregate</span>
+                        <input
+                          id="applicationAcademicEntryWassce"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Enter or update WASSCE Aggregate"
+                        />
+                      </label>
+                    </div>
+                    <div class="action-row">
+                      <button
+                        id="applicationAcademicEntrySaveButton"
+                        class="action-button secondary"
+                        type="button"
+                      >
+                        Save to academic history
+                      </button>
+                    </div>
+                  </div>
+                  <div id="applicationAcademicEntryMessage" class="inline-note">
+                    Save academic standing values into academic history so screening, coverage, and exports stay aligned.
+                  </div>
+                </div>
+                <div class="panel-mini document-checklist-panel">
+                  <div class="panel-heading compact-heading">
+                    <div>
+                      <p class="panel-eyebrow">Document Checklist</p>
+                      <h4>Confirm required items or completed checks</h4>
+                    </div>
+                  </div>
+                  <div id="applicationReviewDocumentChecklist" class="document-checklist-wrap">
+                    <p class="empty-state">Select an application to review its required documents.</p>
+                  </div>
+                </div>
+                <label class="field checkbox-field">
+                  <input id="applicationReviewUseRegistryData" type="checkbox" />
+                  <span>Maintain the registry data as the applicant data for this application</span>
+                </label>
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Uploaded applicant name</span>
+                  <input id="applicationReviewUploadedName" type="text" placeholder="Edit the applicant name if needed" />
+                </label>
+                <label class="field">
+                  <span>Uploaded reference ID</span>
+                  <input id="applicationReviewUploadedReferenceId" type="text" placeholder="Edit the uploaded reference ID if needed" />
+                </label>
+              </div>
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Interview status</span>
+                  <select id="applicationReviewInterviewStatus">
+                    <option value="">No interview update yet</option>
+                    <option value="pending">Pending</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="completed">Completed</option>
+                    <option value="waived">Waived</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Interview score</span>
+                  <input id="applicationReviewInterviewScore" type="number" step="0.01" min="0" placeholder="Optional interview score" />
+                </label>
+              </div>
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Interview date</span>
+                  <input id="applicationReviewInterviewDate" type="date" />
+                </label>
+                <label class="field">
+                  <span>Interview notes</span>
+                  <input id="applicationReviewInterviewNotes" type="text" placeholder="Capture panel feedback or outcome notes" />
+                </label>
+              </div>
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Reviewer decision</span>
+                  <select id="applicationReviewDecision">
+                    <option value="">Choose a decision</option>
+                    <option value="qualified">Qualified</option>
+                    <option value="disqualified">Disqualified</option>
+                    <option value="pending">Pending</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Reviewer reason</span>
+                  <select id="applicationReviewReason">
+                    <option value="">Select a review reason</option>
+                  </select>
+                </label>
+              </div>
+              <label class="field">
+                <span>Reviewer notes</span>
+                <textarea id="applicationReviewComment" class="textarea-field" rows="4" placeholder="Add decision context, follow-up guidance, or review notes here."></textarea>
+              </label>
+              <div class="action-row">
+                  <button id="applicationReviewSaveButton" class="action-button primary" type="button">Save review decision</button>
+                </div>
+              </form>
+            <section class="panel-mini">
+              <div class="panel-heading compact-heading">
+                <div>
+                  <p class="panel-eyebrow">Application Audit Trail</p>
+                  <h4>See the key actions taken on this application</h4>
+                </div>
+              </div>
+              <div id="applicationAuditHistoryMessage" class="inline-note">
+                Select an application to load its review, messaging, and academic-standing history.
+              </div>
+              <div id="applicationAuditHistoryList" class="result-list application-audit-list">
+                <p class="empty-state">Audit history for the selected application will appear here.</p>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="results-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Single Applicant Add</p>
+                <h3>Add one applicant to the active list</h3>
+              </div>
+            </div>
+            <form id="singleApplicationForm" class="import-form">
+              <label class="field">
+                <span>Reference ID</span>
+                <input id="singleApplicationReferenceId" type="text" placeholder="Search registry with reference ID" />
+              </label>
+              <div class="action-row">
+                <button id="singleApplicationLookupButton" class="action-button tertiary" type="button">Find registry student</button>
+              </div>
+              <div id="singleApplicationLookupSummary" class="student-detail-card">
+                <p class="empty-state">Search for a registry student by reference ID before adding a single application.</p>
+              </div>
+              <label class="field">
+                <span>Applicant name</span>
+                <input id="singleApplicationUploadedName" type="text" placeholder="Applicant name from the application record" />
+              </label>
+              <label class="field">
+                <span>Applicant email</span>
+                <input id="singleApplicationApplicantEmail" type="email" placeholder="applicant@example.com" />
+              </label>
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Programme</span>
+                  <input id="singleApplicationProgram" type="text" placeholder="Programme of study" />
+                </label>
+                <label class="field">
+                  <span>Year</span>
+                  <input id="singleApplicationYear" type="text" placeholder="Current year or level" />
+                </label>
+              </div>
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Average score</span>
+                  <input id="singleApplicationScore" type="number" step="0.01" min="0" />
+                </label>
+              </div>
+              <label class="field">
+                <span>Application notes</span>
+                <textarea id="singleApplicationNotes" class="textarea-field" rows="4" placeholder="Capture remarks, notes, or source information here."></textarea>
+              </label>
+              <div class="action-row">
+                <button id="singleApplicationAddButton" class="action-button primary" type="submit">Add applicant</button>
+              </div>
+            </form>
+            <div id="singleApplicationMessage" class="inline-note">
+              Search the registry by reference ID, confirm the student, then add the applicant into the active application list.
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Rejected Row Corrections</p>
+                <h3>Edit unmatched rows and add them properly</h3>
+              </div>
+            </div>
+            <div id="applicationIssueEditorList" class="result-list">
+              <p class="empty-state">No unresolved application import issues are currently queued for this scheme and academic year.</p>
+            </div>
+            <form id="applicationIssueEditForm" class="import-form">
+              <input id="applicationIssueQueueId" type="hidden" />
+              <input id="applicationIssueRowNumber" type="hidden" />
+              <label class="field">
+                <span>Corrected reference ID</span>
+                <input id="applicationIssueReferenceId" type="text" placeholder="Correct the reference ID, then search the registry" />
+              </label>
+              <div class="action-row">
+                <button id="applicationIssueLookupButton" class="action-button tertiary" type="button">Search registry</button>
+              </div>
+              <div id="applicationIssueLookupSummary" class="student-detail-card">
+                <p class="empty-state">Search the registry after correcting the reference ID.</p>
+              </div>
+              <label class="field">
+                <span>Applicant name</span>
+                <input id="applicationIssueFullName" type="text" placeholder="Applicant name from the corrected row" />
+              </label>
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Programme</span>
+                  <input id="applicationIssueProgram" type="text" />
+                </label>
+                <label class="field">
+                  <span>Year</span>
+                  <input id="applicationIssueYear" type="text" />
+                </label>
+              </div>
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Average score</span>
+                  <input id="applicationIssueScore" type="number" step="0.01" min="0" />
+                </label>
+              </div>
+              <label class="field">
+                <span>Notes</span>
+                <textarea id="applicationIssueNotes" class="textarea-field" rows="4" placeholder="Keep any source or correction notes here."></textarea>
+              </label>
+              <div class="action-row">
+                <button id="applicationIssueSaveButton" class="action-button primary" type="submit">Add corrected row</button>
+              </div>
+            </form>
+            <div id="applicationIssueEditorMessage" class="inline-note">
+              Correct unmatched rows here, confirm the registry student, and add them into the active application list.
+            </div>
+          </section>
+        </section>
+
+
+        </section>
+
+        <section class="application-section" data-application-section-view="exports">
+          <section class="results-grid">
+            <section class="panel summary-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Interview Score Import</p>
+                  <h3>Upload external interview panel sheets for the active scheme and academic year</h3>
+                </div>
+              </div>
+              <form id="applicationInterviewImportForm" class="import-form">
+                <label class="upload-zone" for="applicationInterviewFile">
+                  <input id="applicationInterviewFile" name="applicationInterviewFile" type="file" accept=".csv,.xlsx" multiple />
+                  <span class="upload-title">Choose interview score workbooks</span>
+                  <span class="upload-subtitle">Upload one or more Excel or CSV files from external interview panels</span>
+                  <span class="upload-file-name" id="selectedApplicationInterviewFileName">No interview file selected yet</span>
+                </label>
+                <div class="action-row">
+                  <button id="applicationInterviewPreviewButton" class="action-button tertiary" type="submit">Preview interview import</button>
+                  <button id="applicationInterviewImportButton" class="action-button secondary" type="button" disabled>Import matched interview rows</button>
+                </div>
+              </form>
+              <div id="applicationInterviewImportMessage" class="inline-note">
+                Import interview scores by reference ID or index number, then match them into the active application list before exporting final outcomes.
+              </div>
+            </section>
+
+            <section class="panel summary-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Application Exports</p>
+                  <h3>Download polished Excel lists for the active scheme and academic year</h3>
+                </div>
+              </div>
+              <div class="form-grid application-context-grid">
+                <label class="field">
+                  <span>Workbook font</span>
+                  <select id="applicationExportFont" class="select-field">
+                    <option value="Constantia">Constantia</option>
+                    <option value="Century Gothic">Century Gothic</option>
+                  </select>
+                </label>
+              </div>
+              <div id="applicationExportMessage" class="inline-note">
+                Export the qualified, pending, disqualified, or yet-to-review list with registry-backed details and the latest CWA included.
+              </div>
+            </section>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Interview Preview Summary</p>
+                  <h3>Interview import readiness</h3>
+                </div>
+              </div>
+              <div class="summary-cards summary-cards-wide" id="applicationInterviewSummaryCards">
+                <article class="metric-card">
+                  <span class="metric-label">Total rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Matched rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Valid rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Invalid rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Interview Import Issues</p>
+                  <h3>Rows that did not match the active application list</h3>
+                </div>
+              </div>
+              <div id="applicationInterviewIssueList" class="issue-list">
+                <p class="empty-state">Interview import issues will appear here after preview.</p>
+              </div>
+            </section>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel table-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Matched Interview Rows</p>
+                  <h3>Interview data ready to update applications</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Row</th>
+                      <th>Name</th>
+                      <th>Reference ID</th>
+                      <th>Index Number</th>
+                      <th>Interview Status</th>
+                      <th>Interview Score</th>
+                      <th>Matched Application</th>
+                    </tr>
+                  </thead>
+                  <tbody id="applicationInterviewValidRowsTable">
+                    <tr><td colspan="7" class="empty-cell">No interview preview data yet.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Interview Import Result</p>
+                  <h3>Latest interview import activity</h3>
+                </div>
+              </div>
+              <div id="applicationInterviewImportedRowsList" class="result-list">
+                <p class="empty-state">Imported interview updates will appear here after a successful import.</p>
+              </div>
+              <div id="applicationInterviewRejectedRowsList" class="result-list">
+                <p class="empty-state">Rejected interview rows will appear here after a preview or import.</p>
+              </div>
+            </section>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Export Queue</p>
+                  <h3>Operational lists ready for download</h3>
+                </div>
+              </div>
+              <div id="applicationExportCards" class="export-card-grid">
+                <article class="export-card">
+                  <span class="metric-label">Qualified</span>
+                  <strong class="metric-value">0</strong>
+                  <p class="detail-subcopy">Qualified applications with registry data and current CWA.</p>
+                </article>
+              </div>
+            </section>
+          </section>
+        </section>
+
+        <section class="application-section" data-application-section-view="outcomes">
+          <section class="panel">
+            <p class="panel-eyebrow">Application Outcomes</p>
+            <h3>Prepare award and not-selected outcomes</h3>
+            <p class="lede">
+              This workspace turns reviewed applications into final handoff outcomes for the active scheme and academic year.
+            </p>
+            <div class="summary-cards summary-cards-wide" id="applicationOutcomeSummaryCards">
+              <article class="metric-card">
+                <span class="metric-label">Qualified</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Pending</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Disqualified</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Yet to review</span>
+                <strong class="metric-value">0</strong>
+              </article>
+            </div>
+            <div id="applicationOutcomeMessage" class="inline-note">
+              Outcome planning will use the current review totals for the selected scheme and academic year.
+            </div>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Outcome Planner</p>
+                  <h3>Apply a final outcome to the active application list</h3>
+                </div>
+              </div>
+              <form id="applicationOutcomeForm" class="import-form">
+                <div class="form-grid application-review-grid">
+                  <label class="field">
+                    <span>Source review group</span>
+                    <select id="applicationOutcomeSourceStatus">
+                      <option value="qualified">Qualified</option>
+                      <option value="pending">Pending</option>
+                      <option value="disqualified">Disqualified</option>
+                      <option value="not_reviewed">Yet to review</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Final outcome</span>
+                    <select id="applicationOutcomeDecision">
+                      <option value="">Choose an outcome</option>
+                      <option value="awarded">Awarded</option>
+                      <option value="not_selected">Not selected</option>
+                    </select>
+                  </label>
+                  <label class="field field-span-2">
+                    <span>Outcome notes</span>
+                    <input id="applicationOutcomeNotes" type="text" placeholder="Capture committee notes or handoff comments" />
+                  </label>
+                </div>
+                <button id="applicationOutcomeApplyButton" class="action-button primary" type="submit">Apply to active application list</button>
+              </form>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Outcome Distribution</p>
+                  <h3>Current handoff totals</h3>
+                </div>
+              </div>
+              <div class="summary-cards summary-cards-wide" id="applicationOutcomeDistributionCards">
+                <article class="metric-card">
+                  <span class="metric-label">Awarded</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Not selected</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Qualified awaiting outcome</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+              </div>
+            </section>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Outcome Registry</p>
+                <h3>Applications already prepared for handoff</h3>
+              </div>
+            </div>
+            <div id="applicationOutcomeList" class="result-list">
+              <p class="empty-state">Outcome decisions will appear here once they are applied.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="application-section" data-application-section-view="messaging">
+          <section class="panel">
+            <p class="panel-eyebrow">Applicant Messaging</p>
+            <h3>Preview and log official applicant messages</h3>
+            <p class="lede">
+              This workspace prepares email, SMS, or WhatsApp batches from the active application list using the configured sender for each channel.
+            </p>
+            <form id="applicationMessagingForm" class="import-form">
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Channel</span>
+                  <select id="applicationMessagingChannel">
+                    <option value="email">Email</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Message type</span>
+                  <select id="applicationMessagingType">
+                    <option value="interview_invite">Qualified for interview</option>
+                    <option value="award_notice">Awarded</option>
+                    <option value="disqualified_notice">Disqualified</option>
+                    <option value="not_selected_notice">Not selected</option>
+                  </select>
+                </label>
+                <label class="field" id="applicationMessagingSenderField">
+                  <span>Sender</span>
+                  <input id="applicationMessagingSender" type="text" value="" placeholder="Loading sender..." readonly />
+                </label>
+                <label class="field" id="applicationMessagingSenderPhoneField" hidden>
+                  <span>SMS sender</span>
+                  <input id="applicationMessagingSenderPhone" type="text" value="" placeholder="Loading SMS sender..." readonly />
+                </label>
+                <label class="field" id="applicationMessagingSenderWhatsAppField" hidden>
+                  <span>WhatsApp sender</span>
+                  <input id="applicationMessagingSenderWhatsApp" type="text" value="" placeholder="Loading WhatsApp sender..." readonly />
+                </label>
+              </div>
+              <div class="action-row">
+                <button id="applicationMessagingPreviewButton" class="action-button secondary" type="button">Preview messaging batch</button>
+                <button id="applicationMessagingLogButton" class="action-button primary" type="button">Log messaging batch</button>
+              </div>
+            </form>
+            <div id="applicationMessagingMessage" class="inline-note">
+              Generate a recipient preview from the active scheme and academic year, then log the batch for controlled sending.
+            </div>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel summary-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Recipient Summary</p>
+                  <h3>Messaging readiness for the current batch</h3>
+                </div>
+              </div>
+              <div class="summary-cards summary-cards-wide" id="applicationMessagingSummaryCards">
+                <article class="metric-card">
+                  <span class="metric-label">Total recipients</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Ready</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Missing contact</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Template Editor</p>
+                  <h3>Review and adjust the message before logging</h3>
+                </div>
+                <button id="applicationMessagingTemplateResetButton" class="action-button ghost" type="button">
+                  Reset to default
+                </button>
+              </div>
+              <div class="import-form">
+                <div class="field" id="applicationMessagingSubjectField">
+                  <span>Subject</span>
+                  <input id="applicationMessagingSubject" type="text" placeholder="Generate a messaging preview first" />
+                </div>
+                <div class="field">
+                  <span>Body</span>
+                  <textarea id="applicationMessagingBody" rows="11" placeholder="Generate a messaging preview first"></textarea>
+                </div>
+                <p id="applicationMessagingBodyCharCount" class="detail-subcopy">0 characters</p>
+              </div>
+              <div id="applicationMessagingTemplatePreview" class="student-detail-card" style="margin-top:12px;">
+                <p class="empty-state">Message preview will appear here after you generate a batch.</p>
+              </div>
+            </section>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Recipients</p>
+                  <h3>Batch recipient preview</h3>
+                </div>
+              </div>
+              <div id="applicationMessagingRecipientList" class="result-list">
+                <p class="empty-state">Recipient preview cards will appear here.</p>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Messaging History</p>
+                  <h3>Previously logged batches</h3>
+                </div>
+              </div>
+              <div id="applicationMessagingHistoryList" class="result-list">
+                <p class="empty-state">Logged message batches will appear here once created.</p>
+              </div>
+            </section>
+          </section>
+        </section>
+
+      </section><!-- /applications module -->
+
+      <section class="module-view" data-module-view="waitlist">
+        <section class="panel">
+          <p class="panel-eyebrow">Recommended Students</p>
+          <h3>Capture support recommendations and hand them into Applications or Beneficiaries</h3>
+          <p class="lede">
+            Recommended students are tied to available schemes, stay visible as awaiting support until real support is recorded,
+            and can be pushed into Applications as already qualified records.
+          </p>
+          <div id="recommendedSummaryCards" class="summary-cards summary-cards-wide">
+            <article class="metric-card"><span class="metric-label">Total records</span><strong class="metric-value">0</strong></article>
+            <article class="metric-card"><span class="metric-label">Awaiting support</span><strong class="metric-value">0</strong></article>
+            <article class="metric-card"><span class="metric-label">Supported</span><strong class="metric-value">0</strong></article>
+            <article class="metric-card"><span class="metric-label">Added to Applications</span><strong class="metric-value">0</strong></article>
+            <article class="metric-card"><span class="metric-label">Added to Beneficiaries</span><strong class="metric-value">0</strong></article>
+          </div>
+          <div id="recommendedMessage" class="inline-note">
+            Record students who approach SSFS for support, then move them into Applications or Beneficiaries when they are ready.
+          </div>
+        </section>
+
+        <section class="results-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Manual Addition</p>
+                <h3 id="recommendedFormTitle">Add a recommended student directly</h3>
+              </div>
+            </div>
+            <form id="recommendedCreateForm" class="import-form">
+              <label class="field">
+                <span>Available scheme</span>
+                <select id="recommendedSchemeSelect" class="select-field">
+                  <option value="">Choose a scheme</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Student ID / Reference Number</span>
+                <input id="recommendedStudentReferenceId" type="text" placeholder="Example: 20260001" />
+              </label>
+              <div id="recommendedRegistryPreview" class="inline-note field-span-2">
+                Enter a student ID / reference number to preview the matched registry student before saving this recommendation.
+              </div>
+              <label class="field">
+                <span>Recommendation reason</span>
+                <textarea id="recommendedReason" class="textarea-field" rows="4" placeholder="Why is this student being recommended for support?"></textarea>
+              </label>
+              <label class="field">
+                <span>Notes</span>
+                <textarea id="recommendedNotes" class="textarea-field" rows="3" placeholder="Any additional context"></textarea>
+              </label>
+              <div class="action-row">
+                <button id="recommendedCreateButton" class="action-button primary" type="submit">Add recommended student</button>
+                <button id="recommendedCancelButton" class="action-button tertiary" type="button" hidden>Cancel edit</button>
+              </div>
+            </form>
+            <div id="recommendedCreateMessage" class="inline-note">
+              The student ID / reference number is matched to the registry first. The matched registry name, email, college, programme, and year are what follow the student into Applications and Beneficiaries handoffs.
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Excel Import</p>
+                <h3>Preview and import recommended students</h3>
+              </div>
+            </div>
+            <form id="recommendedImportForm" class="import-form">
+              <label class="upload-zone" for="recommendedFile">
+                <input id="recommendedFile" name="recommendedFile" type="file" accept=".csv,.xlsx" multiple />
+                <span class="upload-title">Choose recommended-students files</span>
+                <span class="upload-subtitle">Required fields: Academic Year, Scheme Name, and Student ID / Reference Number. Full Name, Index Number, Recommendation Reason, and Notes are optional.</span>
+                <span class="upload-file-name" id="selectedRecommendedFileName">No file selected yet</span>
+              </label>
+              <div class="action-row">
+                <button id="recommendedPreviewButton" class="action-button secondary" type="submit">Preview import</button>
+                <button id="recommendedImportButton" class="action-button primary" type="button" disabled>Import valid rows</button>
+              </div>
+            </form>
+            <div id="recommendedImportMessage" class="inline-note">
+              Import rows must match existing registry students and available schemes before they can become recommended students. Full name can be blank because the registry match will supply the official student record details.
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Preview Summary</p>
+                <h3>What is ready before import</h3>
+              </div>
+            </div>
+            <div id="recommendedPreviewSummaryCards" class="summary-cards">
+              <article class="metric-card"><span class="metric-label">Total rows</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Valid rows</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Rows needing attention</span><strong class="metric-value">0</strong></article>
+            </div>
+            <div id="recommendedPreviewList" class="result-list">
+              <p class="empty-state">Recommended-student preview rows will appear here after preview.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-eyebrow">Recommended Records</p>
+              <h3>Filter and manage recommended students</h3>
+            </div>
+          </div>
+          <form id="recommendedFilterForm" class="detail-grid">
+            <label class="field field-span-2">
+              <span>Search</span>
+              <input id="recommendedSearchQuery" type="search" placeholder="Name, reference number, scheme, reason" />
+            </label>
+            <label class="field">
+              <span>Academic year</span>
+              <select id="recommendedCycleFilter" class="select-field">
+                <option value="">All academic years</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Scheme</span>
+              <select id="recommendedSchemeFilter" class="select-field">
+                <option value="">All schemes</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Status</span>
+              <select id="recommendedStatusFilter" class="select-field">
+                <option value="">All statuses</option>
+                <option value="awaiting_support">Awaiting support</option>
+                <option value="supported">Supported</option>
+              </select>
+            </label>
+            <div class="action-row">
+              <button id="recommendedReloadButton" class="action-button tertiary" type="button">Load recommended students</button>
+            </div>
+          </form>
+          <div id="recommendedListMessage" class="inline-note">Use the filters above to load recommended students for a scheme and academic year.</div>
+          <div id="recommendedList" class="result-list">
+            <p class="empty-state">Recommended student records will appear here.</p>
+          </div>
+        </section>
+
+        <section class="results-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Selected Recommendation</p>
+                <h3>Beneficiary support handoff</h3>
+              </div>
+            </div>
+            <div id="recommendedSelectedSummary" class="inline-note">
+              Choose a recommended student from the records list to prepare a Beneficiaries &amp; Support handoff.
+            </div>
+            <form id="recommendedSupportForm" class="import-form">
+              <label class="field">
+                <span>Amount paid</span>
+                <input id="recommendedSupportAmount" type="number" min="0" step="0.01" placeholder="Example: 1500" />
+              </label>
+              <label class="field">
+                <span>Support type</span>
+                <select id="recommendedSupportType" class="select-field">
+                  <option value="">Choose support type</option>
+                  <option value="internal">Internal</option>
+                  <option value="external">External</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Beneficiary cohort</span>
+                <select id="recommendedSupportCohort" class="select-field">
+                  <option value="">Not applicable</option>
+                  <option value="current">Current Beneficiaries</option>
+                  <option value="new">New Beneficiaries</option>
+                </select>
+              </label>
+              <div class="action-row">
+                <button id="recommendedSupportButton" class="action-button primary" type="submit" disabled>Add to Beneficiaries &amp; Support</button>
+              </div>
+            </form>
+            <div id="recommendedSupportMessage" class="inline-note">
+              Add a recommended student to Beneficiaries &amp; Support only when actual support details are ready.
+            </div>
+          </section>
+        </section>
+      </section>
+
+      <section class="module-view" data-module-view="awards">
+        <section class="panel">
+          <p class="panel-eyebrow">Beneficiaries &amp; Support</p>
+          <h3>Beneficiary lists, paid support records, and historical support operations</h3>
+          <p class="lede">
+            This workspace is the operational home for beneficiary-list imports, paid support records,
+            and historical support archives across academic years.
+          </p>
+          <div class="hero-pills">
+            <span class="pill">Beneficiary list imports</span>
+            <span class="pill">Historical list imports</span>
+            <span class="pill">Paid support records</span>
+          </div>
+          <nav class="section-nav" aria-label="Beneficiaries and support sections" style="margin-top:16px; display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="chip is-active" type="button" data-beneficiary-section="imports">Beneficiary Imports</button>
+            <button class="chip" type="button" data-beneficiary-section="beneficiaries">Beneficiaries</button>
+          </nav>
+        </section>
+
+        <section class="section-view is-active" data-beneficiary-section-view="imports">
+          <section class="results-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Beneficiary Imports</p>
+                  <h3>Preview and import current or historical beneficiary lists</h3>
+                </div>
+              </div>
+                <form id="beneficiaryImportForm" class="import-form">
+                  <label class="field">
+                    <span>Import mode</span>
+                    <select id="beneficiaryImportMode" class="select-field">
+                      <option value="historical_archive">Historical archive import</option>
+                      <option value="current_cycle_linked">Current cycle linked import</option>
+                    </select>
+                  </label>
+                    <label class="field">
+                      <span>Beneficiary cohort</span>
+                      <select id="beneficiaryCohort" class="select-field">
+                        <option value="">Not applicable</option>
+                        <option value="current">Current Beneficiaries</option>
+                        <option value="new">New Beneficiaries</option>
+                      </select>
+                      <small class="detail-subcopy">If left blank in a current-cycle import, students who were new beneficiaries in the previous academic year can be carried forward into the current cohort when they reappear in the new list.</small>
+                    </label>
+                    <label class="field">
+                      <span>Award amount currency</span>
+                      <select id="beneficiaryImportCurrency" class="select-field">
+                        <option value="">Use file currency / default to GHS</option>
+                        <option value="GHS">GHS</option>
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                      </select>
+                      <small class="detail-subcopy">Use this when the uploaded list does not include a currency column and the whole batch is in one currency.</small>
+                    </label>
+                    <label class="field checkbox-field">
+                      <input id="beneficiaryCategorizedByCollege" type="checkbox" />
+                      <span>This list is categorized into colleges</span>
+                    </label>
+                  <label class="field">
+                    <span>Duplicate student ID action</span>
+                    <select id="beneficiaryDuplicateStrategy" class="select-field">
+                      <option value="skip">Skip duplicate rows</option>
+                      <option value="import_anyway">Import anyway</option>
+                      <option value="replace_existing">Replace existing rows for the same support and academic year</option>
+                    </select>
+                    <small class="detail-subcopy">Duplicate student IDs found in other schemes or academic years will still be warned before import.</small>
+                  </label>
+
+                    <label class="upload-zone" for="beneficiaryFile">
+                      <input id="beneficiaryFile" name="beneficiaryFile" type="file" accept=".csv,.xlsx" multiple />
+                      <span class="upload-title">Choose beneficiary list files</span>
+                      <span class="upload-subtitle">Upload one or more .csv or .xlsx beneficiary/support lists with academic year, support name, full name, student reference ID, amount paid, support type, and optional currency.</span>
+                      <span class="upload-file-name" id="selectedBeneficiaryFileName">No file selected yet</span>
+                    </label>
+
+                <div class="action-row">
+                  <button id="beneficiaryPreviewButton" class="action-button secondary" type="submit">Preview import</button>
+                  <button id="beneficiaryImportButton" class="action-button primary" type="button" disabled>Import valid rows</button>
+                </div>
+              </form>
+
+                <div id="beneficiaryImportMessage" class="inline-note">
+                  Student ID / Reference Number is required for every beneficiary row so records remain searchable later. Historical archive imports still do not require registry or mismatch checks, and rows can now use file currency or the selected batch currency.
+                </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Preview Summary</p>
+                  <h3>What is ready before import</h3>
+                </div>
+              </div>
+              <div id="beneficiarySummaryCards" class="summary-cards summary-cards-wide">
+                <article class="metric-card">
+                  <span class="metric-label">Total rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Valid rows</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+                <article class="metric-card">
+                  <span class="metric-label">Rows needing attention</span>
+                  <strong class="metric-value">0</strong>
+                </article>
+              </div>
+              <div class="action-row">
+                <label class="field beneficiary-preview-filter-field">
+                  <span>Preview filter</span>
+                  <select id="beneficiaryPreviewFilter" class="select-field">
+                    <option value="all">All preview rows</option>
+                    <option value="new">New</option>
+                    <option value="current">Current</option>
+                    <option value="carried_forward">Carried forward</option>
+                    <option value="duplicate">Duplicate</option>
+                  </select>
+                </label>
+              </div>
+              <div id="beneficiaryIssueList" class="result-list" style="margin-top:12px;">
+                <p class="empty-state">Import issues will appear here after preview.</p>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Duplicate Review</p>
+                  <h3>Review duplicate rows before importing large files</h3>
+                </div>
+              </div>
+              <div id="beneficiaryDuplicateReviewMessage" class="inline-note">
+                Duplicate rows and cross-scheme/year student ID warnings will appear here after preview.
+              </div>
+              <div id="beneficiaryDuplicateReviewList" class="result-list">
+                <p class="empty-state">No duplicate review items yet.</p>
+              </div>
+            </section>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Valid Preview Rows</p>
+                  <h3>Rows ready for import</h3>
+                </div>
+              </div>
+              <div class="table-wrapper">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Academic Year</th>
+                      <th>Support Name</th>
+                        <th>Beneficiary</th>
+                        <th>College</th>
+                        <th>Amount Paid</th>
+                        <th>Support Type</th>
+                        <th>Cohort</th>
+                      </tr>
+                    </thead>
+                    <tbody id="beneficiaryValidRowsTable">
+                      <tr>
+                        <td colspan="7" class="empty-cell">No beneficiary preview rows yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Import Results</p>
+                  <h3>Latest beneficiary import outcome</h3>
+                </div>
+              </div>
+              <div id="beneficiaryImportResultSummary" class="summary-cards summary-cards-wide">
+                <article class="metric-card"><span class="metric-label">Imported rows</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">Current</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">New</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">Not tagged</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">Carried forward</span><strong class="metric-value">0</strong></article>
+              </div>
+              <div id="beneficiaryImportedRowsList" class="result-list">
+                <p class="empty-state">Imported beneficiary rows will appear here after a successful import.</p>
+              </div>
+            </section>
+          </section>
+        </section>
+
+        <section class="section-view" data-beneficiary-section-view="beneficiaries">
+          <section class="results-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Beneficiary Registry</p>
+                  <h3>Search and filter imported beneficiary records</h3>
+                </div>
+              </div>
+              <form id="beneficiaryFilterForm" class="import-form">
+                <div class="form-grid application-review-grid">
+                  <label class="field">
+                    <span>Search</span>
+                    <input id="beneficiarySearchQuery" type="text" placeholder="Name, reference number, index number, sponsor" />
+                  </label>
+                    <label class="field">
+                      <span>Academic year</span>
+                      <select id="beneficiaryAcademicYearFilter">
+                        <option value="">All academic years</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>Support name</span>
+                      <select id="beneficiarySchemeFilter">
+                        <option value="">All support names</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>College</span>
+                      <select id="beneficiaryCollegeFilter">
+                        <option value="">All colleges</option>
+                      </select>
+                    </label>
+                  <label class="field">
+                    <span>Support type</span>
+                    <select id="beneficiarySupportTypeFilter">
+                      <option value="">All types</option>
+                      <option value="internal">Internal</option>
+                      <option value="external">External</option>
+                      <option value="unknown">Unknown / other</option>
+                    </select>
+                  </label>
+                </div>
+                  <div class="action-row">
+                    <button id="beneficiaryReloadButton" class="action-button secondary" type="submit">Load beneficiary records</button>
+                    <button id="beneficiaryClearScopedButton" class="action-button danger" type="button" disabled>Clear selected scheme data</button>
+                  </div>
+                </form>
+              <div id="beneficiaryListMessage" class="inline-note">
+                Imported beneficiary records will appear here and can be filtered by year, support name, and support type.
+              </div>
+            </section>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Beneficiary Records</p>
+                <h3>Imported support records across current and historical years</h3>
+              </div>
+            </div>
+            <div id="beneficiaryList" class="result-list">
+              <p class="empty-state">No beneficiary records loaded yet.</p>
+            </div>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Record Lifecycle</p>
+                  <h3>Edit, replace, or remove a beneficiary row safely</h3>
+                </div>
+              </div>
+              <form id="beneficiaryEditorForm" class="import-form">
+                <div class="form-grid application-review-grid">
+                  <label class="field">
+                    <span>Academic year</span>
+                    <input id="beneficiaryEditorAcademicYear" type="text" placeholder="Select a beneficiary row first" />
+                  </label>
+                  <label class="field">
+                    <span>Support name</span>
+                    <input id="beneficiaryEditorSchemeName" type="text" placeholder="Support name" />
+                  </label>
+                  <label class="field">
+                    <span>Full name</span>
+                    <input id="beneficiaryEditorFullName" type="text" placeholder="Beneficiary full name" />
+                  </label>
+                  <label class="field">
+                    <span>Student ID / Reference Number</span>
+                    <input id="beneficiaryEditorStudentReferenceId" type="text" placeholder="Student reference ID" />
+                  </label>
+                  <label class="field">
+                    <span>Index number</span>
+                    <input id="beneficiaryEditorIndexNumber" type="text" placeholder="Index number if available" />
+                  </label>
+                  <label class="field">
+                    <span>Sponsor</span>
+                    <input id="beneficiaryEditorSponsorName" type="text" placeholder="Sponsor or donor name" />
+                  </label>
+                  <label class="field">
+                    <span>College</span>
+                    <input id="beneficiaryEditorCollege" type="text" placeholder="College if available" />
+                  </label>
+                  <label class="field">
+                    <span>Amount paid</span>
+                    <input id="beneficiaryEditorAmountPaid" type="number" min="0" step="0.01" placeholder="0.00" />
+                  </label>
+                  <label class="field">
+                    <span>Currency</span>
+                    <input id="beneficiaryEditorCurrency" type="text" placeholder="GHS" />
+                  </label>
+                  <label class="field">
+                    <span>Support type</span>
+                    <select id="beneficiaryEditorSupportType">
+                      <option value="internal">Internal</option>
+                      <option value="external">External</option>
+                      <option value="unknown">Unknown / other</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Beneficiary cohort</span>
+                    <select id="beneficiaryEditorCohort">
+                      <option value="">Not tagged</option>
+                      <option value="current">Current Beneficiaries</option>
+                      <option value="new">New Beneficiaries</option>
+                    </select>
+                  </label>
+                  <label class="field field-span-2">
+                    <span>Remarks</span>
+                    <input id="beneficiaryEditorRemarks" type="text" placeholder="Optional note for this beneficiary row" />
+                  </label>
+                  <label class="field checkbox-field field-span-2">
+                    <input id="beneficiaryEditorReplaceExisting" type="checkbox" />
+                    <span>Replace any conflicting existing row if this edit changes the same academic year, support name, and student reference ID</span>
+                  </label>
+                  <label class="field field-span-2">
+                    <span>Change reason</span>
+                    <input id="beneficiaryEditorChangeReason" type="text" placeholder="Required before saving beneficiary changes" />
+                  </label>
+                  <label class="field field-span-2">
+                    <span>Removal reason</span>
+                    <input id="beneficiaryEditorRemovalReason" type="text" placeholder="Required before removing the selected row" />
+                  </label>
+                </div>
+                <div class="action-row">
+                  <button id="beneficiaryEditorSaveButton" class="action-button primary" type="submit" disabled>Save changes</button>
+                  <button id="beneficiaryEditorDeleteButton" class="action-button danger" type="button" disabled>Remove selected row</button>
+                  <button id="beneficiaryEditorCancelButton" class="action-button ghost" type="button" disabled>Clear selection</button>
+                </div>
+              </form>
+              <div id="beneficiaryEditorMessage" class="inline-note">
+                Select a beneficiary row to edit its lifecycle details and review safe replacement or removal controls.
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Record History</p>
+                  <h3>See the audit trail for the selected beneficiary row</h3>
+                </div>
+              </div>
+              <div id="beneficiaryRecordHistoryMessage" class="inline-note">
+                Select a beneficiary row to load its import, update, replacement, and removal history.
+              </div>
+              <div id="beneficiaryRecordHistoryList" class="result-list">
+                <p class="empty-state">No beneficiary record history loaded yet.</p>
+              </div>
+            </section>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Import History</p>
+                <h3>See which file created, replaced, or rolled back the current support records</h3>
+              </div>
+            </div>
+            <div id="beneficiaryHistoryMessage" class="inline-note">
+              Import history for the selected academic year and support name will show active and rolled-back batches.
+            </div>
+            <div id="beneficiaryImportHistoryList" class="result-list">
+              <p class="empty-state">No beneficiary import history loaded yet.</p>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Lifecycle Audit</p>
+                <h3>Review recent beneficiary changes for the selected support scope</h3>
+              </div>
+            </div>
+            <form id="beneficiaryAuditFilterForm" class="import-form">
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Event type</span>
+                  <select id="beneficiaryAuditEventTypeFilter">
+                    <option value="">All lifecycle events</option>
+                    <option value="imported">Imported</option>
+                    <option value="updated">Updated</option>
+                    <option value="replaced">Replaced</option>
+                    <option value="deleted">Deleted</option>
+                    <option value="cleared">Cleared</option>
+                    <option value="rolled_back">Rolled back</option>
+                  </select>
+                </label>
+              </div>
+              <div class="action-row">
+                <button id="beneficiaryAuditReloadButton" class="action-button secondary" type="submit">Load lifecycle audit</button>
+              </div>
+            </form>
+            <div id="beneficiaryAuditMessage" class="inline-note">
+              Choose an academic year and support name to review recent beneficiary lifecycle activity, including updates, replacements, clears, and rollback events.
+            </div>
+            <div id="beneficiaryAuditList" class="result-list">
+              <p class="empty-state">No beneficiary lifecycle audit loaded yet.</p>
+            </div>
+          </section>
+        </section>
+
+      </section>
+
+      <section class="module-view" data-module-view="support">
+        <section class="panel">
+          <p class="panel-eyebrow">Food &amp; Clothing Support</p>
+          <h3>Food and clothing registration with counselor-list intake</h3>
+          <p class="lede">
+            Students first register with SSFS for food support, clothing support, or both, then they are contacted later when support is available.
+            Counselor lists can also be prepared here for import so registration stays aligned with the same registry-backed intake flow.
+          </p>
+          <div class="hero-pills">
+            <span class="pill">Office registrations</span>
+            <span class="pill">Counselor list imports</span>
+            <span class="pill">Food and clothing support types</span>
+          </div>
+          <div id="supportProgramsMessage" class="inline-note" style="margin-top:16px;">
+            Food &amp; Clothing intake starts with a registry match, and support type is captured during registration so reports can distinguish food, clothing, or combined support.
+          </div>
+        </section>
+
+        <section class="results-grid">
+          <section class="panel">
+              <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Manual Registration</p>
+                <h3 id="supportFoodBankFormTitle">Preview a student before recording food or clothing support</h3>
+              </div>
+            </div>
+            <form id="supportFoodBankForm" class="import-form">
+              <label class="field">
+                <span>Academic year</span>
+                <select id="supportFoodBankAcademicYear" class="select-field">
+                  <option value="">Choose academic year</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Semester</span>
+                <select id="supportFoodBankSemester" class="select-field">
+                  <option value="">Choose semester</option>
+                  <option value="first_semester">First Semester</option>
+                  <option value="second_semester">Second Semester</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Student ID / Reference Number</span>
+                <input id="supportFoodBankStudentReferenceId" type="text" placeholder="Example: 20260001" />
+              </label>
+              <div id="supportFoodBankRegistryPreview" class="inline-note field-span-2">
+                Enter a student ID / reference number to preview the matched registry student before support registration is recorded.
+              </div>
+              <label class="field">
+                <span>Referral source</span>
+                <input id="supportFoodBankReferralSource" type="text" placeholder="Office visit, counselor, hall tutor, dean, or other source" />
+              </label>
+              <fieldset class="field field-span-2 fieldset-field">
+                <span>Support type</span>
+                <div class="form-grid">
+                  <label class="field checkbox-field">
+                    <input id="supportFoodBankTypeFood" type="checkbox" />
+                    <span>Food Support</span>
+                  </label>
+                  <label class="field checkbox-field">
+                    <input id="supportFoodBankTypeClothing" type="checkbox" />
+                    <span>Clothing Support</span>
+                  </label>
+                </div>
+              </fieldset>
+              <div class="action-row">
+                <button id="supportFoodBankCreateButton" class="action-button primary" type="submit">Register student</button>
+                <button id="supportFoodBankCancelButton" class="action-button tertiary" type="button" hidden>Cancel edit</button>
+              </div>
+            </form>
+            <div id="supportFoodBankCreateMessage" class="inline-note">
+              This uses the same registry-first matching pattern as Recommended Students so the student details are confirmed before intake.
+            </div>
+          </section>
+
+          <section class="panel">
+              <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Excel Import</p>
+                <h3>Prepare counselor lists for food and clothing intake</h3>
+              </div>
+            </div>
+            <form id="supportFoodBankImportForm" class="import-form">
+              <label class="upload-zone" for="supportFoodBankFile">
+                <input id="supportFoodBankFile" name="supportFoodBankFile" type="file" accept=".csv,.xlsx" multiple />
+                <span class="upload-title">Choose food-and-clothing registration files</span>
+                <span class="upload-subtitle">Required fields: Academic Year, Semester, Student ID / Reference Number, and Support Type. Full Name, Index Number, Referring Counselor / Source, and Notes are optional.</span>
+                <span class="upload-file-name" id="selectedSupportFoodBankFileName">No file selected yet</span>
+              </label>
+              <div class="action-row">
+                <button id="supportFoodBankPreviewButton" class="action-button secondary" type="submit">Preview import</button>
+                <button id="supportFoodBankImportButton" class="action-button primary" type="button" disabled>Import valid rows</button>
+              </div>
+            </form>
+            <div id="supportFoodBankImportMessage" class="inline-note">
+              Counselor lists are previewed against the registry first so only matched student records are imported into Food &amp; Clothing Support registration.
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Registration Readiness</p>
+                <h3>See what the food and clothing intake workflow is preparing for</h3>
+              </div>
+            </div>
+            <div id="supportFoodBankPreviewSummaryCards" class="summary-cards">
+              <article class="metric-card"><span class="metric-label">Total rows</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Registry matched</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Needs attention</span><strong class="metric-value">0</strong></article>
+            </div>
+            <div id="supportFoodBankPreviewList" class="result-list">
+              <p class="empty-state">Food and clothing preview rows will appear here after preview.</p>
+            </div>
+            <div class="placeholder-grid">
+              <article class="guidance-card"><strong>Register first</strong><p>Students who visit SSFS can be confirmed against the registry before a food or clothing support registration is saved.</p></article>
+              <article class="guidance-card"><strong>Import counselor lists</strong><p>Lists from counselors should be registry-matched the same way so the office is working from clean student records.</p></article>
+              <article class="guidance-card"><strong>Contact later</strong><p>Availability comes later, so this stage focuses on registration, support type, and readiness rather than distribution quantities.</p></article>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-eyebrow">Registered Students</p>
+              <h3>Track who is waiting for support and who has been served</h3>
+            </div>
+          </div>
+          <form id="supportFoodBankFilterForm" class="detail-grid">
+            <label class="field">
+              <span>Academic year</span>
+              <select id="supportFoodBankAcademicYearFilter" class="select-field">
+                <option value="">All academic years</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Status</span>
+              <select id="supportFoodBankStatusFilter" class="select-field">
+                <option value="">All statuses</option>
+                <option value="registered">Registered</option>
+                <option value="served">Served</option>
+              </select>
+            </label>
+            <label class="field field-span-2">
+              <span>Search</span>
+              <input id="supportFoodBankSearchQuery" type="search" placeholder="Name, reference number, college, referral source, support type" />
+            </label>
+            <div class="action-row">
+              <button id="supportFoodBankReloadButton" class="action-button tertiary" type="button">Load support registrations</button>
+            </div>
+          </form>
+          <div id="supportFoodBankListMessage" class="inline-note">
+            Use the filters above to review Food &amp; Clothing registrations, edit or remove saved registrations, and mark students as served when support is received.
+          </div>
+          <div id="supportFoodBankList" class="result-list">
+            <p class="empty-state">Food &amp; Clothing registration records will appear here.</p>
+          </div>
+        </section>
+      </section>
+
+      <section class="module-view" data-module-view="reports">
+        <section class="results-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Reports</p>
+                <h3>Operational and audit reporting center</h3>
+              </div>
+            </div>
+            <p class="lede">
+              This module now reflects beneficiary support summary data so year-by-year and college-aware support reporting can be reviewed from one place.
+            </p>
+            <div id="reportsOverviewMessage" class="inline-note">
+              Reporting overview, exports, and support breakdowns will appear here after the API responds.
+            </div>
+            <div id="reportsSummaryCards" class="summary-cards summary-cards-wide">
+              <article class="metric-card"><span class="metric-label">Students</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Schemes</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Applications</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Active awards</span><strong class="metric-value">0</strong></article>
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Food &amp; Clothing Support</p>
+                <h3>People served per college</h3>
+              </div>
+            </div>
+            <div id="reportsFoodBankSummaryCards" class="summary-cards summary-cards-wide">
+              <article class="metric-card"><span class="metric-label">Registered</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Served</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Colleges represented</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Food support</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Clothing support</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Both</span><strong class="metric-value">0</strong></article>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">College Breakdown</p>
+                <h3>Food &amp; Clothing registrations and served counts by college</h3>
+              </div>
+            </div>
+            <div class="table-surface">
+              <table>
+                <thead>
+                  <tr>
+                    <th>College</th>
+                    <th>Registered</th>
+                    <th>Served</th>
+                  </tr>
+                </thead>
+                <tbody id="reportsFoodBankCollegeTable">
+                  <tr>
+                    <td colspan="3" class="empty-cell">Food &amp; Clothing college breakdown will appear here once records are saved.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Beneficiary Summary</p>
+                <h3>Current-year support summary for reporting</h3>
+              </div>
+              <div class="action-row">
+                <button id="reportsBeneficiarySummaryExportButton" class="action-button primary" type="button">Export full summary workbook</button>
+              </div>
+            </div>
+            <div id="reportsBeneficiarySummaryCards" class="summary-cards summary-cards-wide">
+              <article class="metric-card"><span class="metric-label">Total beneficiaries</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Amount totals</span><strong class="metric-value">GHS 0</strong></article>
+              <article class="metric-card"><span class="metric-label">Colleges represented</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">College-tagged records</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Current</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">New</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Not tagged</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Carried forward</span><strong class="metric-value">0</strong></article>
+            </div>
+          </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Scheme Reports</p>
+                  <h3>Per-scheme support breakdowns and Excel exports</h3>
+                </div>
+              </div>
+              <form id="reportsBeneficiarySchemeForm" class="import-form">
+                <div class="form-grid application-review-grid">
+                  <label class="field">
+                    <span>Academic year</span>
+                    <select id="reportsBeneficiaryAcademicYear">
+                      <option value="">Choose academic year</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Support name</span>
+                    <select id="reportsBeneficiarySchemeName">
+                      <option value="">Choose support name</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="action-row">
+                  <button id="reportsBeneficiaryLoadButton" class="action-button secondary" type="submit">Load scheme report</button>
+                  <button id="reportsBeneficiaryExportButton" class="action-button primary" type="button">Export scheme Excel</button>
+                </div>
+              </form>
+              <div id="reportsBeneficiarySchemeMessage" class="inline-note">
+                Choose a scheme and academic year to review per-college counts, currency-aware totals, and export the individual scheme workbook.
+              </div>
+              <div id="reportsBeneficiarySchemeCards" class="summary-cards summary-cards-wide">
+                <article class="metric-card"><span class="metric-label">Beneficiaries</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">Amount totals</span><strong class="metric-value">GHS 0</strong></article>
+                <article class="metric-card"><span class="metric-label">Current</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">New</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">Not tagged</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">Carried forward</span><strong class="metric-value">0</strong></article>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Scheme College Breakdown</p>
+                  <h3>Per-college beneficiary counts and amount totals for the selected scheme</h3>
+                </div>
+              </div>
+              <div class="table-surface">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>College</th>
+                      <th>Beneficiaries</th>
+                      <th>Amount Total</th>
+                      <th>Current</th>
+                      <th>New</th>
+                      <th>Not Tagged</th>
+                      <th>Carried Forward</th>
+                    </tr>
+                  </thead>
+                  <tbody id="reportsBeneficiarySchemeCollegeTable">
+                    <tr>
+                      <td colspan="7" class="empty-cell">Scheme college breakdown will appear here.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+          <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Year Comparison</p>
+                  <h3>Compare beneficiary totals and currency-aware amounts across academic years</h3>
+                </div>
+              </div>
+            <div class="table-surface">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Academic Year</th>
+                    <th>Beneficiaries</th>
+                    <th>Amount Total</th>
+                    <th>Imported Lists</th>
+                    <th>Current</th>
+                    <th>New</th>
+                    <th>Carried Forward</th>
+                  </tr>
+                </thead>
+                <tbody id="reportsBeneficiaryYearComparisonTable">
+                  <tr>
+                    <td colspan="7" class="empty-cell">Beneficiary year comparison will appear here.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="results-grid">
+          <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Current-Year Scheme Breakdown</p>
+                  <h3>Support counts and currency-aware totals side by side</h3>
+                </div>
+              </div>
+            <div id="reportsBeneficiarySchemeChart" class="dashboard-chart-surface">
+              <p class="empty-state">Current-year scheme reporting will appear here.</p>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">College Breakdown</p>
+                <h3>College distribution for categorized beneficiary lists</h3>
+              </div>
+            </div>
+            <div id="reportsBeneficiaryCollegeChart" class="dashboard-chart-surface">
+              <p class="empty-state">College reporting will appear here when imported beneficiary lists include college data.</p>
+            </div>
+          </section>
+        </section>
+      </section>
+
+    </main><!-- /workspace -->
+  </div><!-- /app-shell -->
+
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>

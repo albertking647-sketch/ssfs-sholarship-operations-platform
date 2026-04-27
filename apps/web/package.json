@@ -1,0 +1,12 @@
+{
+  "name": "@sop/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web shell for the Scholarship Operations Platform",
+  "type": "module",
+  "scripts": {
+    "dev": "node src/server.js",
+    "check": "node --check src/server.js && node --check src/app.js",
+    "test": "node scripts/test.js"
+  }
+}

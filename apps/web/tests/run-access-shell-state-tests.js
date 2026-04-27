@@ -18,12 +18,14 @@ function hidesLoginFormWhileSessionRestoreIsPending() {
       sessionRestorePending: true
     }),
     {
-      loginGateHidden: false,
+      loginGateHidden: true,
+      restoreGateHidden: false,
       loginFormHidden: true,
       appShellHidden: true,
       logoutHidden: true,
-      loginMessage: "Restoring your previous sign-in...",
-      loginTone: "warning"
+      loginMessage: "",
+      loginTone: "",
+      authBootMode: "restoring"
     }
   );
 }
@@ -36,11 +38,13 @@ function showsAppShellWhenAuthenticated() {
     }),
     {
       loginGateHidden: true,
+      restoreGateHidden: true,
       loginFormHidden: false,
       appShellHidden: false,
       logoutHidden: false,
       loginMessage: "",
-      loginTone: ""
+      loginTone: "",
+      authBootMode: "authenticated"
     }
   );
 }
@@ -53,11 +57,13 @@ function showsNormalLoginWhenNoSessionExists() {
     }),
     {
       loginGateHidden: false,
+      restoreGateHidden: true,
       loginFormHidden: false,
       appShellHidden: true,
       logoutHidden: true,
       loginMessage: "Enter your username and password to continue.",
-      loginTone: ""
+      loginTone: "",
+      authBootMode: "login"
     }
   );
 }

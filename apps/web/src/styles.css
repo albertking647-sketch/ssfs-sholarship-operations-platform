@@ -88,6 +88,23 @@ body {
   display: none !important;
 }
 
+html[data-auth-boot="restoring"] #loginGate {
+  display: none !important;
+}
+
+html[data-auth-boot="restoring"] #restoreGate {
+  display: grid !important;
+}
+
+html[data-auth-boot="restoring"] #appShell {
+  display: none !important;
+}
+
+html[data-auth-boot="login"] #restoreGate,
+html[data-auth-boot="authenticated"] #restoreGate {
+  display: none !important;
+}
+
 button, input, select, textarea { font: inherit; }
 h1, h2, h3, h4 { font-family: var(--font-display); margin-top: 0; letter-spacing: -0.3px; }
 p { margin-top: 0; }

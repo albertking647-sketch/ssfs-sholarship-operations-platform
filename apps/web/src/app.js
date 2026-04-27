@@ -288,6 +288,7 @@ let supportFoodBankPreviewLookupTimer = null;
 
 const elements = {
   loginGate: document.querySelector("#loginGate"),
+  restoreGate: document.querySelector("#restoreGate"),
   appShell: document.querySelector("#appShell"),
   loginForm: document.querySelector("#loginForm"),
   loginApiUrl: document.querySelector("#loginApiUrl"),
@@ -852,8 +853,14 @@ function renderAccessShell() {
     authenticated: isAuthenticated(),
     sessionRestorePending: state.sessionRestorePending
   });
+  if (globalThis.document?.documentElement) {
+    globalThis.document.documentElement.dataset.authBoot = accessShellState.authBootMode;
+  }
   if (elements.loginGate) {
     elements.loginGate.hidden = accessShellState.loginGateHidden;
+  }
+  if (elements.restoreGate) {
+    elements.restoreGate.hidden = accessShellState.restoreGateHidden;
   }
   if (elements.loginForm) {
     elements.loginForm.hidden = accessShellState.loginFormHidden;

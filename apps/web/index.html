@@ -4,6 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SSFS Scholarship Operations Hub</title>
+  <script>
+    (function () {
+      var authTokenKey = "ssfs-auth-session-token";
+      var readToken = function (storage) {
+        try {
+          return String(storage && storage.getItem ? storage.getItem(authTokenKey) : "").trim();
+        } catch {
+          return "";
+        }
+      };
+      var token = readToken(window.sessionStorage) || readToken(window.localStorage);
+      document.documentElement.dataset.authBoot = token ? "restoring" : "login";
+    })();
+  </script>
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
@@ -14,7 +28,7 @@
       <p class="login-copy">
         Admins and reviewers must sign in before using the platform.
       </p>
-      <form id="loginForm" class="login-form">
+      <form id="loginForm" class="login-form" method="post">
         <input id="apiUrl" name="apiUrl" type="hidden" value="" />
         <input id="authToken" name="authToken" type="hidden" value="" />
         <input id="loginApiUrl" name="loginApiUrl" type="hidden" value="" />
@@ -33,6 +47,16 @@
       <div class="inline-note" id="loginMessage">
         Enter your username and password to continue.
       </div>
+    </div>
+  </section>
+
+  <section class="login-shell" id="restoreGate" hidden>
+    <div class="login-card">
+      <p class="panel-eyebrow">Restoring Session</p>
+      <h1>Restoring your previous sign-in...</h1>
+      <p class="login-copy">
+        One moment while the platform reconnects to your staff workspace.
+      </p>
     </div>
   </section>
 

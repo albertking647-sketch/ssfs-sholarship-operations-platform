@@ -33,3 +33,13 @@ for (const file of files) {
     process.exit(result.status ?? 1);
   }
 }
+
+const coverageCheck = spawnSync(
+  process.execPath,
+  [path.join(__dirname, "verify-migration-coverage.js")],
+  { stdio: "inherit" }
+);
+
+if (coverageCheck.status !== 0) {
+  process.exit(coverageCheck.status ?? 1);
+}

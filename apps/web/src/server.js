@@ -11,6 +11,7 @@ import {
 } from "../../../scripts/networkAccess.js";
 import { readTlsConfig } from "../../../scripts/tlsConfig.js";
 import {
+  buildApiProxyHeaders,
   buildApiProxyTlsOptions,
   buildApiProxyTarget,
   shouldProxyToApi
@@ -26,7 +27,7 @@ const allowedNetworkText = process.env.WEB_TRUSTED_NETWORKS || process.env.TRUST
 const trustedNetworkRules = buildTrustedNetworkRules(allowedNetworkText);
 const tlsConfig = readTlsConfig(process.env, repoRoot);
 const apiProxyTarget = new URL(buildApiProxyTarget(process.env, tlsConfig));
-const proxyTlsOptions = buildApiProxyTlsOptions(process.env);
+const proxyTlsOptions = buildApiProxyTlsOptions(process.env, tlsConfig, repoRoot);
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -50,10 +51,7 @@ function proxyApiRequest(req, res, requestUrl) {
       port: apiProxyTarget.port,
       method: req.method,
       path: `${requestUrl.pathname}${requestUrl.search}`,
-      headers: {
-        ...req.headers,
-        host: apiProxyTarget.host
-      },
+      headers: buildApiProxyHeaders(req.headers, apiProxyTarget),
       ...proxyTlsOptions
     },
     (proxyResponse) => {

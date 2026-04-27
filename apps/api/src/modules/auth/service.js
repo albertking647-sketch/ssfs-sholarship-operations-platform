@@ -6,8 +6,10 @@ import {
   ValidationError
 } from "../../lib/errors.js";
 import {
-  generateSessionToken,
+  createSignedSessionToken,
   hashPassword,
+  readSessionTokenClaims,
+  verifySignedSessionToken,
   verifyPassword
 } from "./passwords.js";
 
@@ -92,7 +94,14 @@ function mapUserToActor(user) {
 export function createAuthService({ config, users = [], repository = null }) {
   const userIndex = new Map(users.map((user) => [user.id, user]));
   const tokenIndex = new Map((config.auth.devTokens || []).map((entry) => [entry.token, toFallbackActor(entry, userIndex)]));
-  const issuedSessions = new Map();
+  const revokedSessionIds = new Set();
+  const sessionSecret = String(config.auth.sessionSecret || "");
+  const sessionTtlMs = Math.max(
+    1,
+    Number.isFinite(Number(config.auth.sessionTtlHours))
+      ? Math.floor(Number(config.auth.sessionTtlHours) * 60 * 60 * 1000)
+      : 12 * 60 * 60 * 1000
+  );
 
   async function getRepositoryUser(userId) {
     if (!repository || !userId) {
@@ -102,24 +111,16 @@ export function createAuthService({ config, users = [], repository = null }) {
     return repository.findUserById(String(userId));
   }
 
-  async function resolveActorFromStoredSession(session) {
-    if (!session) {
+  async function resolveActorFromRepositoryUser(user) {
+    if (!user) {
       return null;
     }
 
-    const repositoryUser = await getRepositoryUser(session.userId);
-    if (repositoryUser) {
-      if (repositoryUser.status !== "active") {
-        return null;
-      }
-
-      return mapUserToActor(repositoryUser);
+    if (user.status !== "active") {
+      return null;
     }
 
-    return {
-      ...session,
-      email: session.email || userIndex.get(session.userId)?.email || null
-    };
+    return mapUserToActor(user);
   }
 
   async function requireAdminActor(actor) {
@@ -174,11 +175,10 @@ export function createAuthService({ config, users = [], repository = null }) {
     }
   }
 
-  function clearSessionsForUser(userId) {
-    for (const [token, session] of issuedSessions.entries()) {
-      if (session.userId === String(userId)) {
-        issuedSessions.delete(token);
-      }
+  function revokeSessionId(sessionId) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (normalizedSessionId) {
+      revokedSessionIds.add(normalizedSessionId);
     }
   }
 
@@ -299,19 +299,12 @@ export function createAuthService({ config, users = [], repository = null }) {
         throw new UnauthorizedError("Username or password is incorrect.");
       }
 
-      const token = generateSessionToken();
-      issuedSessions.set(token, {
-        userId: String(user.id),
-        fullName: user.fullName,
-        username: user.username || "",
-        roleCode: user.roleCode,
-        email: user.email || null,
-        status: user.status
-      });
+      const actor = mapUserToActor(user);
+      const token = createSignedSessionToken(actor, user.passwordHash, sessionSecret, sessionTtlMs);
 
       return {
         token,
-        actor: mapUserToActor(user)
+        actor
       };
     },
     async logoutRequest(req) {
@@ -322,9 +315,34 @@ export function createAuthService({ config, users = [], repository = null }) {
         };
       }
 
-      const deleted = issuedSessions.delete(token);
+      const claims = readSessionTokenClaims(token);
+      if (!claims) {
+        return {
+          loggedOut: false
+        };
+      }
+
+      const repositoryUser = await getRepositoryUser(claims.userId);
+      if (!repositoryUser) {
+        return {
+          loggedOut: false
+        };
+      }
+
+      const verifiedClaims = verifySignedSessionToken(
+        token,
+        repositoryUser.passwordHash,
+        sessionSecret
+      );
+      if (!verifiedClaims) {
+        return {
+          loggedOut: false
+        };
+      }
+
+      revokeSessionId(verifiedClaims.sessionId);
       return {
-        loggedOut: deleted
+        loggedOut: true
       };
     },
     async listUsers(actor) {
@@ -393,10 +411,6 @@ export function createAuthService({ config, users = [], repository = null }) {
         throw new NotFoundError("User account was not found.");
       }
 
-      if (updatedUser.status !== "active") {
-        clearSessionsForUser(updatedUser.id);
-      }
-
       return sanitizeUser(updatedUser);
     },
     async resetPassword(userId, input, actor) {
@@ -413,8 +427,6 @@ export function createAuthService({ config, users = [], repository = null }) {
       if (!updatedUser) {
         throw new NotFoundError("User account was not found.");
       }
-
-      clearSessionsForUser(updatedUser.id);
 
       return {
         updated: true
@@ -440,8 +452,6 @@ export function createAuthService({ config, users = [], repository = null }) {
         throw new NotFoundError("User account was not found.");
       }
 
-      clearSessionsForUser(deletedUser.id);
-
       return {
         deleted: true,
         item: sanitizeUser(deletedUser)
@@ -453,23 +463,50 @@ export function createAuthService({ config, users = [], repository = null }) {
         return null;
       }
 
-      const issuedSession = issuedSessions.get(token);
-      if (issuedSession) {
-        const actor = await resolveActorFromStoredSession(issuedSession);
-        if (!actor) {
-          issuedSessions.delete(token);
-          throw new UnauthorizedError("Authentication session is no longer valid.");
+      if (config.auth.mode === "dev-token") {
+        const tokenSession = tokenIndex.get(token);
+        if (!tokenSession) {
+          throw new UnauthorizedError("Bearer token is invalid.");
         }
 
-        return actor;
+        const repositoryUser = await getRepositoryUser(tokenSession.userId);
+        if (repositoryUser) {
+          return resolveActorFromRepositoryUser(repositoryUser);
+        }
+
+        return {
+          ...tokenSession,
+          username: tokenSession.username || "",
+          status: tokenSession.status || "active",
+          email: tokenSession.email || userIndex.get(tokenSession.userId)?.email || null
+        };
       }
 
-      const tokenSession = tokenIndex.get(token);
-      if (!tokenSession || config.auth.mode !== "dev-token") {
+      const claims = readSessionTokenClaims(token);
+      if (!claims) {
         throw new UnauthorizedError("Bearer token is invalid.");
       }
 
-      return resolveActorFromStoredSession(tokenSession);
+      const repositoryUser = await getRepositoryUser(claims.userId);
+      if (!repositoryUser) {
+        throw new UnauthorizedError("Authentication session is no longer valid.");
+      }
+
+      const verifiedClaims = verifySignedSessionToken(
+        token,
+        repositoryUser.passwordHash,
+        sessionSecret
+      );
+      if (!verifiedClaims || revokedSessionIds.has(verifiedClaims.sessionId)) {
+        throw new UnauthorizedError("Authentication session is no longer valid.");
+      }
+
+      const actor = await resolveActorFromRepositoryUser(repositoryUser);
+      if (!actor) {
+        throw new UnauthorizedError("Authentication session is no longer valid.");
+      }
+
+      return actor;
     }
   };
 }

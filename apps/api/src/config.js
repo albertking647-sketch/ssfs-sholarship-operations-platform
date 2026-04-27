@@ -73,6 +73,8 @@ export const config = {
   auth: {
     mode: process.env.AUTH_MODE || "password",
     requiredForWrite: parseBoolean(process.env.AUTH_REQUIRED_FOR_WRITE, true),
+    sessionSecret: process.env.AUTH_SESSION_SECRET || "",
+    sessionTtlHours: Number(process.env.AUTH_SESSION_TTL_HOURS || 12),
     devTokens: parseJsonArray(
       process.env.AUTH_TOKENS_JSON,
       parseBoolean(process.env.AUTH_ENABLE_DEFAULT_DEV_TOKENS, false) ? defaultDevTokens : []

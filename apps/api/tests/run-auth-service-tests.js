@@ -631,6 +631,93 @@ async function passwordModeRejectsConfiguredDevTokens() {
   );
 }
 
+async function passwordSessionsSurviveFreshServiceInstances() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const config = createBaseConfig({
+    auth: {
+      mode: "password",
+      requiredForWrite: true,
+      devTokens: [],
+      bootstrapAdmin: {
+        fullName: "Platform Admin",
+        username: "admin",
+        password: "StrongPass!23"
+      }
+    }
+  });
+  const firstService = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  await firstService.ensureBootstrapAdmin();
+  const login = await firstService.login({ username: "admin", password: "StrongPass!23" });
+
+  const secondService = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  const actor = await secondService.resolveRequestActor({
+    headers: {
+      authorization: `Bearer ${login.token}`
+    }
+  });
+
+  assert.equal(actor?.username, "admin");
+  assert.equal(actor?.roleCode, "admin");
+}
+
+async function passwordResetInvalidatesExistingSessionTokensAcrossServiceInstances() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const config = createBaseConfig({
+    auth: {
+      mode: "password",
+      requiredForWrite: true,
+      devTokens: [],
+      bootstrapAdmin: {
+        fullName: "Platform Admin",
+        username: "admin",
+        password: "StrongPass!23"
+      }
+    }
+  });
+  const firstService = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  await firstService.ensureBootstrapAdmin();
+  const login = await firstService.login({ username: "admin", password: "StrongPass!23" });
+
+  await firstService.resetPassword(
+    "1",
+    {
+      password: "EvenStrongerPass!24"
+    },
+    login.actor
+  );
+
+  const secondService = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  await assert.rejects(
+    () =>
+      secondService.resolveRequestActor({
+        headers: {
+          authorization: `Bearer ${login.token}`
+        }
+      }),
+    UnauthorizedError
+  );
+}
+
 async function lastActiveAdminCannotBeDeletedOrDemoted() {
   const repository = createAuthRepository({ database: { enabled: false } });
   const service = createAuthService({
@@ -933,6 +1020,8 @@ await shippedReviewerDefaultTokenResolvesToDatabaseUserId();
 await shippedAuditorDefaultTokenResolvesToDatabaseUserId();
 await loginAndAdminUserManagementWork();
 await passwordModeRejectsConfiguredDevTokens();
+await passwordSessionsSurviveFreshServiceInstances();
+await passwordResetInvalidatesExistingSessionTokensAcrossServiceInstances();
 await lastActiveAdminCannotBeDeletedOrDemoted();
 reviewerCannotAccessRestrictedModules();
 initialMigrationMatchesSchemaFile();

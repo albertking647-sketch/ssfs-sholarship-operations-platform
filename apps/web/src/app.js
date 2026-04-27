@@ -8,6 +8,10 @@ import {
   readStoredAuthTokenFromStorages,
   writeStoredAuthTokenToStorages
 } from "./authSession.js";
+import {
+  buildAccessShellState,
+  shouldAttemptSessionRestore
+} from "./accessShellState.js";
 
 const STORAGE_KEY = "sop-theme";
 
@@ -257,6 +261,7 @@ const state = {
   lastAcademicHistoryImport: null,
   academicHistoryList: [],
   session: null,
+  sessionRestorePending: false,
   accessUsers: [],
   dashboard: null,
   searchResults: [],
@@ -778,6 +783,7 @@ function restoreConnectionState() {
     globalThis.sessionStorage,
     globalThis.localStorage
   ]);
+  state.sessionRestorePending = shouldAttemptSessionRestore(elements.authToken.value);
   if (storedUsername && elements.loginUsername) {
     elements.loginUsername.value = storedUsername;
   }
@@ -833,15 +839,24 @@ function syncAccessManagementVisibility() {
 }
 
 function renderAccessShell() {
-  const authenticated = isAuthenticated();
+  const accessShellState = buildAccessShellState({
+    authenticated: isAuthenticated(),
+    sessionRestorePending: state.sessionRestorePending
+  });
   if (elements.loginGate) {
-    elements.loginGate.hidden = authenticated;
+    elements.loginGate.hidden = accessShellState.loginGateHidden;
+  }
+  if (elements.loginForm) {
+    elements.loginForm.hidden = accessShellState.loginFormHidden;
   }
   if (elements.appShell) {
-    elements.appShell.hidden = !authenticated;
+    elements.appShell.hidden = accessShellState.appShellHidden;
   }
   if (elements.logoutButton) {
-    elements.logoutButton.hidden = !authenticated;
+    elements.logoutButton.hidden = accessShellState.logoutHidden;
+  }
+  if (accessShellState.loginMessage) {
+    setLoginMessage(accessShellState.loginMessage, accessShellState.loginTone);
   }
   renderSessionSummary();
   syncAccessManagementVisibility();
@@ -1207,6 +1222,7 @@ async function handleLoginSubmit(event) {
   const username = String(elements.loginUsername?.value || "").trim();
   const password = String(elements.loginPassword?.value || "");
 
+  state.sessionRestorePending = false;
   elements.apiUrl.value = apiBaseUrl;
   persistConnectionState();
 
@@ -1275,6 +1291,7 @@ async function handleLogout() {
 
   elements.authToken.value = "";
   state.session = null;
+  state.sessionRestorePending = false;
   state.accessUsers = [];
   persistConnectionState();
   renderAccessUsers();
@@ -6189,6 +6206,7 @@ async function requestSession(options = {}) {
   syncTokenPresetButtons();
   if (!apiBaseUrl) {
     state.session = null;
+    state.sessionRestorePending = false;
     state.accessUsers = [];
     renderAccessUsers();
     renderAccessShell();
@@ -6212,6 +6230,7 @@ async function requestSession(options = {}) {
     }
 
     state.session = payload;
+    state.sessionRestorePending = false;
     const actor = payload.actor;
     if (!payload.authenticated) {
       elements.authToken.value = "";
@@ -6267,6 +6286,7 @@ async function requestSession(options = {}) {
       persistConnectionState();
     }
     state.session = null;
+    state.sessionRestorePending = false;
     state.accessUsers = [];
     renderAccessUsers();
     syncRegistryAdminControls();

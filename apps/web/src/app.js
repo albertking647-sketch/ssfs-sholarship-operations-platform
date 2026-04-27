@@ -20,6 +20,7 @@ import {
   isAuthenticationSessionErrorMessage,
   resolveSessionFailurePolicy
 } from "./sessionFailurePolicy.js";
+import { focusApplicationReviewSearch } from "./applicationReviewNavigation.js";
 
 const STORAGE_KEY = "sop-theme";
 
@@ -10834,6 +10835,12 @@ async function saveApplicationReview(event) {
     await loadDashboard();
     state.selectedApplicationId = payload.item?.id || application.id;
     renderSelectedApplicationReview();
+    requestAnimationFrame(() => {
+      focusApplicationReviewSearch({
+        searchForm: elements.applicationReviewSearchForm,
+        searchInput: elements.applicationReviewSearchReference
+      });
+    });
   } catch (error) {
     setApplicationReviewMessage(error.message, "error");
   } finally {
@@ -12243,11 +12250,10 @@ function bindEvents() {
     renderApplicationReviewResultsVisibility();
   });
   elements.applicationReviewResultsTopButton.addEventListener("click", () => {
-    elements.applicationReviewSearchForm.scrollIntoView({
-      behavior: "smooth",
-      block: "start"
+    focusApplicationReviewSearch({
+      searchForm: elements.applicationReviewSearchForm,
+      searchInput: elements.applicationReviewSearchReference
     });
-    elements.applicationReviewSearchReference.focus({ preventScroll: true });
   });
   elements.singleApplicationLookupButton.addEventListener("click", () => {
     void handleSingleApplicationLookup();

@@ -12,6 +12,10 @@ import {
   buildAccessShellState,
   shouldAttemptSessionRestore
 } from "./accessShellState.js";
+import {
+  isAuthenticationSessionErrorMessage,
+  resolveSessionFailurePolicy
+} from "./sessionFailurePolicy.js";
 
 const STORAGE_KEY = "sop-theme";
 
@@ -6170,22 +6174,8 @@ function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function isExpiredSessionErrorMessage(message) {
-  const normalized = String(message || "").trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-
-  return (
-    normalized.includes("bearer token is invalid") ||
-    normalized.includes("authentication session is no longer valid") ||
-    normalized.includes("authorization header must use the bearer scheme") ||
-    normalized.includes("unauthorized")
-  );
-}
-
 async function recoverExpiredSession(error) {
-  if (!isExpiredSessionErrorMessage(error?.message)) {
+  if (!isAuthenticationSessionErrorMessage(error?.message)) {
     return false;
   }
 
@@ -6277,31 +6267,41 @@ async function requestSession(options = {}) {
     }
   } catch (error) {
     const errorMessage = String(error?.message || "");
-    if (
-      errorMessage.toLowerCase().includes("invalid") ||
-      errorMessage.toLowerCase().includes("sign in") ||
-      errorMessage.toLowerCase().includes("unauthorized")
-    ) {
+    const failurePolicy = resolveSessionFailurePolicy({
+      session: state.session,
+      errorMessage
+    });
+
+    if (failurePolicy.clearStoredSession) {
       elements.authToken.value = "";
       persistConnectionState();
     }
-    state.session = null;
     state.sessionRestorePending = false;
-    state.accessUsers = [];
-    renderAccessUsers();
-    syncRegistryAdminControls();
-    syncApplicationCriteriaControls();
-    syncSchemeControls();
-    syncApplicationReviewControls();
-    renderSchemeFormState();
-    renderSelectedApplicationReview();
-    renderApplicationExportCards();
-    syncBeneficiaryControls();
+
+    if (failurePolicy.clearSessionState) {
+      state.session = null;
+      state.accessUsers = [];
+      renderAccessUsers();
+      renderAccessShell();
+      setBadge("API unavailable", "error");
+      elements.sessionCard.innerHTML = `
+        <p class="session-status">
+          The frontend could not reach the API at <strong>${escapeHtml(apiBaseUrl)}</strong>.
+        </p>
+        <p class="session-status">${escapeHtml(error.message)}</p>
+      `;
+      return;
+    }
+
+    const actor = state.session?.actor || {};
     renderAccessShell();
-    setBadge("API unavailable", "error");
+    setBadge("Workspace issue", "warning");
     elements.sessionCard.innerHTML = `
       <p class="session-status">
-        The frontend could not reach the API at <strong>${escapeHtml(apiBaseUrl)}</strong>.
+        Signed in as <strong>${escapeHtml(actor.fullName || actor.username || "Staff")}</strong>.
+      </p>
+      <p class="session-status">
+        The workspace hit an error after sign-in, but your session is still active.
       </p>
       <p class="session-status">${escapeHtml(error.message)}</p>
     `;

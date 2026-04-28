@@ -5,6 +5,11 @@ import {
   getSanitizedLoginUrl,
   shouldUseStoredApiUrl
 } from "./network.js";
+import {
+  beginSessionRequest,
+  createSessionRequestTracker,
+  isCurrentSessionRequest
+} from "./sessionRequestTracker.js";
 
 import {
   getVisibleModulesForRole,
@@ -284,6 +289,8 @@ const state = {
     existingAcademicHistoryRecords: 0
   }
 };
+
+const sessionRequestTracker = createSessionRequestTracker();
 
 let recommendedPreviewLookupTimer = null;
 let supportFoodBankPreviewLookupTimer = null;
@@ -6209,6 +6216,7 @@ async function recoverExpiredSession(error) {
 }
 
 async function requestSession(options = {}) {
+  const requestId = beginSessionRequest(sessionRequestTracker);
   const reloadData = Boolean(options.reloadData);
   const apiBaseUrl = getApiBaseUrl();
   persistConnectionState();
@@ -6236,6 +6244,10 @@ async function requestSession(options = {}) {
       })
     );
     const payload = await response.json();
+
+    if (!isCurrentSessionRequest(sessionRequestTracker, requestId)) {
+      return;
+    }
 
     if (!response.ok) {
       throw new Error(payload.message || "Unable to reach the API session endpoint.");
@@ -6290,6 +6302,10 @@ async function requestSession(options = {}) {
       await refreshRoleScopedWorkspace();
     }
   } catch (error) {
+    if (!isCurrentSessionRequest(sessionRequestTracker, requestId)) {
+      return;
+    }
+
     const errorMessage = String(error?.message || "");
     const failurePolicy = resolveSessionFailurePolicy({
       session: state.session,

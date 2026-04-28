@@ -156,7 +156,7 @@ async function allowsConfiguredTrustedOrigins() {
   assert.equal(response.headers["access-control-allow-origin"], "http://127.0.0.1:4400");
 }
 
-async function rejectsSameHostOriginsUnlessTheyAreExplicitlyAllowed() {
+async function allowsSameOriginRequestsWithoutExplicitCorsAllowlist() {
   const app = createApp(
     createRuntime({
       config: {
@@ -171,11 +171,13 @@ async function rejectsSameHostOriginsUnlessTheyAreExplicitlyAllowed() {
     url: "/api/auth/session",
     headers: {
       host: "staff.example.test",
-      origin: "https://staff.example.test"
+      origin: "https://staff.example.test",
+      "x-forwarded-proto": "https"
     }
   });
 
-  assert.equal(response.statusCode, 403);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers["access-control-allow-origin"], "https://staff.example.test");
 }
 
 async function loginRateLimitResponsesIncludeRetryAfter() {
@@ -296,7 +298,7 @@ function configDoesNotShipHardcodedDemoBearerTokens() {
 await rejectsApplicationReadsWithoutAuthentication();
 await rejectsUnexpectedCrossOriginRequests();
 await allowsConfiguredTrustedOrigins();
-await rejectsSameHostOriginsUnlessTheyAreExplicitlyAllowed();
+await allowsSameOriginRequestsWithoutExplicitCorsAllowlist();
 await loginRateLimitResponsesIncludeRetryAfter();
 await authRoutesUseScopedRequestBodyLimits();
 await healthAndApiMetadataDoNotLeakInternalConfiguration();

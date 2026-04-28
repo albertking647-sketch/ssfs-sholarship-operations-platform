@@ -11,10 +11,33 @@ function normalizeOrigin(value) {
   }
 }
 
-export function isOriginAllowed(origin, _requestHost, allowedOrigins = []) {
+function normalizeRequestOrigin(requestHost, requestProtocol) {
+  const host = String(requestHost || "").trim();
+  if (!host) {
+    return "";
+  }
+
+  const normalizedProtocol =
+    String(requestProtocol || "")
+      .trim()
+      .replace(/:$/u, "") || "http";
+
+  try {
+    return new URL(`${normalizedProtocol}://${host}`).origin;
+  } catch {
+    return "";
+  }
+}
+
+export function isOriginAllowed(origin, requestHost, allowedOrigins = [], requestProtocol = "http") {
   const normalizedOrigin = normalizeOrigin(origin);
   if (!normalizedOrigin) {
     return !origin;
+  }
+
+  const normalizedRequestOrigin = normalizeRequestOrigin(requestHost, requestProtocol);
+  if (normalizedRequestOrigin && normalizedRequestOrigin === normalizedOrigin) {
+    return true;
   }
 
   return allowedOrigins

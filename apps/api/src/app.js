@@ -34,7 +34,8 @@ export function createApp(runtime) {
       !isOriginAllowed(
         requestOrigin,
         req.headers.host || "",
-        runtime.config.cors?.allowedOrigins || []
+        runtime.config.cors?.allowedOrigins || [],
+        req.headers["x-forwarded-proto"] || "http"
       )
     ) {
       return sendJson(res, 403, {

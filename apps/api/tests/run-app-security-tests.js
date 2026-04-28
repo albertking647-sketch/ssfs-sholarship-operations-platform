@@ -274,6 +274,14 @@ async function apiResponsesIncludeSecurityHeaders() {
     }
   });
 
+  assert.equal(
+    response.headers["cache-control"],
+    "private, no-store, no-cache, max-age=0, must-revalidate"
+  );
+  assert.equal(response.headers["cdn-cache-control"], "no-store");
+  assert.equal(response.headers["vercel-cdn-cache-control"], "no-store");
+  assert.equal(response.headers.pragma, "no-cache");
+  assert.equal(response.headers.expires, "0");
   assert.equal(response.headers["x-content-type-options"], "nosniff");
   assert.equal(response.headers["x-frame-options"], "DENY");
   assert.equal(response.headers["referrer-policy"], "no-referrer");

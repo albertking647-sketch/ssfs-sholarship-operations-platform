@@ -1,9 +1,13 @@
 import { AppError, TooManyRequestsError } from "./errors.js";
 
 const DEFAULT_SECURITY_HEADERS = {
-  "Cache-Control": "no-store",
+  "Cache-Control": "private, no-store, no-cache, max-age=0, must-revalidate",
+  "CDN-Cache-Control": "no-store",
   "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  Expires: "0",
+  Pragma: "no-cache",
   "Referrer-Policy": "no-referrer",
+  "Vercel-CDN-Cache-Control": "no-store",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY"
 };

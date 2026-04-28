@@ -135,6 +135,12 @@ async function loginSetsSessionCookieWithoutExposingTokenInJson() {
   const payload = JSON.parse(response.body);
 
   assert.equal(response.statusCode, 200);
+  assert.equal(
+    response.headers["cache-control"],
+    "private, no-store, no-cache, max-age=0, must-revalidate"
+  );
+  assert.equal(response.headers["cdn-cache-control"], "no-store");
+  assert.equal(response.headers["vercel-cdn-cache-control"], "no-store");
   assert.match(String(response.headers["set-cookie"] || ""), /ssfs_session=/u);
   assert.match(String(response.headers["set-cookie"] || ""), /HttpOnly/u);
   assert.match(String(response.headers["set-cookie"] || ""), /SameSite=Strict/u);
@@ -168,6 +174,12 @@ async function logoutClearsSessionCookie() {
   });
 
   assert.equal(response.statusCode, 200);
+  assert.equal(
+    response.headers["cache-control"],
+    "private, no-store, no-cache, max-age=0, must-revalidate"
+  );
+  assert.equal(response.headers["cdn-cache-control"], "no-store");
+  assert.equal(response.headers["vercel-cdn-cache-control"], "no-store");
   assert.match(String(response.headers["set-cookie"] || ""), /ssfs_session=/u);
   assert.match(String(response.headers["set-cookie"] || ""), /Max-Age=0/u);
 }

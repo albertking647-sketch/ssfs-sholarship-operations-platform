@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   buildTrustedNetworkRules,
+  getTrustedNetworkRemoteAddress,
   isRemoteAddressAllowed
 } from "../../../scripts/networkAccess.js";
 
@@ -27,8 +28,43 @@ function emptyRulesAllowAll() {
   assert.equal(isRemoteAddressAllowed("203.0.113.10", rules), true);
 }
 
+function prefersForwardedClientAddressWhenEnabled() {
+  assert.equal(
+    getTrustedNetworkRemoteAddress(
+      {
+        headers: {
+          "x-forwarded-for": "203.0.113.7, 10.0.0.5"
+        },
+        socket: {
+          remoteAddress: "10.0.0.5"
+        }
+      },
+      { trustProxyHeaders: true }
+    ),
+    "203.0.113.7"
+  );
+}
+
+function ignoresForwardedClientAddressWhenProxyTrustDisabled() {
+  assert.equal(
+    getTrustedNetworkRemoteAddress(
+      {
+        headers: {
+          "x-forwarded-for": "203.0.113.7, 10.0.0.5"
+        },
+        socket: {
+          remoteAddress: "10.0.0.5"
+        }
+      }
+    ),
+    "10.0.0.5"
+  );
+}
+
 supportsExactAndCidrIpv4Matches();
 supportsIpv4MappedIpv6Loopback();
 emptyRulesAllowAll();
+prefersForwardedClientAddressWhenEnabled();
+ignoresForwardedClientAddressWhenProxyTrustDisabled();
 
 console.log("network-access-tests: ok");

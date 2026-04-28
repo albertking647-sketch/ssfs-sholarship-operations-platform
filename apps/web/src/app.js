@@ -1,13 +1,35 @@
-﻿import { deriveDefaultApiUrl, shouldUseStoredApiUrl } from "./network.js";
+import {
+  buildCookieSessionFetchOptions,
+  buildSessionEndpointUrl,
+  deriveDefaultApiUrl,
+  getSanitizedLoginUrl,
+  shouldUseStoredApiUrl
+} from "./network.js";
+import { confirmSessionAfterLogin } from "./sessionConfirmation.js";
+import {
+  beginSessionRequest,
+  createSessionRequestTracker,
+  isCurrentSessionRequest
+} from "./sessionRequestTracker.js";
 
 import {
   getVisibleModulesForRole,
   resolveModuleForRole
 } from "./roleAccess.js";
 import {
-  readStoredAuthToken,
-  writeStoredAuthToken
+  readStoredAuthTokenFromStorages,
+  writeStoredAuthTokenToStorages
 } from "./authSession.js";
+import {
+  buildAccessShellState,
+  shouldAttemptSessionRestore
+} from "./accessShellState.js";
+import {
+  isAuthenticationSessionErrorMessage,
+  resolveSessionFailurePolicy
+} from "./sessionFailurePolicy.js";
+import { focusApplicationReviewSearch } from "./applicationReviewNavigation.js";
+import { showLoginGateMessage } from "./loginGateState.js";
 
 const STORAGE_KEY = "sop-theme";
 
@@ -257,6 +279,7 @@ const state = {
   lastAcademicHistoryImport: null,
   academicHistoryList: [],
   session: null,
+  sessionRestorePending: false,
   accessUsers: [],
   dashboard: null,
   searchResults: [],
@@ -269,11 +292,14 @@ const state = {
   }
 };
 
+const sessionRequestTracker = createSessionRequestTracker();
+
 let recommendedPreviewLookupTimer = null;
 let supportFoodBankPreviewLookupTimer = null;
 
 const elements = {
   loginGate: document.querySelector("#loginGate"),
+  restoreGate: document.querySelector("#restoreGate"),
   appShell: document.querySelector("#appShell"),
   loginForm: document.querySelector("#loginForm"),
   loginApiUrl: document.querySelector("#loginApiUrl"),
@@ -282,7 +308,7 @@ const elements = {
   loginButton: document.querySelector("#loginButton"),
   loginMessage: document.querySelector("#loginMessage"),
   apiUrl: document.querySelector("#apiUrl"),
-  authToken: document.querySelector("#authToken"),
+  authSessionHint: document.querySelector("#authSessionHint"),
   sessionSummary: document.querySelector("#sessionSummary"),
   logoutButton: document.querySelector("#logoutButton"),
   dashboardMessage: document.querySelector("#dashboardMessage"),
@@ -754,7 +780,10 @@ function persistPanelState() {
 function persistConnectionState() {
   safeLocalStorageSet(API_URL_KEY, elements.apiUrl?.value?.trim() || "");
   safeLocalStorageSet(AUTH_USERNAME_KEY, elements.loginUsername?.value?.trim() || "");
-  writeStoredAuthToken(globalThis.sessionStorage, elements.authToken?.value?.trim() || "");
+  writeStoredAuthTokenToStorages(
+    [globalThis.sessionStorage, globalThis.localStorage],
+    elements.authSessionHint?.value?.trim() || ""
+  );
 }
 
 function restoreConnectionState() {
@@ -771,7 +800,11 @@ function restoreConnectionState() {
   if (elements.loginApiUrl) {
     elements.loginApiUrl.value = elements.apiUrl.value;
   }
-  elements.authToken.value = readStoredAuthToken(globalThis.sessionStorage);
+  elements.authSessionHint.value = readStoredAuthTokenFromStorages([
+    globalThis.sessionStorage,
+    globalThis.localStorage
+  ]);
+  state.sessionRestorePending = shouldAttemptSessionRestore(elements.authSessionHint.value);
   if (storedUsername && elements.loginUsername) {
     elements.loginUsername.value = storedUsername;
   }
@@ -781,7 +814,7 @@ function syncTokenPresetButtons() {
   if (!elements.tokenButtons.length) {
     return;
   }
-  const activeToken = elements.authToken?.value?.trim() || "";
+  const activeToken = elements.authSessionHint?.value?.trim() || "";
   for (const tokenButton of elements.tokenButtons) {
     tokenButton.classList.toggle("is-active", (tokenButton.dataset.token || "") === activeToken);
   }
@@ -827,15 +860,30 @@ function syncAccessManagementVisibility() {
 }
 
 function renderAccessShell() {
-  const authenticated = isAuthenticated();
+  const accessShellState = buildAccessShellState({
+    authenticated: isAuthenticated(),
+    sessionRestorePending: state.sessionRestorePending
+  });
+  if (globalThis.document?.documentElement) {
+    globalThis.document.documentElement.dataset.authBoot = accessShellState.authBootMode;
+  }
   if (elements.loginGate) {
-    elements.loginGate.hidden = authenticated;
+    elements.loginGate.hidden = accessShellState.loginGateHidden;
+  }
+  if (elements.restoreGate) {
+    elements.restoreGate.hidden = accessShellState.restoreGateHidden;
+  }
+  if (elements.loginForm) {
+    elements.loginForm.hidden = accessShellState.loginFormHidden;
   }
   if (elements.appShell) {
-    elements.appShell.hidden = !authenticated;
+    elements.appShell.hidden = accessShellState.appShellHidden;
   }
   if (elements.logoutButton) {
-    elements.logoutButton.hidden = !authenticated;
+    elements.logoutButton.hidden = accessShellState.logoutHidden;
+  }
+  if (accessShellState.loginMessage) {
+    setLoginMessage(accessShellState.loginMessage, accessShellState.loginTone);
   }
   renderSessionSummary();
   syncAccessManagementVisibility();
@@ -866,10 +914,12 @@ function renderAccessUsers() {
   elements.accessManagementList.innerHTML = users
       .map((item) => {
         const isActive = String(item.status || "").toLowerCase() === "active";
+        const isProtectedBootstrapAdmin = Boolean(item.isProtectedAdmin);
         const isProtectedLastAdmin =
           isActive &&
           String(item.roleCode || "").toLowerCase() === "admin" &&
           activeAdminCount <= 1;
+        const isProtectedAdmin = isProtectedBootstrapAdmin || isProtectedLastAdmin;
         const roleLabel =
           String(item.roleCode || "")
             .split("_")
@@ -888,7 +938,7 @@ function renderAccessUsers() {
               <div class="detail-flags">
                 ${createFlagPill(isActive ? "Active" : "Inactive", isActive ? "success" : "warning")}
                 ${
-                  isProtectedLastAdmin
+                  isProtectedAdmin
                     ? createFlagPill("Protected admin", "warning")
                     : ""
                 }
@@ -908,12 +958,12 @@ function renderAccessUsers() {
               <button class="action-button tertiary" type="button" data-access-action="role" data-access-user-id="${escapeHtml(
                 item.id
               )}" data-access-role="${escapeHtml(alternateRole)}"${
-                isProtectedLastAdmin ? " disabled" : ""
+                isProtectedAdmin ? " disabled" : ""
               }>${escapeHtml(alternateRoleLabel)}</button>
               <button class="action-button secondary" type="button" data-access-action="status" data-access-user-id="${escapeHtml(
                 item.id
               )}" data-access-status="${isActive ? "inactive" : "active"}"${
-                isProtectedLastAdmin ? " disabled" : ""
+                isProtectedAdmin ? " disabled" : ""
               }>${isActive ? "Deactivate" : "Activate"}</button>
               <button class="action-button ghost" type="button" data-access-action="reset-password" data-access-user-id="${escapeHtml(
                 item.id
@@ -921,7 +971,7 @@ function renderAccessUsers() {
               <button class="action-button ghost" type="button" data-access-action="remove" data-access-user-id="${escapeHtml(
                 item.id
               )}" data-access-user-name="${escapeHtml(item.fullName || item.username || "this staff account")}"${
-                isProtectedLastAdmin ? " disabled" : ""
+                isProtectedAdmin ? " disabled" : ""
               }>Remove</button>
             </div>
           </article>
@@ -957,12 +1007,15 @@ async function loadAccessUsers() {
         const isActive = String(item.status || "").toLowerCase() === "active";
         return isActive && String(item.roleCode || "").toLowerCase() === "admin";
       }).length;
+      const hasProtectedAdmin = state.accessUsers.some((item) => Boolean(item.isProtectedAdmin));
       renderAccessUsers();
       if (elements.accessManagementMessage) {
         elements.accessManagementMessage.textContent =
-          activeAdminCount <= 1
-            ? "The last active admin account is protected from role changes, deactivation, and removal."
-            : "Admin-created accounts can be activated, deactivated, reset, and removed from the list below.";
+          hasProtectedAdmin
+            ? "The protected bootstrap admin cannot be renamed, deactivated, demoted, or removed. The last active admin is also protected."
+            : activeAdminCount <= 1
+              ? "The last active admin account is protected from role changes, deactivation, and removal."
+              : "Admin-created accounts can be activated, deactivated, reset, and removed from the list below.";
         elements.accessManagementMessage.className = "inline-note tone-success";
       }
     } catch (error) {
@@ -1196,6 +1249,7 @@ async function handleLoginSubmit(event) {
   const username = String(elements.loginUsername?.value || "").trim();
   const password = String(elements.loginPassword?.value || "");
 
+  state.sessionRestorePending = false;
   elements.apiUrl.value = apiBaseUrl;
   persistConnectionState();
 
@@ -1212,32 +1266,58 @@ async function handleLoginSubmit(event) {
   if (elements.loginButton) {
     elements.loginButton.disabled = true;
   }
+  beginSessionRequest(sessionRequestTracker);
   setLoginMessage("Signing in...", "warning");
 
   try {
-    const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ username, password })
-    });
+    const response = await fetch(
+      `${apiBaseUrl}/api/auth/login`,
+      buildCookieSessionFetchOptions({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ username, password })
+      })
+    );
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(payload.message || "Unable to sign in.");
     }
 
-    elements.authToken.value = payload.token || "";
+    state.session = {
+      ok: true,
+      authMode: payload.authMode,
+      authenticated: true,
+      actor: payload.actor || null
+    };
+    state.sessionRestorePending = false;
+    elements.authSessionHint.value = "active";
     elements.loginPassword.value = "";
     persistConnectionState();
     setLoginMessage(`Welcome back, ${payload.actor?.fullName || username}.`, "success");
+    renderAccessShell();
+    renderModuleShell();
+
+    const confirmedSession = await confirmSessionAfterLogin({
+      fetchSession: async () => fetchSessionPayload(apiBaseUrl)
+    });
+
+    if (!confirmedSession.authenticated) {
+      throw new Error("Sign-in could not be confirmed. Please try again.");
+    }
+
     await requestSession({ reloadData: true });
   } catch (error) {
-    elements.authToken.value = "";
+    elements.authSessionHint.value = "";
     persistConnectionState();
-    setLoginMessage(error.message || "Unable to sign in.", "error");
     state.session = null;
-    renderAccessShell();
+    showLoginGateMessage({
+      message: error.message || "Unable to sign in.",
+      renderAccessShell,
+      setLoginMessage,
+      tone: "error"
+    });
   } finally {
     if (elements.loginButton) {
       elements.loginButton.disabled = false;
@@ -1247,23 +1327,27 @@ async function handleLoginSubmit(event) {
 
 async function handleLogout() {
   const apiBaseUrl = getApiBaseUrl();
-  const hadToken = Boolean(elements.authToken?.value?.trim());
+  const hadToken = Boolean(elements.authSessionHint?.value?.trim() || state.session?.authenticated);
 
   if (apiBaseUrl && hadToken) {
     try {
-      await fetch(`${apiBaseUrl}/api/auth/logout`, {
-        method: "POST",
-        headers: {
-          ...getAuthHeaders()
-        }
-      });
+      await fetch(
+        `${apiBaseUrl}/api/auth/logout`,
+        buildCookieSessionFetchOptions({
+          method: "POST",
+          headers: {
+            ...getAuthHeaders()
+          }
+        })
+      );
     } catch {
       // ignore logout transport errors and continue local cleanup
     }
   }
 
-  elements.authToken.value = "";
+  elements.authSessionHint.value = "";
   state.session = null;
+  state.sessionRestorePending = false;
   state.accessUsers = [];
   persistConnectionState();
   renderAccessUsers();
@@ -3939,7 +4023,7 @@ async function handleSupportFoodBankPreview(event) {
     const response = await fetch(`${apiBaseUrl}/api/food-bank/import/preview`, {
       method: "POST",
       headers: {
-        Authorization: getAuthHeaders().Authorization || ""
+        ...getAuthHeaders()
       },
       body: formData
     });
@@ -3999,7 +4083,7 @@ async function handleSupportFoodBankImport() {
     const response = await fetch(`${apiBaseUrl}/api/food-bank/import`, {
       method: "POST",
       headers: {
-        Authorization: getAuthHeaders().Authorization || ""
+        ...getAuthHeaders()
       },
       body: formData
     });
@@ -6138,30 +6222,32 @@ function getApiBaseUrl() {
 }
 
 function getAuthHeaders() {
-  const token = elements.authToken.value.trim();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return {};
 }
 
-function isExpiredSessionErrorMessage(message) {
-  const normalized = String(message || "").trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-
-  return (
-    normalized.includes("bearer token is invalid") ||
-    normalized.includes("authentication session is no longer valid") ||
-    normalized.includes("authorization header must use the bearer scheme") ||
-    normalized.includes("unauthorized")
+async function fetchSessionPayload(apiBaseUrl) {
+  const response = await fetch(
+    buildSessionEndpointUrl(apiBaseUrl),
+    buildCookieSessionFetchOptions({
+      headers: {
+        ...getAuthHeaders()
+      }
+    })
   );
+  const payload = await response.json();
+
+  return {
+    ok: response.ok,
+    payload
+  };
 }
 
 async function recoverExpiredSession(error) {
-  if (!isExpiredSessionErrorMessage(error?.message)) {
+  if (!isAuthenticationSessionErrorMessage(error?.message)) {
     return false;
   }
 
-  elements.authToken.value = "";
+  elements.authSessionHint.value = "";
   persistConnectionState();
   setLoginMessage(
     "Your previous sign-in session ended after the API restarted. Please sign in again.",
@@ -6172,12 +6258,14 @@ async function recoverExpiredSession(error) {
 }
 
 async function requestSession(options = {}) {
+  const requestId = beginSessionRequest(sessionRequestTracker);
   const reloadData = Boolean(options.reloadData);
   const apiBaseUrl = getApiBaseUrl();
   persistConnectionState();
   syncTokenPresetButtons();
   if (!apiBaseUrl) {
     state.session = null;
+    state.sessionRestorePending = false;
     state.accessUsers = [];
     renderAccessUsers();
     renderAccessShell();
@@ -6189,21 +6277,21 @@ async function requestSession(options = {}) {
   setBadge("Checking API", "warning");
 
   try {
-    const response = await fetch(`${apiBaseUrl}/api/auth/session`, {
-      headers: {
-        ...getAuthHeaders()
-      }
-    });
-    const payload = await response.json();
+    const { ok, payload } = await fetchSessionPayload(apiBaseUrl);
 
-    if (!response.ok) {
+    if (!isCurrentSessionRequest(sessionRequestTracker, requestId)) {
+      return;
+    }
+
+    if (!ok) {
       throw new Error(payload.message || "Unable to reach the API session endpoint.");
     }
 
     state.session = payload;
+    state.sessionRestorePending = false;
     const actor = payload.actor;
     if (!payload.authenticated) {
-      elements.authToken.value = "";
+      elements.authSessionHint.value = "";
       persistConnectionState();
       state.accessUsers = [];
       renderAccessUsers();
@@ -6216,6 +6304,8 @@ async function requestSession(options = {}) {
       return;
     }
 
+    elements.authSessionHint.value = "active";
+    persistConnectionState();
     sanitizeWorkspaceState();
     syncRegistryAdminControls();
     syncApplicationCriteriaControls();
@@ -6246,31 +6336,46 @@ async function requestSession(options = {}) {
       await refreshRoleScopedWorkspace();
     }
   } catch (error) {
+    if (!isCurrentSessionRequest(sessionRequestTracker, requestId)) {
+      return;
+    }
+
     const errorMessage = String(error?.message || "");
-    if (
-      errorMessage.toLowerCase().includes("invalid") ||
-      errorMessage.toLowerCase().includes("sign in") ||
-      errorMessage.toLowerCase().includes("unauthorized")
-    ) {
-      elements.authToken.value = "";
+    const failurePolicy = resolveSessionFailurePolicy({
+      session: state.session,
+      errorMessage
+    });
+
+    if (failurePolicy.clearStoredSession) {
+      elements.authSessionHint.value = "";
       persistConnectionState();
     }
-    state.session = null;
-    state.accessUsers = [];
-    renderAccessUsers();
-    syncRegistryAdminControls();
-    syncApplicationCriteriaControls();
-    syncSchemeControls();
-    syncApplicationReviewControls();
-    renderSchemeFormState();
-    renderSelectedApplicationReview();
-    renderApplicationExportCards();
-    syncBeneficiaryControls();
+    state.sessionRestorePending = false;
+
+    if (failurePolicy.clearSessionState) {
+      state.session = null;
+      state.accessUsers = [];
+      renderAccessUsers();
+      renderAccessShell();
+      setBadge("API unavailable", "error");
+      elements.sessionCard.innerHTML = `
+        <p class="session-status">
+          The frontend could not reach the API at <strong>${escapeHtml(apiBaseUrl)}</strong>.
+        </p>
+        <p class="session-status">${escapeHtml(error.message)}</p>
+      `;
+      return;
+    }
+
+    const actor = state.session?.actor || {};
     renderAccessShell();
-    setBadge("API unavailable", "error");
+    setBadge("Workspace issue", "warning");
     elements.sessionCard.innerHTML = `
       <p class="session-status">
-        The frontend could not reach the API at <strong>${escapeHtml(apiBaseUrl)}</strong>.
+        Signed in as <strong>${escapeHtml(actor.fullName || actor.username || "Staff")}</strong>.
+      </p>
+      <p class="session-status">
+        The workspace hit an error after sign-in, but your session is still active.
       </p>
       <p class="session-status">${escapeHtml(error.message)}</p>
     `;
@@ -10799,6 +10904,12 @@ async function saveApplicationReview(event) {
     await loadDashboard();
     state.selectedApplicationId = payload.item?.id || application.id;
     renderSelectedApplicationReview();
+    requestAnimationFrame(() => {
+      focusApplicationReviewSearch({
+        searchForm: elements.applicationReviewSearchForm,
+        searchInput: elements.applicationReviewSearchReference
+      });
+    });
   } catch (error) {
     setApplicationReviewMessage(error.message, "error");
   } finally {
@@ -11542,7 +11653,7 @@ function bindEvents() {
 
   for (const button of elements.tokenButtons) {
     button.addEventListener("click", () => {
-      elements.authToken.value = button.dataset.token || "";
+      elements.authSessionHint.value = button.dataset.token || "";
       persistConnectionState();
       syncTokenPresetButtons();
       void requestSession({ reloadData: true });
@@ -12208,11 +12319,10 @@ function bindEvents() {
     renderApplicationReviewResultsVisibility();
   });
   elements.applicationReviewResultsTopButton.addEventListener("click", () => {
-    elements.applicationReviewSearchForm.scrollIntoView({
-      behavior: "smooth",
-      block: "start"
+    focusApplicationReviewSearch({
+      searchForm: elements.applicationReviewSearchForm,
+      searchInput: elements.applicationReviewSearchReference
     });
-    elements.applicationReviewSearchReference.focus({ preventScroll: true });
   });
   elements.singleApplicationLookupButton.addEventListener("click", () => {
     void handleSingleApplicationLookup();
@@ -12333,7 +12443,7 @@ function bindEvents() {
       persistConnectionState();
       void requestSession({ reloadData: true });
     });
-    elements.authToken.addEventListener("change", () => {
+    elements.authSessionHint.addEventListener("change", () => {
       persistConnectionState();
       syncTokenPresetButtons();
       void requestSession({ reloadData: true });
@@ -12341,6 +12451,10 @@ function bindEvents() {
 }
 
 function init() {
+  const sanitizedLoginUrl = getSanitizedLoginUrl(globalThis.location);
+  if (sanitizedLoginUrl && globalThis.history?.replaceState) {
+    globalThis.history.replaceState(null, "", sanitizedLoginUrl);
+  }
   restoreConnectionState();
   sanitizeWorkspaceState();
   syncTokenPresetButtons();

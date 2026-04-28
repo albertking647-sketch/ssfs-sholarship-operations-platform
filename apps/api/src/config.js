@@ -1,32 +1,5 @@
 import "../../../scripts/load-env.js";
 
-const defaultDevTokens = [
-  {
-    token: "admin-demo-token",
-    userId: "user-admin",
-    username: process.env.BOOTSTRAP_ADMIN_USERNAME || "admin",
-    email: "admin@example.test",
-    fullName: "Platform Admin",
-    roleCode: "admin"
-  },
-  {
-    token: "reviewer-demo-token",
-    userId: "user-reviewer",
-    username: "reviewer",
-    email: "reviewer@example.test",
-    fullName: "Application Reviewer",
-    roleCode: "reviewer"
-  },
-  {
-    token: "auditor-demo-token",
-    userId: "user-auditor",
-    username: "auditor",
-    email: "auditor@example.test",
-    fullName: "Audit Officer",
-    roleCode: "auditor"
-  }
-];
-
 function parseBoolean(value, fallback) {
   if (value === undefined) return fallback;
   return !["false", "0", "no"].includes(String(value).toLowerCase());
@@ -52,14 +25,54 @@ function parseStringArray(value, fallback = []) {
     .filter(Boolean);
 }
 
+function parsePositiveNumber(value, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return fallback;
+  }
+
+  return numeric;
+}
+
+function buildDefaultDevTokensFromEnv(env = process.env) {
+  return [
+    {
+      token: String(env.AUTH_DEV_ADMIN_TOKEN || "").trim(),
+      userId: "user-admin",
+      username: env.BOOTSTRAP_ADMIN_USERNAME || "admin",
+      email: "admin@example.test",
+      fullName: "Platform Admin",
+      roleCode: "admin"
+    },
+    {
+      token: String(env.AUTH_DEV_REVIEWER_TOKEN || "").trim(),
+      userId: "user-reviewer",
+      username: "reviewer",
+      email: "reviewer@example.test",
+      fullName: "Application Reviewer",
+      roleCode: "reviewer"
+    },
+    {
+      token: String(env.AUTH_DEV_AUDITOR_TOKEN || "").trim(),
+      userId: "user-auditor",
+      username: "auditor",
+      email: "auditor@example.test",
+      fullName: "Audit Officer",
+      roleCode: "auditor"
+    }
+  ].filter((entry) => entry.token);
+}
+
 export const config = {
   host: process.env.API_HOST || "127.0.0.1",
   port: Number(process.env.API_PORT || process.env.PORT || 4300),
   appName: "Scholarship Operations Platform API",
   limits: {
-    jsonBodyBytes: Number(process.env.JSON_BODY_LIMIT || 50 * 1024 * 1024)
+    jsonBodyBytes: Number(process.env.JSON_BODY_LIMIT || 50 * 1024 * 1024),
+    authJsonBodyBytes: Number(process.env.AUTH_JSON_BODY_LIMIT || 16 * 1024)
   },
   network: {
+    trustedProxies: parseStringArray(process.env.API_TRUSTED_PROXIES, []),
     trustedNetworks: parseStringArray(
       process.env.API_TRUSTED_NETWORKS || process.env.TRUSTED_NETWORKS,
       []
@@ -73,9 +86,20 @@ export const config = {
   auth: {
     mode: process.env.AUTH_MODE || "password",
     requiredForWrite: parseBoolean(process.env.AUTH_REQUIRED_FOR_WRITE, true),
+    sessionSecret: process.env.AUTH_SESSION_SECRET || "",
+    sessionCookieName: process.env.AUTH_SESSION_COOKIE_NAME || "ssfs_session",
+    sessionTtlHours: Number(process.env.AUTH_SESSION_TTL_HOURS || 12),
+    loginRateLimit: {
+      enabled: parseBoolean(process.env.AUTH_LOGIN_RATE_LIMIT_ENABLED, true),
+      maxAttempts: parsePositiveNumber(process.env.AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS, 5),
+      windowMs: parsePositiveNumber(process.env.AUTH_LOGIN_RATE_LIMIT_WINDOW_MS, 10 * 60 * 1000),
+      blockMs: parsePositiveNumber(process.env.AUTH_LOGIN_RATE_LIMIT_BLOCK_MS, 15 * 60 * 1000)
+    },
     devTokens: parseJsonArray(
       process.env.AUTH_TOKENS_JSON,
-      parseBoolean(process.env.AUTH_ENABLE_DEFAULT_DEV_TOKENS, false) ? defaultDevTokens : []
+      parseBoolean(process.env.AUTH_ENABLE_DEFAULT_DEV_TOKENS, false)
+        ? buildDefaultDevTokensFromEnv()
+        : []
     ),
     bootstrapAdmin: {
       fullName: process.env.BOOTSTRAP_ADMIN_FULL_NAME || "",

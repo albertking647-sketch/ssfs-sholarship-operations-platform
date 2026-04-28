@@ -1,6 +1,36 @@
 import { readJsonBody, sendJson } from "../../lib/http.js";
+import { isSecureRequest, serializeCookie } from "../../lib/cookies.js";
 
 export function createAuthRoutes({ authService, config }) {
+  const authJsonBodyBytes = Number(config.limits?.authJsonBodyBytes) || Number(config.limits?.jsonBodyBytes);
+  const sessionCookieName =
+    String(config.auth?.sessionCookieName || "ssfs_session").trim() || "ssfs_session";
+
+  function buildSessionCookie(token, req) {
+    const maxAgeSeconds = Math.max(
+      1,
+      Math.floor((Number(config.auth?.sessionTtlHours) || 12) * 60 * 60)
+    );
+    return serializeCookie(sessionCookieName, token, {
+      httpOnly: true,
+      secure: isSecureRequest(req),
+      sameSite: "Strict",
+      path: "/",
+      maxAgeSeconds
+    });
+  }
+
+  function buildClearedSessionCookie(req) {
+    return serializeCookie(sessionCookieName, "", {
+      httpOnly: true,
+      secure: isSecureRequest(req),
+      sameSite: "Strict",
+      path: "/",
+      maxAgeSeconds: 0,
+      expires: new Date(0)
+    });
+  }
+
   return [
     {
       method: "GET",
@@ -20,14 +50,17 @@ export function createAuthRoutes({ authService, config }) {
       path: "/api/auth/login",
       auth: "optional",
       async handler({ req, res }) {
-        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
-        const session = await authService.login(payload);
+        const payload = await readJsonBody(req, authJsonBodyBytes);
+        const session = await authService.login(payload, {
+          remoteAddress: req.socket?.remoteAddress || "",
+          forwardedFor: req.headers["x-forwarded-for"] || ""
+        });
+        res.setHeader("Set-Cookie", buildSessionCookie(session.token, req));
 
         return sendJson(res, 200, {
           ok: true,
           authMode: config.auth.mode,
           authenticated: true,
-          token: session.token,
           actor: session.actor
         });
       }
@@ -38,6 +71,7 @@ export function createAuthRoutes({ authService, config }) {
       auth: "required",
       async handler({ req, res }) {
         const result = await authService.logoutRequest(req);
+        res.setHeader("Set-Cookie", buildClearedSessionCookie(req));
 
         return sendJson(res, 200, {
           ok: true,
@@ -66,7 +100,7 @@ export function createAuthRoutes({ authService, config }) {
       auth: "required",
       roles: ["admin"],
       async handler({ actor, req, res }) {
-        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const payload = await readJsonBody(req, authJsonBodyBytes);
         const item = await authService.createUser(payload, actor);
 
         return sendJson(res, 201, {
@@ -81,7 +115,7 @@ export function createAuthRoutes({ authService, config }) {
       auth: "required",
       roles: ["admin"],
       async handler({ actor, params, req, res }) {
-        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const payload = await readJsonBody(req, authJsonBodyBytes);
         const item = await authService.updateUser(params.userId, payload, actor);
 
         return sendJson(res, 200, {
@@ -110,7 +144,7 @@ export function createAuthRoutes({ authService, config }) {
       auth: "required",
       roles: ["admin"],
       async handler({ actor, params, req, res }) {
-        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const payload = await readJsonBody(req, authJsonBodyBytes);
         const result = await authService.resetPassword(params.userId, payload, actor);
 
         return sendJson(res, 200, {

@@ -2,14 +2,18 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  TooManyRequestsError,
   UnauthorizedError,
   ValidationError
 } from "../../lib/errors.js";
 import {
-  generateSessionToken,
+  createSignedSessionToken,
   hashPassword,
+  readSessionTokenClaims,
+  verifySignedSessionToken,
   verifyPassword
 } from "./passwords.js";
+import { readCookie } from "../../lib/cookies.js";
 
 function parseBearerToken(authorizationHeader) {
   if (!authorizationHeader) return null;
@@ -20,6 +24,15 @@ function parseBearerToken(authorizationHeader) {
   }
 
   return token.trim();
+}
+
+function readPasswordSessionTokenFromRequest(req, sessionCookieName) {
+  const bearerToken = parseBearerToken(req?.headers?.authorization);
+  if (bearerToken) {
+    return bearerToken;
+  }
+
+  return readCookie(req?.headers?.cookie, sessionCookieName);
 }
 
 function normalizeBootstrapAdmin(bootstrapAdmin = {}) {
@@ -63,21 +76,6 @@ function toFallbackActor(entry, userIndex) {
   };
 }
 
-function sanitizeUser(user) {
-  if (!user) {
-    return null;
-  }
-
-  return {
-    id: user.id,
-    fullName: user.fullName,
-    username: user.username || "",
-    email: user.email || null,
-    roleCode: user.roleCode,
-    status: user.status
-  };
-}
-
 function mapUserToActor(user) {
   return {
     userId: user.id,
@@ -89,10 +87,247 @@ function mapUserToActor(user) {
   };
 }
 
-export function createAuthService({ config, users = [], repository = null }) {
+function normalizeLoginRateLimitConfig(settings = {}) {
+  const maxAttempts = Number(settings.maxAttempts);
+  const windowMs = Number(settings.windowMs);
+  const blockMs = Number(settings.blockMs);
+
+  return {
+    enabled: settings.enabled !== false,
+    maxAttempts: Number.isFinite(maxAttempts) && maxAttempts > 0 ? Math.floor(maxAttempts) : 5,
+    windowMs: Number.isFinite(windowMs) && windowMs > 0 ? Math.floor(windowMs) : 10 * 60 * 1000,
+    blockMs: Number.isFinite(blockMs) && blockMs > 0 ? Math.floor(blockMs) : 15 * 60 * 1000
+  };
+}
+
+function normalizeIpAddress(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) {
+    return "";
+  }
+
+  const withoutIpv6MappedPrefix = text.startsWith("::ffff:") ? text.slice(7) : text;
+  return withoutIpv6MappedPrefix.replace(/^\[|\]$/gu, "");
+}
+
+function isPrivateOrLoopbackAddress(address) {
+  const normalizedAddress = normalizeIpAddress(address);
+  if (!normalizedAddress) {
+    return false;
+  }
+
+  if (
+    normalizedAddress === "::1" ||
+    normalizedAddress === "localhost" ||
+    normalizedAddress.startsWith("127.") ||
+    normalizedAddress.startsWith("10.") ||
+    normalizedAddress.startsWith("192.168.") ||
+    normalizedAddress.startsWith("169.254.") ||
+    normalizedAddress.startsWith("fc") ||
+    normalizedAddress.startsWith("fd") ||
+    normalizedAddress.startsWith("fe80:")
+  ) {
+    return true;
+  }
+
+  if (normalizedAddress.startsWith("172.")) {
+    const secondOctet = Number.parseInt(normalizedAddress.split(".")[1] || "", 10);
+    return Number.isFinite(secondOctet) && secondOctet >= 16 && secondOctet <= 31;
+  }
+
+  return false;
+}
+
+function isTrustedProxyAddress(remoteAddress, trustedProxies = []) {
+  const normalizedRemoteAddress = normalizeIpAddress(remoteAddress);
+  if (!normalizedRemoteAddress) {
+    return false;
+  }
+
+  if (isPrivateOrLoopbackAddress(normalizedRemoteAddress)) {
+    return true;
+  }
+
+  return trustedProxies
+    .map((entry) => normalizeIpAddress(entry))
+    .filter(Boolean)
+    .includes(normalizedRemoteAddress);
+}
+
+function normalizeRemoteAddress(requestContext = {}, trustedProxies = []) {
+  const forwardedFor = String(requestContext.forwardedFor || "")
+    .split(",")[0]
+    .trim();
+  const remoteAddress = normalizeIpAddress(requestContext.remoteAddress);
+
+  if (forwardedFor && isTrustedProxyAddress(remoteAddress, trustedProxies)) {
+    return normalizeIpAddress(forwardedFor) || remoteAddress || "unknown";
+  }
+
+  return remoteAddress || "unknown";
+}
+
+function buildLoginThrottleKeys(username, requestContext = {}, trustedProxies = []) {
+  const source = normalizeRemoteAddress(requestContext, trustedProxies);
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  const keys = [`ip:${source}`];
+
+  if (normalizedUsername) {
+    keys.push(`ip:${source}:user:${normalizedUsername}`);
+  }
+
+  return keys;
+}
+
+function createLoginThrottleBucket(now, windowMs) {
+  return {
+    failureCount: 0,
+    windowExpiresAt: now + windowMs,
+    blockedUntil: 0
+  };
+}
+
+function shouldResetLoginThrottleBucket(bucket, now) {
+  if (!bucket) {
+    return true;
+  }
+
+  if (bucket.blockedUntil && bucket.blockedUntil <= now) {
+    return true;
+  }
+
+  return !bucket.blockedUntil && bucket.windowExpiresAt <= now;
+}
+
+const PASSWORD_COMPLEXITY_MESSAGE =
+  "Password must be at least 12 characters and include uppercase, lowercase, number, and symbol characters.";
+
+export function createAuthService({ config, users = [], repository = null, clock = { now: () => Date.now() } }) {
   const userIndex = new Map(users.map((user) => [user.id, user]));
   const tokenIndex = new Map((config.auth.devTokens || []).map((entry) => [entry.token, toFallbackActor(entry, userIndex)]));
-  const issuedSessions = new Map();
+  const fallbackRevokedSessionIds = new Map();
+  const protectedBootstrapAdmin = normalizeBootstrapAdmin(config.auth.bootstrapAdmin);
+  const sessionSecret = String(config.auth.sessionSecret || "");
+  const sessionCookieName = String(config.auth.sessionCookieName || "ssfs_session").trim() || "ssfs_session";
+  const trustedProxies = Array.isArray(config.network?.trustedProxies)
+    ? config.network.trustedProxies
+    : [];
+  const sessionTtlMs = Math.max(
+    1,
+    Number.isFinite(Number(config.auth.sessionTtlHours))
+      ? Math.floor(Number(config.auth.sessionTtlHours) * 60 * 60 * 1000)
+      : 12 * 60 * 60 * 1000
+  );
+  const loginRateLimit = normalizeLoginRateLimitConfig(config.auth.loginRateLimit || {});
+  const loginThrottleState = new Map();
+
+  if (config.auth.mode === "password" && !sessionSecret.trim()) {
+    throw new Error("AUTH_SESSION_SECRET must be configured when AUTH_MODE=password.");
+  }
+
+  function getClockNow() {
+    const value = Number(clock?.now?.());
+    return Number.isFinite(value) ? value : Date.now();
+  }
+
+  function isProtectedBootstrapAdminUser(user) {
+    const protectedUsername = String(protectedBootstrapAdmin.username || "").trim().toLowerCase();
+    const currentUsername = String(user?.username || "").trim().toLowerCase();
+
+    return Boolean(protectedUsername && currentUsername && currentUsername === protectedUsername);
+  }
+
+  function sanitizeUser(user) {
+    if (!user) {
+      return null;
+    }
+
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      username: user.username || "",
+      email: user.email || null,
+      roleCode: user.roleCode,
+      status: user.status,
+      isProtectedAdmin: isProtectedBootstrapAdminUser(user)
+    };
+  }
+
+  async function getLoginThrottleBucket(key, now) {
+    const existing = repository?.readLoginThrottleBucket
+      ? await repository.readLoginThrottleBucket(key)
+      : loginThrottleState.get(key);
+    if (shouldResetLoginThrottleBucket(existing, now)) {
+      const resetBucket = createLoginThrottleBucket(now, loginRateLimit.windowMs);
+      if (repository?.writeLoginThrottleBucket) {
+        await repository.writeLoginThrottleBucket(key, resetBucket);
+      } else {
+        loginThrottleState.set(key, resetBucket);
+      }
+      return resetBucket;
+    }
+
+    return existing;
+  }
+
+  async function clearLoginThrottle(username, requestContext = {}) {
+    const keys = buildLoginThrottleKeys(username, requestContext, trustedProxies);
+    if (repository?.deleteLoginThrottleBuckets) {
+      await repository.deleteLoginThrottleBuckets(keys);
+      return;
+    }
+
+    for (const key of keys) {
+      loginThrottleState.delete(key);
+    }
+  }
+
+  async function assertLoginAllowed(username, requestContext = {}) {
+    if (!loginRateLimit.enabled) {
+      return;
+    }
+
+    const now = getClockNow();
+    let blockedUntil = 0;
+
+    for (const key of buildLoginThrottleKeys(username, requestContext, trustedProxies)) {
+      const bucket = await getLoginThrottleBucket(key, now);
+      if (bucket.blockedUntil > now) {
+        blockedUntil = Math.max(blockedUntil, bucket.blockedUntil);
+      }
+    }
+
+    if (blockedUntil > now) {
+      throw new TooManyRequestsError(
+        "Too many login attempts. Please wait before trying again.",
+        Math.ceil((blockedUntil - now) / 1000)
+      );
+    }
+  }
+
+  async function recordFailedLogin(username, requestContext = {}) {
+    if (!loginRateLimit.enabled) {
+      return;
+    }
+
+    const now = getClockNow();
+
+    for (const key of buildLoginThrottleKeys(username, requestContext, trustedProxies)) {
+      const bucket = await getLoginThrottleBucket(key, now);
+      bucket.failureCount += 1;
+
+      if (bucket.failureCount >= loginRateLimit.maxAttempts) {
+        bucket.blockedUntil = now + loginRateLimit.blockMs;
+        bucket.windowExpiresAt = bucket.blockedUntil;
+      }
+
+      if (repository?.writeLoginThrottleBucket) {
+        await repository.writeLoginThrottleBucket(key, bucket);
+      } else {
+        loginThrottleState.set(key, bucket);
+      }
+    }
+  }
 
   async function getRepositoryUser(userId) {
     if (!repository || !userId) {
@@ -102,24 +337,16 @@ export function createAuthService({ config, users = [], repository = null }) {
     return repository.findUserById(String(userId));
   }
 
-  async function resolveActorFromStoredSession(session) {
-    if (!session) {
+  async function resolveActorFromRepositoryUser(user) {
+    if (!user) {
       return null;
     }
 
-    const repositoryUser = await getRepositoryUser(session.userId);
-    if (repositoryUser) {
-      if (repositoryUser.status !== "active") {
-        return null;
-      }
-
-      return mapUserToActor(repositoryUser);
+    if (user.status !== "active") {
+      return null;
     }
 
-    return {
-      ...session,
-      email: session.email || userIndex.get(session.userId)?.email || null
-    };
+    return mapUserToActor(user);
   }
 
   async function requireAdminActor(actor) {
@@ -154,6 +381,16 @@ export function createAuthService({ config, users = [], repository = null }) {
     if (!password) {
       throw new ValidationError("Password is required.");
     }
+
+    if (
+      password.length < 12 ||
+      !/[a-z]/u.test(password) ||
+      !/[A-Z]/u.test(password) ||
+      !/\d/u.test(password) ||
+      !/[^A-Za-z0-9]/u.test(password)
+    ) {
+      throw new ValidationError(PASSWORD_COMPLEXITY_MESSAGE);
+    }
   }
 
   async function assertUsernameAvailable(username, currentUserId = null) {
@@ -174,12 +411,61 @@ export function createAuthService({ config, users = [], repository = null }) {
     }
   }
 
-  function clearSessionsForUser(userId) {
-    for (const [token, session] of issuedSessions.entries()) {
-      if (session.userId === String(userId)) {
-        issuedSessions.delete(token);
+  async function revokeSessionId(sessionId, expiresAt) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (normalizedSessionId) {
+      if (repository?.revokeSession) {
+        await repository.revokeSession(normalizedSessionId, expiresAt);
+        return;
       }
+
+      fallbackRevokedSessionIds.set(normalizedSessionId, Number(expiresAt) || 0);
     }
+  }
+
+  async function isSessionRevoked(sessionId, now = getClockNow()) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return false;
+    }
+
+    if (repository?.isSessionRevoked) {
+      return repository.isSessionRevoked(normalizedSessionId, now);
+    }
+
+    const revokedUntil = fallbackRevokedSessionIds.get(normalizedSessionId);
+    if (!Number.isFinite(revokedUntil) || revokedUntil <= now) {
+      fallbackRevokedSessionIds.delete(normalizedSessionId);
+      return false;
+    }
+
+    return true;
+  }
+
+  async function verifyPasswordSessionToken(token) {
+    const claims = readSessionTokenClaims(token);
+    if (!claims || claims.expiresAt <= getClockNow()) {
+      return null;
+    }
+
+    const repositoryUser = await getRepositoryUser(claims.userId);
+    if (!repositoryUser) {
+      return null;
+    }
+
+    const verifiedClaims = verifySignedSessionToken(
+      token,
+      repositoryUser.passwordHash,
+      sessionSecret
+    );
+    if (!verifiedClaims || (await isSessionRevoked(verifiedClaims.sessionId))) {
+      return null;
+    }
+
+    return {
+      claims: verifiedClaims,
+      user: repositoryUser
+    };
   }
 
   async function seedDevTokenUsers() {
@@ -258,6 +544,8 @@ export function createAuthService({ config, users = [], repository = null }) {
         return null;
       }
 
+      validatePassword(bootstrapAdmin.password);
+
       const existingUser = await repository.findUserByUsername(bootstrapAdmin.username);
       if (existingUser) {
         return existingUser;
@@ -278,7 +566,7 @@ export function createAuthService({ config, users = [], repository = null }) {
     async hydrateDevTokenActors() {
       await hydrateDevTokenActors();
     },
-    async login(credentials = {}) {
+    async login(credentials = {}, requestContext = {}) {
       if (!repository) {
         throw new UnauthorizedError("Login is not available until authentication setup is complete.");
       }
@@ -289,42 +577,51 @@ export function createAuthService({ config, users = [], repository = null }) {
         throw new ValidationError("Username and password are required.");
       }
 
+      await assertLoginAllowed(username, requestContext);
+
       const user = await repository.findUserByUsername(username);
       if (!user || user.status !== "active") {
+        await recordFailedLogin(username, requestContext);
         throw new UnauthorizedError("Username or password is incorrect.");
       }
 
       const passwordMatches = await verifyPassword(password, user.passwordHash);
       if (!passwordMatches) {
+        await recordFailedLogin(username, requestContext);
         throw new UnauthorizedError("Username or password is incorrect.");
       }
 
-      const token = generateSessionToken();
-      issuedSessions.set(token, {
-        userId: String(user.id),
-        fullName: user.fullName,
-        username: user.username || "",
-        roleCode: user.roleCode,
-        email: user.email || null,
-        status: user.status
-      });
+      await clearLoginThrottle(username, requestContext);
+
+      const actor = mapUserToActor(user);
+      const token = createSignedSessionToken(actor, user.passwordHash, sessionSecret, sessionTtlMs);
 
       return {
         token,
-        actor: mapUserToActor(user)
+        actor
       };
     },
     async logoutRequest(req) {
-      const token = parseBearerToken(req?.headers?.authorization);
+      const token =
+        config.auth.mode === "password"
+          ? readPasswordSessionTokenFromRequest(req, sessionCookieName)
+          : parseBearerToken(req?.headers?.authorization);
       if (!token) {
         return {
           loggedOut: false
         };
       }
 
-      const deleted = issuedSessions.delete(token);
+      const verifiedSession = await verifyPasswordSessionToken(token);
+      if (!verifiedSession) {
+        return {
+          loggedOut: false
+        };
+      }
+
+      await revokeSessionId(verifiedSession.claims.sessionId, verifiedSession.claims.expiresAt);
       return {
-        loggedOut: deleted
+        loggedOut: true
       };
     },
     async listUsers(actor) {
@@ -376,6 +673,19 @@ export function createAuthService({ config, users = [], repository = null }) {
       await assertUsernameAvailable(normalizedInput.username, currentUser.id);
       await assertEmailAvailable(normalizedInput.email, currentUser.id);
 
+      if (
+        isProtectedBootstrapAdminUser(currentUser) &&
+        (
+          normalizedInput.username !== currentUser.username ||
+          normalizedInput.roleCode !== "admin" ||
+          normalizedInput.status !== "active"
+        )
+      ) {
+        throw new ConflictError(
+          "The protected admin account cannot be renamed, deactivated, or removed from the admin role."
+        );
+      }
+
       const isLastActiveAdmin =
         currentUser.roleCode === "admin" &&
         currentUser.status === "active" &&
@@ -391,10 +701,6 @@ export function createAuthService({ config, users = [], repository = null }) {
       const updatedUser = await repository.updateUser(currentUser.id, normalizedInput);
       if (!updatedUser) {
         throw new NotFoundError("User account was not found.");
-      }
-
-      if (updatedUser.status !== "active") {
-        clearSessionsForUser(updatedUser.id);
       }
 
       return sanitizeUser(updatedUser);
@@ -414,8 +720,6 @@ export function createAuthService({ config, users = [], repository = null }) {
         throw new NotFoundError("User account was not found.");
       }
 
-      clearSessionsForUser(updatedUser.id);
-
       return {
         updated: true
       };
@@ -425,6 +729,10 @@ export function createAuthService({ config, users = [], repository = null }) {
       const currentUser = await repository.findUserById(String(userId || "").trim());
       if (!currentUser) {
         throw new NotFoundError("User account was not found.");
+      }
+
+      if (isProtectedBootstrapAdminUser(currentUser)) {
+        throw new ConflictError("The protected admin account cannot be removed.");
       }
 
       const isLastActiveAdmin = currentUser.roleCode === "admin" && currentUser.status === "active";
@@ -440,36 +748,50 @@ export function createAuthService({ config, users = [], repository = null }) {
         throw new NotFoundError("User account was not found.");
       }
 
-      clearSessionsForUser(deletedUser.id);
-
       return {
         deleted: true,
         item: sanitizeUser(deletedUser)
       };
     },
     async resolveRequestActor(req) {
-      const token = parseBearerToken(req.headers.authorization);
+      const token =
+        config.auth.mode === "password"
+          ? readPasswordSessionTokenFromRequest(req, sessionCookieName)
+          : parseBearerToken(req.headers.authorization);
       if (!token) {
         return null;
       }
 
-      const issuedSession = issuedSessions.get(token);
-      if (issuedSession) {
-        const actor = await resolveActorFromStoredSession(issuedSession);
-        if (!actor) {
-          issuedSessions.delete(token);
-          throw new UnauthorizedError("Authentication session is no longer valid.");
+      if (config.auth.mode === "dev-token") {
+        const tokenSession = tokenIndex.get(token);
+        if (!tokenSession) {
+          throw new UnauthorizedError("Bearer token is invalid.");
         }
 
-        return actor;
+        const repositoryUser = await getRepositoryUser(tokenSession.userId);
+        if (repositoryUser) {
+          return resolveActorFromRepositoryUser(repositoryUser);
+        }
+
+        return {
+          ...tokenSession,
+          username: tokenSession.username || "",
+          status: tokenSession.status || "active",
+          email: tokenSession.email || userIndex.get(tokenSession.userId)?.email || null
+        };
       }
 
-      const tokenSession = tokenIndex.get(token);
-      if (!tokenSession || config.auth.mode !== "dev-token") {
-        throw new UnauthorizedError("Bearer token is invalid.");
+      const verifiedSession = await verifyPasswordSessionToken(token);
+      if (!verifiedSession) {
+        throw new UnauthorizedError("Authentication session is no longer valid.");
       }
 
-      return resolveActorFromStoredSession(tokenSession);
+      const actor = await resolveActorFromRepositoryUser(verifiedSession.user);
+      if (!actor) {
+        throw new UnauthorizedError("Authentication session is no longer valid.");
+      }
+
+      return actor;
     }
   };
 }

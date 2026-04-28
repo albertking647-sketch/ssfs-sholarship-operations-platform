@@ -1,7 +1,10 @@
-import path from "node:path";
 import { read, utils } from "xlsx";
 import { AppError } from "../../lib/errors.js";
 import { readJsonBody, readRequestBody } from "../../lib/http.js";
+import {
+  assertAcceptedUploadCount,
+  assertSafeSpreadsheetUpload
+} from "../../lib/uploadSecurity.js";
 
 function getContentType(req) {
   return String(req.headers["content-type"] || "");
@@ -307,23 +310,23 @@ function rowsFromCsvFile(file) {
 }
 
 function rowsFromUploadedFile(file) {
-  const extension = path.extname(file.filename || "").toLowerCase();
-  if (![".csv", ".xlsx"].includes(extension)) {
-    throw new AppError(400, "Only .csv and .xlsx files are supported for student imports.");
-  }
+  const { extension, fileName } = assertSafeSpreadsheetUpload(file, "student imports");
 
-  if ((file.filename || "").startsWith("~$")) {
+  if (fileName.startsWith("~$")) {
     return null;
   }
 
   if (extension === ".csv") {
-    return rowsFromCsvFile(file);
+    return {
+      ...rowsFromCsvFile(file),
+      fileName
+    };
   }
 
   return {
-    fileName: file.filename,
+    fileName,
     fileType: "xlsx",
-    rows: sheetRowsFromWorkbook(file.body, file.filename || "uploaded.xlsx")
+    rows: sheetRowsFromWorkbook(file.body, fileName)
   };
 }
 
@@ -368,6 +371,7 @@ export async function resolveStudentImportPayload(req, maxBytes) {
     if (!files.length) {
       throw new AppError(400, "Multipart student imports must include one or more file fields.");
     }
+    assertAcceptedUploadCount(files, "Student import");
 
     let resolutions = {};
     if (resolutionPart?.value?.trim()) {

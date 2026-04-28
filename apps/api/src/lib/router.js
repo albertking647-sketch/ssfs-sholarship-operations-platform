@@ -1,4 +1,5 @@
 import { ForbiddenError, UnauthorizedError } from "./errors.js";
+import { buildSecurityHeaders } from "./http.js";
 
 function matchPath(template, actualPath) {
   const templateParts = template.split("/").filter(Boolean);
@@ -70,13 +71,13 @@ export function createRouter(routes) {
     }
 
     if (pathMatched) {
-      res.writeHead(405, {
+      res.writeHead(405, buildSecurityHeaders({
         "Content-Type": "application/json; charset=utf-8",
         Allow: routes
           .filter((route) => matchPath(route.path, url.pathname))
           .map((route) => route.method)
           .join(", ")
-      });
+      }));
       res.end(
         JSON.stringify(
           {

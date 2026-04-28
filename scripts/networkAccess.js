@@ -14,6 +14,29 @@ function normalizeCandidate(value) {
   return text;
 }
 
+function getHeaderValue(headers, key) {
+  if (!headers || typeof headers !== "object") {
+    return "";
+  }
+
+  const value = headers[key] ?? headers[key.toLowerCase()] ?? headers[key.toUpperCase()];
+  if (Array.isArray(value)) {
+    return value.join(",");
+  }
+
+  return value || "";
+}
+
+function getForwardedAddress(headers) {
+  const forwardedFor = String(getHeaderValue(headers, "x-forwarded-for") || "");
+  if (!forwardedFor) {
+    return "";
+  }
+
+  const [firstAddress] = forwardedFor.split(",");
+  return normalizeCandidate(firstAddress);
+}
+
 function isIpv4Address(value) {
   const parts = String(value || "").split(".");
   if (parts.length !== 4) return false;
@@ -91,6 +114,17 @@ export function getRemoteAddressFromRequest(req) {
   return normalizeCandidate(req?.socket?.remoteAddress || req?.connection?.remoteAddress || "");
 }
 
+export function getTrustedNetworkRemoteAddress(req, { trustProxyHeaders = false } = {}) {
+  if (trustProxyHeaders) {
+    const forwardedAddress = getForwardedAddress(req?.headers);
+    if (forwardedAddress) {
+      return forwardedAddress;
+    }
+  }
+
+  return getRemoteAddressFromRequest(req);
+}
+
 export function isRemoteAddressAllowed(remoteAddress, rules = []) {
   const normalizedRemoteAddress = normalizeCandidate(remoteAddress);
   if (!rules.length) {
@@ -111,4 +145,35 @@ export function isRemoteAddressAllowed(remoteAddress, rules = []) {
   }
 
   return rules.some((rule) => rule.address === normalizedRemoteAddress);
+}
+
+export function enforceTrustedNetworkAccess(
+  req,
+  res,
+  rules = [],
+  { trustProxyHeaders = false } = {}
+) {
+  const remoteAddress = getTrustedNetworkRemoteAddress(req, { trustProxyHeaders });
+  if (isRemoteAddressAllowed(remoteAddress, rules)) {
+    return {
+      allowed: true,
+      remoteAddress
+    };
+  }
+
+  res.writeHead(403, {
+    "Content-Type": "application/json; charset=utf-8"
+  });
+  res.end(
+    JSON.stringify({
+      ok: false,
+      message: "This API is available only from approved local networks.",
+      remoteAddress
+    })
+  );
+
+  return {
+    allowed: false,
+    remoteAddress
+  };
 }

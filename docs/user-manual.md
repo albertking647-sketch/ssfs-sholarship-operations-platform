@@ -61,12 +61,13 @@ If you use a text-based office link later, it must match the certificate used by
 
 ## 4. First-time setup on each PC
 
-Before using the system on a staff PC, install the local certificate once.
+Before using the system on a staff PC, install the current local HTTPS certificate once.
 
 ### Certificate installation steps
 
-1. Open this file on the host PC or copy it to the staff PC:
-   - [local-certs/ssfs-local-network.cer](C:\Users\Lenovo\Documents\Code%20Space\student-verification-suite\scholarship-operations-platform-new\local-certs\ssfs-local-network.cer)
+1. Ask the host/admin for the current public certificate file for this deployment.
+   - It should be delivered outside git as a PEM/CRT certificate file.
+   - Do not use a `.pfx` bundle from the repository history.
 2. Double-click the file.
 3. Click `Install Certificate...`
 4. Choose `Current User`
@@ -803,8 +804,7 @@ After big imports:
 These are useful when maintaining the system:
 
 - [\.env.local](C:\Users\Lenovo\Documents\Code%20Space\student-verification-suite\scholarship-operations-platform-new\.env.local)
-- [local-certs/ssfs-local-network.cer](C:\Users\Lenovo\Documents\Code%20Space\student-verification-suite\scholarship-operations-platform-new\local-certs\ssfs-local-network.cer)
-- [local-certs/ssfs-local-network.pfx](C:\Users\Lenovo\Documents\Code%20Space\student-verification-suite\scholarship-operations-platform-new\local-certs\ssfs-local-network.pfx)
+- the current TLS certificate and key delivered through your secure admin process
 - [templates/diagnostics/production-readiness-closeout.md](C:\Users\Lenovo\Documents\Code%20Space\student-verification-suite\scholarship-operations-platform-new\templates\diagnostics\production-readiness-closeout.md)
 
 ## 24. Final note
@@ -818,4 +818,3 @@ The safest habits are:
 - keep backups
 - restart the API after environment changes
 - keep at least one active admin
-

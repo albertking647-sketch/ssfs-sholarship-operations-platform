@@ -1265,6 +1265,7 @@ async function handleLoginSubmit(event) {
   if (elements.loginButton) {
     elements.loginButton.disabled = true;
   }
+  beginSessionRequest(sessionRequestTracker);
   setLoginMessage("Signing in...", "warning");
 
   try {

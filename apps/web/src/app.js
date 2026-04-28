@@ -29,6 +29,7 @@ import {
   resolveSessionFailurePolicy
 } from "./sessionFailurePolicy.js";
 import { focusApplicationReviewSearch } from "./applicationReviewNavigation.js";
+import { showLoginGateMessage } from "./loginGateState.js";
 
 const STORAGE_KEY = "sop-theme";
 
@@ -1310,9 +1311,13 @@ async function handleLoginSubmit(event) {
   } catch (error) {
     elements.authSessionHint.value = "";
     persistConnectionState();
-    setLoginMessage(error.message || "Unable to sign in.", "error");
     state.session = null;
-    renderAccessShell();
+    showLoginGateMessage({
+      message: error.message || "Unable to sign in.",
+      renderAccessShell,
+      setLoginMessage,
+      tone: "error"
+    });
   } finally {
     if (elements.loginButton) {
       elements.loginButton.disabled = false;

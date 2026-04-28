@@ -27,6 +27,38 @@ const SENSITIVE_LOGIN_QUERY_PARAMS = new Set([
   "loginPassword"
 ]);
 
+export function buildCookieSessionFetchOptions({
+  body,
+  headers = {},
+  method = "GET"
+} = {}) {
+  const normalizedMethod = String(method || "GET").trim().toUpperCase() || "GET";
+  const options = {
+    cache: "no-store",
+    credentials: "same-origin",
+    method: normalizedMethod
+  };
+
+  if (headers && Object.keys(headers).length > 0) {
+    options.headers = headers;
+  }
+
+  if (body !== undefined) {
+    options.body = body;
+  }
+
+  return options;
+}
+
+export function buildSessionEndpointUrl(apiBaseUrl, cacheBustToken = Date.now()) {
+  const normalizedBaseUrl = String(apiBaseUrl || "").trim().replace(/\/$/, "");
+  const url = new URL(`${normalizedBaseUrl}/api/auth/session`);
+  if (cacheBustToken !== undefined && cacheBustToken !== null && String(cacheBustToken).trim()) {
+    url.searchParams.set("_", String(cacheBustToken).trim());
+  }
+  return url.toString();
+}
+
 export function deriveDefaultApiUrl(locationLike, fallback = "http://127.0.0.1:4400") {
   const protocol = String(locationLike?.protocol || "http:").trim() || "http:";
   const host = String(locationLike?.host || "").trim();

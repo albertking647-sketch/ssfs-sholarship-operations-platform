@@ -1,4 +1,6 @@
 import {
+  buildCookieSessionFetchOptions,
+  buildSessionEndpointUrl,
   deriveDefaultApiUrl,
   getSanitizedLoginUrl,
   shouldUseStoredApiUrl
@@ -1258,14 +1260,16 @@ async function handleLoginSubmit(event) {
   setLoginMessage("Signing in...", "warning");
 
   try {
-    const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ username, password })
-    });
+    const response = await fetch(
+      `${apiBaseUrl}/api/auth/login`,
+      buildCookieSessionFetchOptions({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ username, password })
+      })
+    );
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(payload.message || "Unable to sign in.");
@@ -1295,13 +1299,15 @@ async function handleLogout() {
 
   if (apiBaseUrl && hadToken) {
     try {
-      await fetch(`${apiBaseUrl}/api/auth/logout`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          ...getAuthHeaders()
-        }
-      });
+      await fetch(
+        `${apiBaseUrl}/api/auth/logout`,
+        buildCookieSessionFetchOptions({
+          method: "POST",
+          headers: {
+            ...getAuthHeaders()
+          }
+        })
+      );
     } catch {
       // ignore logout transport errors and continue local cleanup
     }
@@ -6221,12 +6227,14 @@ async function requestSession(options = {}) {
   setBadge("Checking API", "warning");
 
   try {
-    const response = await fetch(`${apiBaseUrl}/api/auth/session`, {
-      credentials: "same-origin",
-      headers: {
-        ...getAuthHeaders()
-      }
-    });
+    const response = await fetch(
+      buildSessionEndpointUrl(apiBaseUrl),
+      buildCookieSessionFetchOptions({
+        headers: {
+          ...getAuthHeaders()
+        }
+      })
+    );
     const payload = await response.json();
 
     if (!response.ok) {

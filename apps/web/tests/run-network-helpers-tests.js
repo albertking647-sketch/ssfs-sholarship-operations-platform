@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 
 import {
+  buildCookieSessionFetchOptions,
+  buildSessionEndpointUrl,
   deriveDefaultApiUrl,
   getSanitizedLoginUrl,
   shouldUseStoredApiUrl
@@ -63,8 +65,57 @@ function stripsSensitiveLoginQueryParams() {
   );
 }
 
+function buildsNoStoreCookieSessionFetchOptions() {
+  assert.deepEqual(
+    buildCookieSessionFetchOptions(),
+    {
+      cache: "no-store",
+      credentials: "same-origin",
+      method: "GET"
+    }
+  );
+
+  assert.deepEqual(
+    buildCookieSessionFetchOptions({
+      method: "post",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: "{\"ok\":true}"
+    }),
+    {
+      cache: "no-store",
+      credentials: "same-origin",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: "{\"ok\":true}"
+    }
+  );
+}
+
+function buildsCacheBustedSessionUrls() {
+  assert.equal(
+    buildSessionEndpointUrl(
+      "https://ssfs-sholarship-operations-platform.vercel.app",
+      12345
+    ),
+    "https://ssfs-sholarship-operations-platform.vercel.app/api/auth/session?_=12345"
+  );
+  assert.equal(
+    buildSessionEndpointUrl(
+      "https://ssfs-sholarship-operations-platform.vercel.app/",
+      ""
+    ),
+    "https://ssfs-sholarship-operations-platform.vercel.app/api/auth/session"
+  );
+}
+
 derivesApiUrlFromCurrentHost();
 prefersDynamicDefaultOverLoopbackOnRemoteClients();
 stripsSensitiveLoginQueryParams();
+buildsNoStoreCookieSessionFetchOptions();
+buildsCacheBustedSessionUrls();
 
 console.log("network-helper-tests: ok");

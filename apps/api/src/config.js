@@ -68,9 +68,11 @@ export const config = {
   port: Number(process.env.API_PORT || process.env.PORT || 4300),
   appName: "Scholarship Operations Platform API",
   limits: {
-    jsonBodyBytes: Number(process.env.JSON_BODY_LIMIT || 50 * 1024 * 1024)
+    jsonBodyBytes: Number(process.env.JSON_BODY_LIMIT || 50 * 1024 * 1024),
+    authJsonBodyBytes: Number(process.env.AUTH_JSON_BODY_LIMIT || 16 * 1024)
   },
   network: {
+    trustedProxies: parseStringArray(process.env.API_TRUSTED_PROXIES, []),
     trustedNetworks: parseStringArray(
       process.env.API_TRUSTED_NETWORKS || process.env.TRUSTED_NETWORKS,
       []
@@ -85,6 +87,7 @@ export const config = {
     mode: process.env.AUTH_MODE || "password",
     requiredForWrite: parseBoolean(process.env.AUTH_REQUIRED_FOR_WRITE, true),
     sessionSecret: process.env.AUTH_SESSION_SECRET || "",
+    sessionCookieName: process.env.AUTH_SESSION_COOKIE_NAME || "ssfs_session",
     sessionTtlHours: Number(process.env.AUTH_SESSION_TTL_HOURS || 12),
     loginRateLimit: {
       enabled: parseBoolean(process.env.AUTH_LOGIN_RATE_LIMIT_ENABLED, true),

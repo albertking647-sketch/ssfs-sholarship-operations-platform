@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
 
 import {
   buildApiProxyHeaders,
@@ -68,25 +69,27 @@ function allowsInsecureProxyTlsOnlyWhenExplicitlyEnabled() {
 }
 
 function trustsSiblingLocalCertificateWhenApiTlsIsEnabled() {
-  const testDir = path.dirname(fileURLToPath(import.meta.url));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ssfs-api-proxy-test-"));
+  const pfxPath = path.join(tempDir, "ssfs-local-network.pfx");
+  const pemPath = path.join(tempDir, "ssfs-local-network.pem");
+  fs.writeFileSync(
+    pemPath,
+    "-----BEGIN CERTIFICATE-----\nMIIBhTCCASugAwIBAgIUeW1wb3J0YW50LXRlc3QtY2VydGlmaWNhdGUwCgYIKoZIzj0EAwIw\nEjEQMA4GA1UEAwwHdGVzdC1jYTAeFw0yNjAxMDEwMDAwMDBaFw0zNjAxMDEwMDAwMDBaMBIx\nEDAOBgNVBAMMB3Rlc3QtY2EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT0s4gk8lN8Y9qs\nN6M9x8M4y8D2k4p4s1rM8eYwQJtV6V8X8sM4l0m4i6fQh5r0pX9x3i0Qk0fJ5oKp8wSYo1MwUTAd\nBgNVHQ4EFgQUwL8kQW4QX8eVYQJv3A7gkWlQm8UwHwYDVR0jBBgwFoAUwL8kQW4QX8eVYQJv3A7g\nkWlQm8UwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEA0v1mQKJm9JcU1v0P0b8Q\n2VJ2gB6G9mS6V2mA6lQw8PECIBQv6oA0P6Y0w0Yx2DkT2jQkz7R4mK6u5B6M1n4l6R2b\n-----END CERTIFICATE-----\n",
+    "utf8"
+  );
   const tlsOptions = buildApiProxyTlsOptions(
     {},
     {
       enabled: true,
-      pfxPath: path.resolve(
-        testDir,
-        "..",
-        "..",
-        "..",
-        "local-certs",
-        "ssfs-local-network.pfx"
-      )
+      pfxPath
     }
   );
 
   assert.equal(tlsOptions.rejectUnauthorized, true);
   assert.equal(typeof tlsOptions.ca, "string");
   assert.match(tlsOptions.ca, /BEGIN CERTIFICATE/);
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
 }
 
 function stripsBrowserOriginWhenProxyingToLocalApi() {

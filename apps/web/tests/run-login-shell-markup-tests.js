@@ -12,16 +12,21 @@ function usesPostForNativeLoginSubmission() {
   assert.match(html, /<form id="loginForm" class="login-form" method="post">/u);
 }
 
+function doesNotIncludeBrowserManagedAuthTokenFields() {
+  assert.doesNotMatch(html, /id="authToken"/u);
+}
+
 function includesRestoreGateMarkup() {
   assert.match(html, /id="restoreGate"/u);
 }
 
 function includesEarlyAuthBootScript() {
-  assert.match(html, /ssfs-auth-session-token/u);
+  assert.match(html, /ssfs-auth-session-active/u);
   assert.match(html, /document\.documentElement\.dataset\.authBoot/u);
 }
 
 usesPostForNativeLoginSubmission();
+doesNotIncludeBrowserManagedAuthTokenFields();
 includesRestoreGateMarkup();
 includesEarlyAuthBootScript();
 

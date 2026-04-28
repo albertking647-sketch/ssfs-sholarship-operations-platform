@@ -41,8 +41,20 @@ function cloneUser(user) {
   };
 }
 
+function cloneLoginThrottleBucket(bucket) {
+  return bucket
+    ? {
+        failureCount: Number(bucket.failureCount) || 0,
+        windowExpiresAt: Number(bucket.windowExpiresAt) || 0,
+        blockedUntil: Number(bucket.blockedUntil) || 0
+      }
+    : null;
+}
+
 function createSampleAuthRepository() {
   const users = [];
+  const revokedSessions = new Map();
+  const loginThrottleBuckets = new Map();
   let nextId = 1;
 
   return {
@@ -129,6 +141,35 @@ function createSampleAuthRepository() {
 
       const [deletedUser] = users.splice(index, 1);
       return cloneUser(deletedUser);
+    },
+    async revokeSession(sessionId, expiresAt) {
+      revokedSessions.set(String(sessionId || "").trim(), Number(expiresAt) || 0);
+    },
+    async isSessionRevoked(sessionId, now = Date.now()) {
+      const normalizedSessionId = String(sessionId || "").trim();
+      const expiresAt = revokedSessions.get(normalizedSessionId);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Number(now)) {
+        revokedSessions.delete(normalizedSessionId);
+        return false;
+      }
+
+      return true;
+    },
+    async readLoginThrottleBucket(key) {
+      return cloneLoginThrottleBucket(loginThrottleBuckets.get(String(key || "").trim()));
+    },
+    async writeLoginThrottleBucket(key, bucket) {
+      const normalizedKey = String(key || "").trim();
+      if (!normalizedKey) {
+        return;
+      }
+
+      loginThrottleBuckets.set(normalizedKey, cloneLoginThrottleBucket(bucket));
+    },
+    async deleteLoginThrottleBuckets(keys = []) {
+      for (const key of keys) {
+        loginThrottleBuckets.delete(String(key || "").trim());
+      }
     }
   };
 }
@@ -401,6 +442,103 @@ function createPostgresAuthRepository({ database }) {
       );
 
       return result.rows[0] ? mapUser(result.rows[0]) : null;
+    },
+    async revokeSession(sessionId, expiresAt) {
+      await database.query(
+        `
+          INSERT INTO auth_revoked_sessions (
+            session_id,
+            expires_at
+          )
+          VALUES (
+            $1,
+            TO_TIMESTAMP($2 / 1000.0)
+          )
+          ON CONFLICT (session_id)
+          DO UPDATE SET
+            expires_at = EXCLUDED.expires_at,
+            revoked_at = NOW()
+        `,
+        [String(sessionId || "").trim(), Number(expiresAt) || 0]
+      );
+    },
+    async isSessionRevoked(sessionId, now = Date.now()) {
+      const result = await database.query(
+        `
+          SELECT 1
+          FROM auth_revoked_sessions
+          WHERE session_id = $1
+            AND expires_at > TO_TIMESTAMP($2 / 1000.0)
+          LIMIT 1
+        `,
+        [String(sessionId || "").trim(), Number(now) || Date.now()]
+      );
+
+      return Boolean(result.rows[0]);
+    },
+    async readLoginThrottleBucket(key) {
+      const result = await database.query(
+        `
+          SELECT
+            failure_count,
+            window_expires_at,
+            blocked_until
+          FROM auth_login_throttle_buckets
+          WHERE bucket_key = $1
+          LIMIT 1
+        `,
+        [String(key || "").trim()]
+      );
+
+      const row = result.rows[0];
+      return row
+        ? cloneLoginThrottleBucket({
+            failureCount: row.failure_count,
+            windowExpiresAt: row.window_expires_at,
+            blockedUntil: row.blocked_until
+          })
+        : null;
+    },
+    async writeLoginThrottleBucket(key, bucket) {
+      await database.query(
+        `
+          INSERT INTO auth_login_throttle_buckets (
+            bucket_key,
+            failure_count,
+            window_expires_at,
+            blocked_until
+          )
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (bucket_key)
+          DO UPDATE SET
+            failure_count = EXCLUDED.failure_count,
+            window_expires_at = EXCLUDED.window_expires_at,
+            blocked_until = EXCLUDED.blocked_until,
+            updated_at = NOW()
+        `,
+        [
+          String(key || "").trim(),
+          Number(bucket?.failureCount) || 0,
+          Number(bucket?.windowExpiresAt) || 0,
+          Number(bucket?.blockedUntil) || 0
+        ]
+      );
+    },
+    async deleteLoginThrottleBuckets(keys = []) {
+      const normalizedKeys = keys
+        .map((key) => String(key || "").trim())
+        .filter(Boolean);
+      if (normalizedKeys.length === 0) {
+        return;
+      }
+
+      await database.query(
+        `
+          DELETE FROM auth_login_throttle_buckets
+          WHERE bucket_key = ANY($1::TEXT[])
+        `,
+        [normalizedKeys]
+      );
     }
   };
 }

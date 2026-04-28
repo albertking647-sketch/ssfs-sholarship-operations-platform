@@ -1,9 +1,24 @@
 import { AppError, TooManyRequestsError } from "./errors.js";
 
+const DEFAULT_SECURITY_HEADERS = {
+  "Cache-Control": "no-store",
+  "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY"
+};
+
+export function buildSecurityHeaders(extraHeaders = {}) {
+  return {
+    ...DEFAULT_SECURITY_HEADERS,
+    ...extraHeaders
+  };
+}
+
 export function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, {
+  res.writeHead(statusCode, buildSecurityHeaders({
     "Content-Type": "application/json; charset=utf-8"
-  });
+  }));
   res.end(JSON.stringify(payload, null, 2));
 }
 

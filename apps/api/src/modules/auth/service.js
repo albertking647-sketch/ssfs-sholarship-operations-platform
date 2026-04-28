@@ -13,6 +13,7 @@ import {
   verifySignedSessionToken,
   verifyPassword
 } from "./passwords.js";
+import { readCookie } from "../../lib/cookies.js";
 
 function parseBearerToken(authorizationHeader) {
   if (!authorizationHeader) return null;
@@ -23,6 +24,15 @@ function parseBearerToken(authorizationHeader) {
   }
 
   return token.trim();
+}
+
+function readPasswordSessionTokenFromRequest(req, sessionCookieName) {
+  const bearerToken = parseBearerToken(req?.headers?.authorization);
+  if (bearerToken) {
+    return bearerToken;
+  }
+
+  return readCookie(req?.headers?.cookie, sessionCookieName);
 }
 
 function normalizeBootstrapAdmin(bootstrapAdmin = {}) {
@@ -90,17 +100,75 @@ function normalizeLoginRateLimitConfig(settings = {}) {
   };
 }
 
-function normalizeRemoteAddress(requestContext = {}) {
+function normalizeIpAddress(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) {
+    return "";
+  }
+
+  const withoutIpv6MappedPrefix = text.startsWith("::ffff:") ? text.slice(7) : text;
+  return withoutIpv6MappedPrefix.replace(/^\[|\]$/gu, "");
+}
+
+function isPrivateOrLoopbackAddress(address) {
+  const normalizedAddress = normalizeIpAddress(address);
+  if (!normalizedAddress) {
+    return false;
+  }
+
+  if (
+    normalizedAddress === "::1" ||
+    normalizedAddress === "localhost" ||
+    normalizedAddress.startsWith("127.") ||
+    normalizedAddress.startsWith("10.") ||
+    normalizedAddress.startsWith("192.168.") ||
+    normalizedAddress.startsWith("169.254.") ||
+    normalizedAddress.startsWith("fc") ||
+    normalizedAddress.startsWith("fd") ||
+    normalizedAddress.startsWith("fe80:")
+  ) {
+    return true;
+  }
+
+  if (normalizedAddress.startsWith("172.")) {
+    const secondOctet = Number.parseInt(normalizedAddress.split(".")[1] || "", 10);
+    return Number.isFinite(secondOctet) && secondOctet >= 16 && secondOctet <= 31;
+  }
+
+  return false;
+}
+
+function isTrustedProxyAddress(remoteAddress, trustedProxies = []) {
+  const normalizedRemoteAddress = normalizeIpAddress(remoteAddress);
+  if (!normalizedRemoteAddress) {
+    return false;
+  }
+
+  if (isPrivateOrLoopbackAddress(normalizedRemoteAddress)) {
+    return true;
+  }
+
+  return trustedProxies
+    .map((entry) => normalizeIpAddress(entry))
+    .filter(Boolean)
+    .includes(normalizedRemoteAddress);
+}
+
+function normalizeRemoteAddress(requestContext = {}, trustedProxies = []) {
   const forwardedFor = String(requestContext.forwardedFor || "")
     .split(",")[0]
     .trim();
-  const remoteAddress = String(requestContext.remoteAddress || "").trim();
+  const remoteAddress = normalizeIpAddress(requestContext.remoteAddress);
 
-  return forwardedFor || remoteAddress || "unknown";
+  if (forwardedFor && isTrustedProxyAddress(remoteAddress, trustedProxies)) {
+    return normalizeIpAddress(forwardedFor) || remoteAddress || "unknown";
+  }
+
+  return remoteAddress || "unknown";
 }
 
-function buildLoginThrottleKeys(username, requestContext = {}) {
-  const source = normalizeRemoteAddress(requestContext);
+function buildLoginThrottleKeys(username, requestContext = {}, trustedProxies = []) {
+  const source = normalizeRemoteAddress(requestContext, trustedProxies);
   const normalizedUsername = String(username || "").trim().toLowerCase();
   const keys = [`ip:${source}`];
 
@@ -131,12 +199,19 @@ function shouldResetLoginThrottleBucket(bucket, now) {
   return !bucket.blockedUntil && bucket.windowExpiresAt <= now;
 }
 
+const PASSWORD_COMPLEXITY_MESSAGE =
+  "Password must be at least 12 characters and include uppercase, lowercase, number, and symbol characters.";
+
 export function createAuthService({ config, users = [], repository = null, clock = { now: () => Date.now() } }) {
   const userIndex = new Map(users.map((user) => [user.id, user]));
   const tokenIndex = new Map((config.auth.devTokens || []).map((entry) => [entry.token, toFallbackActor(entry, userIndex)]));
-  const revokedSessionIds = new Set();
+  const fallbackRevokedSessionIds = new Map();
   const protectedBootstrapAdmin = normalizeBootstrapAdmin(config.auth.bootstrapAdmin);
   const sessionSecret = String(config.auth.sessionSecret || "");
+  const sessionCookieName = String(config.auth.sessionCookieName || "ssfs_session").trim() || "ssfs_session";
+  const trustedProxies = Array.isArray(config.network?.trustedProxies)
+    ? config.network.trustedProxies
+    : [];
   const sessionTtlMs = Math.max(
     1,
     Number.isFinite(Number(config.auth.sessionTtlHours))
@@ -178,24 +253,36 @@ export function createAuthService({ config, users = [], repository = null, clock
     };
   }
 
-  function getLoginThrottleBucket(key, now) {
-    const existing = loginThrottleState.get(key);
+  async function getLoginThrottleBucket(key, now) {
+    const existing = repository?.readLoginThrottleBucket
+      ? await repository.readLoginThrottleBucket(key)
+      : loginThrottleState.get(key);
     if (shouldResetLoginThrottleBucket(existing, now)) {
       const resetBucket = createLoginThrottleBucket(now, loginRateLimit.windowMs);
-      loginThrottleState.set(key, resetBucket);
+      if (repository?.writeLoginThrottleBucket) {
+        await repository.writeLoginThrottleBucket(key, resetBucket);
+      } else {
+        loginThrottleState.set(key, resetBucket);
+      }
       return resetBucket;
     }
 
     return existing;
   }
 
-  function clearLoginThrottle(username, requestContext = {}) {
-    for (const key of buildLoginThrottleKeys(username, requestContext)) {
+  async function clearLoginThrottle(username, requestContext = {}) {
+    const keys = buildLoginThrottleKeys(username, requestContext, trustedProxies);
+    if (repository?.deleteLoginThrottleBuckets) {
+      await repository.deleteLoginThrottleBuckets(keys);
+      return;
+    }
+
+    for (const key of keys) {
       loginThrottleState.delete(key);
     }
   }
 
-  function assertLoginAllowed(username, requestContext = {}) {
+  async function assertLoginAllowed(username, requestContext = {}) {
     if (!loginRateLimit.enabled) {
       return;
     }
@@ -203,8 +290,8 @@ export function createAuthService({ config, users = [], repository = null, clock
     const now = getClockNow();
     let blockedUntil = 0;
 
-    for (const key of buildLoginThrottleKeys(username, requestContext)) {
-      const bucket = getLoginThrottleBucket(key, now);
+    for (const key of buildLoginThrottleKeys(username, requestContext, trustedProxies)) {
+      const bucket = await getLoginThrottleBucket(key, now);
       if (bucket.blockedUntil > now) {
         blockedUntil = Math.max(blockedUntil, bucket.blockedUntil);
       }
@@ -218,20 +305,26 @@ export function createAuthService({ config, users = [], repository = null, clock
     }
   }
 
-  function recordFailedLogin(username, requestContext = {}) {
+  async function recordFailedLogin(username, requestContext = {}) {
     if (!loginRateLimit.enabled) {
       return;
     }
 
     const now = getClockNow();
 
-    for (const key of buildLoginThrottleKeys(username, requestContext)) {
-      const bucket = getLoginThrottleBucket(key, now);
+    for (const key of buildLoginThrottleKeys(username, requestContext, trustedProxies)) {
+      const bucket = await getLoginThrottleBucket(key, now);
       bucket.failureCount += 1;
 
       if (bucket.failureCount >= loginRateLimit.maxAttempts) {
         bucket.blockedUntil = now + loginRateLimit.blockMs;
         bucket.windowExpiresAt = bucket.blockedUntil;
+      }
+
+      if (repository?.writeLoginThrottleBucket) {
+        await repository.writeLoginThrottleBucket(key, bucket);
+      } else {
+        loginThrottleState.set(key, bucket);
       }
     }
   }
@@ -288,6 +381,16 @@ export function createAuthService({ config, users = [], repository = null, clock
     if (!password) {
       throw new ValidationError("Password is required.");
     }
+
+    if (
+      password.length < 12 ||
+      !/[a-z]/u.test(password) ||
+      !/[A-Z]/u.test(password) ||
+      !/\d/u.test(password) ||
+      !/[^A-Za-z0-9]/u.test(password)
+    ) {
+      throw new ValidationError(PASSWORD_COMPLEXITY_MESSAGE);
+    }
   }
 
   async function assertUsernameAvailable(username, currentUserId = null) {
@@ -308,11 +411,61 @@ export function createAuthService({ config, users = [], repository = null, clock
     }
   }
 
-  function revokeSessionId(sessionId) {
+  async function revokeSessionId(sessionId, expiresAt) {
     const normalizedSessionId = String(sessionId || "").trim();
     if (normalizedSessionId) {
-      revokedSessionIds.add(normalizedSessionId);
+      if (repository?.revokeSession) {
+        await repository.revokeSession(normalizedSessionId, expiresAt);
+        return;
+      }
+
+      fallbackRevokedSessionIds.set(normalizedSessionId, Number(expiresAt) || 0);
     }
+  }
+
+  async function isSessionRevoked(sessionId, now = getClockNow()) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return false;
+    }
+
+    if (repository?.isSessionRevoked) {
+      return repository.isSessionRevoked(normalizedSessionId, now);
+    }
+
+    const revokedUntil = fallbackRevokedSessionIds.get(normalizedSessionId);
+    if (!Number.isFinite(revokedUntil) || revokedUntil <= now) {
+      fallbackRevokedSessionIds.delete(normalizedSessionId);
+      return false;
+    }
+
+    return true;
+  }
+
+  async function verifyPasswordSessionToken(token) {
+    const claims = readSessionTokenClaims(token);
+    if (!claims || claims.expiresAt <= getClockNow()) {
+      return null;
+    }
+
+    const repositoryUser = await getRepositoryUser(claims.userId);
+    if (!repositoryUser) {
+      return null;
+    }
+
+    const verifiedClaims = verifySignedSessionToken(
+      token,
+      repositoryUser.passwordHash,
+      sessionSecret
+    );
+    if (!verifiedClaims || (await isSessionRevoked(verifiedClaims.sessionId))) {
+      return null;
+    }
+
+    return {
+      claims: verifiedClaims,
+      user: repositoryUser
+    };
   }
 
   async function seedDevTokenUsers() {
@@ -391,6 +544,8 @@ export function createAuthService({ config, users = [], repository = null, clock
         return null;
       }
 
+      validatePassword(bootstrapAdmin.password);
+
       const existingUser = await repository.findUserByUsername(bootstrapAdmin.username);
       if (existingUser) {
         return existingUser;
@@ -422,21 +577,21 @@ export function createAuthService({ config, users = [], repository = null, clock
         throw new ValidationError("Username and password are required.");
       }
 
-      assertLoginAllowed(username, requestContext);
+      await assertLoginAllowed(username, requestContext);
 
       const user = await repository.findUserByUsername(username);
       if (!user || user.status !== "active") {
-        recordFailedLogin(username, requestContext);
+        await recordFailedLogin(username, requestContext);
         throw new UnauthorizedError("Username or password is incorrect.");
       }
 
       const passwordMatches = await verifyPassword(password, user.passwordHash);
       if (!passwordMatches) {
-        recordFailedLogin(username, requestContext);
+        await recordFailedLogin(username, requestContext);
         throw new UnauthorizedError("Username or password is incorrect.");
       }
 
-      clearLoginThrottle(username, requestContext);
+      await clearLoginThrottle(username, requestContext);
 
       const actor = mapUserToActor(user);
       const token = createSignedSessionToken(actor, user.passwordHash, sessionSecret, sessionTtlMs);
@@ -447,39 +602,24 @@ export function createAuthService({ config, users = [], repository = null, clock
       };
     },
     async logoutRequest(req) {
-      const token = parseBearerToken(req?.headers?.authorization);
+      const token =
+        config.auth.mode === "password"
+          ? readPasswordSessionTokenFromRequest(req, sessionCookieName)
+          : parseBearerToken(req?.headers?.authorization);
       if (!token) {
         return {
           loggedOut: false
         };
       }
 
-      const claims = readSessionTokenClaims(token);
-      if (!claims) {
+      const verifiedSession = await verifyPasswordSessionToken(token);
+      if (!verifiedSession) {
         return {
           loggedOut: false
         };
       }
 
-      const repositoryUser = await getRepositoryUser(claims.userId);
-      if (!repositoryUser) {
-        return {
-          loggedOut: false
-        };
-      }
-
-      const verifiedClaims = verifySignedSessionToken(
-        token,
-        repositoryUser.passwordHash,
-        sessionSecret
-      );
-      if (!verifiedClaims) {
-        return {
-          loggedOut: false
-        };
-      }
-
-      revokeSessionId(verifiedClaims.sessionId);
+      await revokeSessionId(verifiedSession.claims.sessionId, verifiedSession.claims.expiresAt);
       return {
         loggedOut: true
       };
@@ -614,7 +754,10 @@ export function createAuthService({ config, users = [], repository = null, clock
       };
     },
     async resolveRequestActor(req) {
-      const token = parseBearerToken(req.headers.authorization);
+      const token =
+        config.auth.mode === "password"
+          ? readPasswordSessionTokenFromRequest(req, sessionCookieName)
+          : parseBearerToken(req.headers.authorization);
       if (!token) {
         return null;
       }
@@ -638,26 +781,12 @@ export function createAuthService({ config, users = [], repository = null, clock
         };
       }
 
-      const claims = readSessionTokenClaims(token);
-      if (!claims) {
-        throw new UnauthorizedError("Bearer token is invalid.");
-      }
-
-      const repositoryUser = await getRepositoryUser(claims.userId);
-      if (!repositoryUser) {
+      const verifiedSession = await verifyPasswordSessionToken(token);
+      if (!verifiedSession) {
         throw new UnauthorizedError("Authentication session is no longer valid.");
       }
 
-      const verifiedClaims = verifySignedSessionToken(
-        token,
-        repositoryUser.passwordHash,
-        sessionSecret
-      );
-      if (!verifiedClaims || revokedSessionIds.has(verifiedClaims.sessionId)) {
-        throw new UnauthorizedError("Authentication session is no longer valid.");
-      }
-
-      const actor = await resolveActorFromRepositoryUser(repositoryUser);
+      const actor = await resolveActorFromRepositoryUser(verifiedSession.user);
       if (!actor) {
         throw new UnauthorizedError("Authentication session is no longer valid.");
       }

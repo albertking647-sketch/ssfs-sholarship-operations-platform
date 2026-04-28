@@ -297,7 +297,7 @@ const elements = {
   loginButton: document.querySelector("#loginButton"),
   loginMessage: document.querySelector("#loginMessage"),
   apiUrl: document.querySelector("#apiUrl"),
-  authToken: document.querySelector("#authToken"),
+  authSessionHint: document.querySelector("#authSessionHint"),
   sessionSummary: document.querySelector("#sessionSummary"),
   logoutButton: document.querySelector("#logoutButton"),
   dashboardMessage: document.querySelector("#dashboardMessage"),
@@ -771,7 +771,7 @@ function persistConnectionState() {
   safeLocalStorageSet(AUTH_USERNAME_KEY, elements.loginUsername?.value?.trim() || "");
   writeStoredAuthTokenToStorages(
     [globalThis.sessionStorage, globalThis.localStorage],
-    elements.authToken?.value?.trim() || ""
+    elements.authSessionHint?.value?.trim() || ""
   );
 }
 
@@ -789,11 +789,11 @@ function restoreConnectionState() {
   if (elements.loginApiUrl) {
     elements.loginApiUrl.value = elements.apiUrl.value;
   }
-  elements.authToken.value = readStoredAuthTokenFromStorages([
+  elements.authSessionHint.value = readStoredAuthTokenFromStorages([
     globalThis.sessionStorage,
     globalThis.localStorage
   ]);
-  state.sessionRestorePending = shouldAttemptSessionRestore(elements.authToken.value);
+  state.sessionRestorePending = shouldAttemptSessionRestore(elements.authSessionHint.value);
   if (storedUsername && elements.loginUsername) {
     elements.loginUsername.value = storedUsername;
   }
@@ -803,7 +803,7 @@ function syncTokenPresetButtons() {
   if (!elements.tokenButtons.length) {
     return;
   }
-  const activeToken = elements.authToken?.value?.trim() || "";
+  const activeToken = elements.authSessionHint?.value?.trim() || "";
   for (const tokenButton of elements.tokenButtons) {
     tokenButton.classList.toggle("is-active", (tokenButton.dataset.token || "") === activeToken);
   }
@@ -1260,6 +1260,7 @@ async function handleLoginSubmit(event) {
   try {
     const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json"
       },
@@ -1270,13 +1271,13 @@ async function handleLoginSubmit(event) {
       throw new Error(payload.message || "Unable to sign in.");
     }
 
-    elements.authToken.value = payload.token || "";
+    elements.authSessionHint.value = "active";
     elements.loginPassword.value = "";
     persistConnectionState();
     setLoginMessage(`Welcome back, ${payload.actor?.fullName || username}.`, "success");
     await requestSession({ reloadData: true });
   } catch (error) {
-    elements.authToken.value = "";
+    elements.authSessionHint.value = "";
     persistConnectionState();
     setLoginMessage(error.message || "Unable to sign in.", "error");
     state.session = null;
@@ -1290,12 +1291,13 @@ async function handleLoginSubmit(event) {
 
 async function handleLogout() {
   const apiBaseUrl = getApiBaseUrl();
-  const hadToken = Boolean(elements.authToken?.value?.trim());
+  const hadToken = Boolean(elements.authSessionHint?.value?.trim() || state.session?.authenticated);
 
   if (apiBaseUrl && hadToken) {
     try {
       await fetch(`${apiBaseUrl}/api/auth/logout`, {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           ...getAuthHeaders()
         }
@@ -1305,7 +1307,7 @@ async function handleLogout() {
     }
   }
 
-  elements.authToken.value = "";
+  elements.authSessionHint.value = "";
   state.session = null;
   state.sessionRestorePending = false;
   state.accessUsers = [];
@@ -3983,7 +3985,7 @@ async function handleSupportFoodBankPreview(event) {
     const response = await fetch(`${apiBaseUrl}/api/food-bank/import/preview`, {
       method: "POST",
       headers: {
-        Authorization: getAuthHeaders().Authorization || ""
+        ...getAuthHeaders()
       },
       body: formData
     });
@@ -4043,7 +4045,7 @@ async function handleSupportFoodBankImport() {
     const response = await fetch(`${apiBaseUrl}/api/food-bank/import`, {
       method: "POST",
       headers: {
-        Authorization: getAuthHeaders().Authorization || ""
+        ...getAuthHeaders()
       },
       body: formData
     });
@@ -6182,8 +6184,7 @@ function getApiBaseUrl() {
 }
 
 function getAuthHeaders() {
-  const token = elements.authToken.value.trim();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return {};
 }
 
 async function recoverExpiredSession(error) {
@@ -6191,7 +6192,7 @@ async function recoverExpiredSession(error) {
     return false;
   }
 
-  elements.authToken.value = "";
+  elements.authSessionHint.value = "";
   persistConnectionState();
   setLoginMessage(
     "Your previous sign-in session ended after the API restarted. Please sign in again.",
@@ -6221,6 +6222,7 @@ async function requestSession(options = {}) {
 
   try {
     const response = await fetch(`${apiBaseUrl}/api/auth/session`, {
+      credentials: "same-origin",
       headers: {
         ...getAuthHeaders()
       }
@@ -6235,7 +6237,7 @@ async function requestSession(options = {}) {
     state.sessionRestorePending = false;
     const actor = payload.actor;
     if (!payload.authenticated) {
-      elements.authToken.value = "";
+      elements.authSessionHint.value = "";
       persistConnectionState();
       state.accessUsers = [];
       renderAccessUsers();
@@ -6248,6 +6250,8 @@ async function requestSession(options = {}) {
       return;
     }
 
+    elements.authSessionHint.value = "active";
+    persistConnectionState();
     sanitizeWorkspaceState();
     syncRegistryAdminControls();
     syncApplicationCriteriaControls();
@@ -6285,7 +6289,7 @@ async function requestSession(options = {}) {
     });
 
     if (failurePolicy.clearStoredSession) {
-      elements.authToken.value = "";
+      elements.authSessionHint.value = "";
       persistConnectionState();
     }
     state.sessionRestorePending = false;
@@ -11591,7 +11595,7 @@ function bindEvents() {
 
   for (const button of elements.tokenButtons) {
     button.addEventListener("click", () => {
-      elements.authToken.value = button.dataset.token || "";
+      elements.authSessionHint.value = button.dataset.token || "";
       persistConnectionState();
       syncTokenPresetButtons();
       void requestSession({ reloadData: true });
@@ -12381,7 +12385,7 @@ function bindEvents() {
       persistConnectionState();
       void requestSession({ reloadData: true });
     });
-    elements.authToken.addEventListener("change", () => {
+    elements.authSessionHint.addEventListener("change", () => {
       persistConnectionState();
       syncTokenPresetButtons();
       void requestSession({ reloadData: true });

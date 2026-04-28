@@ -10,6 +10,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const publicRoot = path.join(repoRoot, "public");
 const publicSrcRoot = path.join(publicRoot, "src");
 const appScriptPath = path.join(publicSrcRoot, "app.js");
+const vercelConfigPath = path.join(repoRoot, "vercel.json");
 
 function runBuild() {
   const result = spawnSync(process.execPath, [path.join(__dirname, "build-vercel.js")], {
@@ -40,7 +41,22 @@ function assertBuiltModulesExist() {
   }
 }
 
+function assertVercelSecurityHeadersAreConfigured() {
+  const vercelConfig = JSON.parse(fs.readFileSync(vercelConfigPath, "utf8"));
+  const headerRules = Array.isArray(vercelConfig.headers) ? vercelConfig.headers : [];
+  const globalRule = headerRules.find((rule) => rule.source === "/(.*)");
+  assert.ok(globalRule, "Expected vercel.json to define a global security header rule.");
+
+  const headerIndex = new Map(
+    (globalRule.headers || []).map((header) => [String(header.key || "").toLowerCase(), header.value])
+  );
+  assert.equal(headerIndex.get("x-content-type-options"), "nosniff");
+  assert.equal(headerIndex.get("x-frame-options"), "DENY");
+  assert.equal(headerIndex.get("referrer-policy"), "no-referrer");
+}
+
 runBuild();
 assertBuiltModulesExist();
+assertVercelSecurityHeadersAreConfigured();
 
 console.log("build-vercel-tests: ok");

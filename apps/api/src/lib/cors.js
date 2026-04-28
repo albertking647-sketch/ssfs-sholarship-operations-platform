@@ -11,19 +11,10 @@ function normalizeOrigin(value) {
   }
 }
 
-function normalizeHost(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-export function isOriginAllowed(origin, requestHost, allowedOrigins = []) {
+export function isOriginAllowed(origin, _requestHost, allowedOrigins = []) {
   const normalizedOrigin = normalizeOrigin(origin);
   if (!normalizedOrigin) {
     return !origin;
-  }
-
-  const normalizedRequestHost = normalizeHost(requestHost);
-  if (normalizedRequestHost && normalizeHost(new URL(normalizedOrigin).host) === normalizedRequestHost) {
-    return true;
   }
 
   return allowedOrigins

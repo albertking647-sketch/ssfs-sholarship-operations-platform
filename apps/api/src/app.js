@@ -1,7 +1,7 @@
 import { URL } from "node:url";
 import { buildCorsHeaders, isOriginAllowed } from "./lib/cors.js";
 import { createRouter } from "./lib/router.js";
-import { notFound, sendError, sendJson } from "./lib/http.js";
+import { buildSecurityHeaders, notFound, sendError, sendJson } from "./lib/http.js";
 import { createApplicationCriteriaRoutes } from "./modules/applicationCriteria/routes.js";
 import { createAuthRoutes } from "./modules/auth/routes.js";
 import { createApplicationRoutes } from "./modules/applications/routes.js";
@@ -48,22 +48,18 @@ export function createApp(runtime) {
     }
 
     if (req.method === "OPTIONS") {
-      res.writeHead(204);
+      res.writeHead(204, buildSecurityHeaders());
       res.end();
       return;
     }
 
     try {
       if (url.pathname === "/health" && req.method === "GET") {
-        const databaseHealth = await runtime.database.healthCheck();
-
+        await runtime.database.healthCheck();
         return sendJson(res, 200, {
           ok: true,
           service: "api",
-          status: "healthy",
-          dataSource: runtime.dataSource,
-          database: databaseHealth,
-          authMode: runtime.config.auth.mode
+          status: "healthy"
         });
       }
 
@@ -71,27 +67,8 @@ export function createApp(runtime) {
         return sendJson(res, 200, {
           ok: true,
           product: "Scholarship Operations Platform",
-          dataSource: runtime.dataSource,
-          auth: {
-            mode: runtime.config.auth.mode,
-            requiredForWrite: runtime.config.auth.requiredForWrite
-          },
-          modules: [
-            "Student Registry",
-            "Scholarship Management",
-            "Applications and Eligibility",
-            "Recommendation Waitlist",
-            "Beneficiaries and Support",
-            "Payments",
-            "Reporting",
-            "Portal Formatter",
-            "Food Bank Support"
-          ],
-          firstProductionModule: [
-            "Student registry",
-            "Applications",
-            "Recommendations and waitlist"
-          ]
+          service: "api",
+          status: "available"
         });
       }
 

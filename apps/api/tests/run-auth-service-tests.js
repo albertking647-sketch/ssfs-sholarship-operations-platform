@@ -7,7 +7,8 @@ import { createRuntime } from "../src/bootstrap/createRuntime.js";
 import {
   ConflictError,
   TooManyRequestsError,
-  UnauthorizedError
+  UnauthorizedError,
+  ValidationError
 } from "../src/lib/errors.js";
 import { canRoleAccessModule } from "../src/modules/auth/roleAccess.js";
 import { createAuthService } from "../src/modules/auth/service.js";
@@ -247,6 +248,7 @@ function createBaseConfig(overrides = {}) {
   const bootstrapAdminOverrides = authOverrides.bootstrapAdmin || {};
   const databaseOverrides = overrides.database || {};
   const messagingOverrides = overrides.messaging || {};
+  const networkOverrides = overrides.network || {};
 
   return {
     database: {
@@ -254,6 +256,10 @@ function createBaseConfig(overrides = {}) {
       url: "",
       sslMode: "disable",
       ...databaseOverrides
+    },
+    network: {
+      trustedProxies: [],
+      ...networkOverrides
     },
     auth: {
       mode: "dev-token",
@@ -760,6 +766,393 @@ async function repeatedFailedLoginsAreRateLimited() {
   assert.equal(login.actor.username, "admin");
 }
 
+async function loginRateLimitingIgnoresSpoofedForwardedForHeadersFromDirectClients() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const service = createAuthService({
+    config: createBaseConfig({
+      auth: {
+        mode: "password",
+        requiredForWrite: true,
+        sessionSecret: "spoof-check-secret",
+        loginRateLimit: {
+          enabled: true,
+          maxAttempts: 1,
+          windowMs: 60_000,
+          blockMs: 120_000
+        },
+        devTokens: [],
+        bootstrapAdmin: {
+          fullName: "Platform Admin",
+          username: "admin",
+          password: "StrongPass!23"
+        }
+      }
+    }),
+    repository,
+    users: []
+  });
+
+  await service.ensureBootstrapAdmin();
+
+  await assert.rejects(
+    () =>
+      service.login(
+        {
+          username: "admin",
+          password: "wrong-password"
+        },
+        {
+          remoteAddress: "198.51.100.10",
+          forwardedFor: "203.0.113.10"
+        }
+      ),
+    UnauthorizedError
+  );
+
+  await assert.rejects(
+    () =>
+      service.login(
+        {
+          username: "admin",
+          password: "StrongPass!23"
+        },
+        {
+          remoteAddress: "198.51.100.10",
+          forwardedFor: "203.0.113.99"
+        }
+      ),
+    TooManyRequestsError
+  );
+}
+
+async function trustedProxyForwardedForValuesKeepDistinctClientsSeparate() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const service = createAuthService({
+    config: createBaseConfig({
+      network: {
+        trustedProxies: ["127.0.0.1"]
+      },
+      auth: {
+        mode: "password",
+        requiredForWrite: true,
+        sessionSecret: "trusted-proxy-secret",
+        loginRateLimit: {
+          enabled: true,
+          maxAttempts: 1,
+          windowMs: 60_000,
+          blockMs: 120_000
+        },
+        devTokens: [],
+        bootstrapAdmin: {
+          fullName: "Platform Admin",
+          username: "admin",
+          password: "StrongPass!23"
+        }
+      }
+    }),
+    repository,
+    users: []
+  });
+
+  await service.ensureBootstrapAdmin();
+
+  await assert.rejects(
+    () =>
+      service.login(
+        {
+          username: "admin",
+          password: "wrong-password"
+        },
+        {
+          remoteAddress: "127.0.0.1",
+          forwardedFor: "203.0.113.10"
+        }
+      ),
+    UnauthorizedError
+  );
+
+  const login = await service.login(
+    {
+      username: "admin",
+      password: "StrongPass!23"
+    },
+    {
+      remoteAddress: "127.0.0.1",
+      forwardedFor: "203.0.113.11"
+    }
+  );
+
+  assert.equal(login.actor.username, "admin");
+}
+
+async function loginRateLimitingSurvivesFreshServiceInstances() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const config = createBaseConfig({
+    auth: {
+      mode: "password",
+      requiredForWrite: true,
+      sessionSecret: "persistent-rate-limit-secret",
+      loginRateLimit: {
+        enabled: true,
+        maxAttempts: 1,
+        windowMs: 60_000,
+        blockMs: 120_000
+      },
+      devTokens: [],
+      bootstrapAdmin: {
+        fullName: "Platform Admin",
+        username: "admin",
+        password: "StrongPass!23"
+      }
+    }
+  });
+  const firstService = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  await firstService.ensureBootstrapAdmin();
+  await assert.rejects(
+    () =>
+      firstService.login(
+        {
+          username: "admin",
+          password: "wrong-password"
+        },
+        {
+          remoteAddress: "203.0.113.10"
+        }
+      ),
+    UnauthorizedError
+  );
+
+  const secondService = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  await assert.rejects(
+    () =>
+      secondService.login(
+        {
+          username: "admin",
+          password: "StrongPass!23"
+        },
+        {
+          remoteAddress: "203.0.113.10"
+        }
+      ),
+    TooManyRequestsError
+  );
+}
+
+async function logoutRevocationSurvivesFreshServiceInstances() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const config = createBaseConfig({
+    auth: {
+      mode: "password",
+      requiredForWrite: true,
+      devTokens: [],
+      bootstrapAdmin: {
+        fullName: "Platform Admin",
+        username: "admin",
+        password: "StrongPass!23"
+      }
+    }
+  });
+  const firstService = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  await firstService.ensureBootstrapAdmin();
+  const login = await firstService.login({ username: "admin", password: "StrongPass!23" });
+  const logoutResult = await firstService.logoutRequest({
+    headers: {
+      authorization: `Bearer ${login.token}`
+    }
+  });
+
+  assert.equal(logoutResult.loggedOut, true);
+
+  const secondService = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  await assert.rejects(
+    () =>
+      secondService.resolveRequestActor({
+        headers: {
+          authorization: `Bearer ${login.token}`
+        }
+      }),
+    UnauthorizedError
+  );
+}
+
+async function passwordSessionsResolveFromCookiesWithoutAuthorizationHeaders() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const config = createBaseConfig({
+    auth: {
+      mode: "password",
+      requiredForWrite: true,
+      sessionCookieName: "ssfs_session",
+      devTokens: [],
+      bootstrapAdmin: {
+        fullName: "Platform Admin",
+        username: "admin",
+        password: "StrongPass!23"
+      }
+    }
+  });
+  const service = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  await service.ensureBootstrapAdmin();
+  const login = await service.login({ username: "admin", password: "StrongPass!23" });
+  const actor = await service.resolveRequestActor({
+    headers: {
+      cookie: `ssfs_session=${login.token}`
+    }
+  });
+
+  assert.equal(actor?.username, "admin");
+  assert.equal(actor?.roleCode, "admin");
+}
+
+async function logoutRevokesCookieBackedPasswordSessions() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const config = createBaseConfig({
+    auth: {
+      mode: "password",
+      requiredForWrite: true,
+      sessionCookieName: "ssfs_session",
+      devTokens: [],
+      bootstrapAdmin: {
+        fullName: "Platform Admin",
+        username: "admin",
+        password: "StrongPass!23"
+      }
+    }
+  });
+  const service = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  await service.ensureBootstrapAdmin();
+  const login = await service.login({ username: "admin", password: "StrongPass!23" });
+  const result = await service.logoutRequest({
+    headers: {
+      cookie: `ssfs_session=${login.token}`
+    }
+  });
+
+  assert.equal(result.loggedOut, true);
+
+  await assert.rejects(
+    () =>
+      service.resolveRequestActor({
+        headers: {
+          cookie: `ssfs_session=${login.token}`
+        }
+      }),
+    UnauthorizedError
+  );
+}
+
+async function weakPasswordsAreRejectedForBootstrapAndManagedAccounts() {
+  const weakBootstrapService = createAuthService({
+    config: createBaseConfig({
+      auth: {
+        mode: "password",
+        requiredForWrite: true,
+        devTokens: [],
+        bootstrapAdmin: {
+          fullName: "Platform Admin",
+          username: "admin",
+          password: "weakpass"
+        }
+      }
+    }),
+    repository: createAuthRepository({ database: { enabled: false } }),
+    users: []
+  });
+
+  await assert.rejects(
+    () => weakBootstrapService.ensureBootstrapAdmin(),
+    (error) => {
+      assert.ok(error instanceof ValidationError);
+      assert.match(error.message, /password/i);
+      return true;
+    }
+  );
+
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const service = createAuthService({
+    config: createBaseConfig({
+      auth: {
+        mode: "password",
+        requiredForWrite: true,
+        devTokens: [],
+        bootstrapAdmin: {
+          fullName: "Platform Admin",
+          username: "admin",
+          password: "StrongPass!23"
+        }
+      }
+    }),
+    repository,
+    users: []
+  });
+
+  await service.ensureBootstrapAdmin();
+  const login = await service.login({ username: "admin", password: "StrongPass!23" });
+
+  await assert.rejects(
+    () =>
+      service.createUser(
+        {
+          fullName: "Weak Reviewer",
+          username: "weak-reviewer",
+          password: "weakpass",
+          roleCode: "reviewer"
+        },
+        login.actor
+      ),
+    (error) => {
+      assert.ok(error instanceof ValidationError);
+      assert.match(error.message, /password/i);
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      service.resetPassword(
+        login.actor.userId,
+        {
+          password: "short"
+        },
+        login.actor
+      ),
+    (error) => {
+      assert.ok(error instanceof ValidationError);
+      assert.match(error.message, /password/i);
+      return true;
+    }
+  );
+}
+
 async function passwordSessionsSurviveFreshServiceInstances() {
   const repository = createAuthRepository({ database: { enabled: false } });
   const config = createBaseConfig({
@@ -1255,6 +1648,13 @@ await loginAndAdminUserManagementWork();
 await passwordModeRejectsConfiguredDevTokens();
 passwordModeRequiresSessionSecret();
 await repeatedFailedLoginsAreRateLimited();
+await loginRateLimitingIgnoresSpoofedForwardedForHeadersFromDirectClients();
+await trustedProxyForwardedForValuesKeepDistinctClientsSeparate();
+await loginRateLimitingSurvivesFreshServiceInstances();
+await logoutRevocationSurvivesFreshServiceInstances();
+await passwordSessionsResolveFromCookiesWithoutAuthorizationHeaders();
+await logoutRevokesCookieBackedPasswordSessions();
+await weakPasswordsAreRejectedForBootstrapAndManagedAccounts();
 await passwordSessionsSurviveFreshServiceInstances();
 await passwordResetInvalidatesExistingSessionTokensAcrossServiceInstances();
 await lastActiveAdminCannotBeDeletedOrDemoted();

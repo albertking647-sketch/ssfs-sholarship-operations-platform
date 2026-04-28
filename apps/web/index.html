@@ -6,7 +6,7 @@
   <title>SSFS Scholarship Operations Hub</title>
   <script>
     (function () {
-      var authTokenKey = "ssfs-auth-session-token";
+      var authTokenKey = "ssfs-auth-session-active";
       var readToken = function (storage) {
         try {
           return String(storage && storage.getItem ? storage.getItem(authTokenKey) : "").trim();
@@ -14,8 +14,33 @@
           return "";
         }
       };
-      var token = readToken(window.sessionStorage) || readToken(window.localStorage);
-      document.documentElement.dataset.authBoot = token ? "restoring" : "login";
+      var writeToken = function (storage, value) {
+        try {
+          if (!storage || !storage.setItem || !storage.removeItem) {
+            return;
+          }
+
+          if (value) {
+            storage.setItem(authTokenKey, value);
+            return;
+          }
+
+          storage.removeItem(authTokenKey);
+        } catch {
+          // ignore storage errors in restricted browser contexts
+        }
+      };
+      var restoreHint = readToken(window.sessionStorage);
+      if (!restoreHint) {
+        restoreHint = readToken(window.localStorage);
+        if (restoreHint) {
+          writeToken(window.sessionStorage, restoreHint);
+          writeToken(window.localStorage, "");
+        }
+      } else {
+        writeToken(window.localStorage, "");
+      }
+      document.documentElement.dataset.authBoot = restoreHint ? "restoring" : "login";
     })();
   </script>
   <link rel="stylesheet" href="/src/styles.css" />
@@ -30,7 +55,7 @@
       </p>
       <form id="loginForm" class="login-form" method="post">
         <input id="apiUrl" name="apiUrl" type="hidden" value="" />
-        <input id="authToken" name="authToken" type="hidden" value="" />
+        <input id="authSessionHint" name="authSessionHint" type="hidden" value="" />
         <input id="loginApiUrl" name="loginApiUrl" type="hidden" value="" />
         <label class="field">
           <span>Username</span>

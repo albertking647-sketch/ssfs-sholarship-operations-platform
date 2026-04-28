@@ -68,9 +68,8 @@ function allowsInsecureProxyTlsOnlyWhenExplicitlyEnabled() {
   });
 }
 
-function trustsSiblingLocalCertificateWhenApiTlsIsEnabled() {
+function trustsConfiguredPemCertificateWhenApiTlsIsEnabled() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ssfs-api-proxy-test-"));
-  const pfxPath = path.join(tempDir, "ssfs-local-network.pfx");
   const pemPath = path.join(tempDir, "ssfs-local-network.pem");
   fs.writeFileSync(
     pemPath,
@@ -81,13 +80,39 @@ function trustsSiblingLocalCertificateWhenApiTlsIsEnabled() {
     {},
     {
       enabled: true,
-      pfxPath
+      certPath: pemPath
     }
   );
 
   assert.equal(tlsOptions.rejectUnauthorized, true);
   assert.equal(typeof tlsOptions.ca, "string");
   assert.match(tlsOptions.ca, /BEGIN CERTIFICATE/);
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+}
+
+function ignoresLegacyPfxCertificateAuthorityFallback() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ssfs-api-proxy-test-"));
+  const pfxPath = path.join(tempDir, "ssfs-local-network.pfx");
+  const pemPath = path.join(tempDir, "ssfs-local-network.pem");
+  fs.writeFileSync(pfxPath, Buffer.from("legacy-pfx"));
+  fs.writeFileSync(
+    pemPath,
+    "-----BEGIN CERTIFICATE-----\nlegacy-test-ca\n-----END CERTIFICATE-----\n",
+    "utf8"
+  );
+
+  const tlsOptions = buildApiProxyTlsOptions(
+    {},
+    {
+      enabled: true,
+      pfxPath
+    }
+  );
+
+  assert.deepEqual(tlsOptions, {
+    rejectUnauthorized: true
+  });
 
   fs.rmSync(tempDir, { recursive: true, force: true });
 }
@@ -113,7 +138,8 @@ buildsLocalHttpProxyTargetWhenTlsDisabled();
 fallsBackToDedicatedApiPortWhenOnlyWebPortIsConfigured();
 usesStrictTlsVerificationByDefault();
 allowsInsecureProxyTlsOnlyWhenExplicitlyEnabled();
-trustsSiblingLocalCertificateWhenApiTlsIsEnabled();
+trustsConfiguredPemCertificateWhenApiTlsIsEnabled();
+ignoresLegacyPfxCertificateAuthorityFallback();
 stripsBrowserOriginWhenProxyingToLocalApi();
 
 console.log("api-proxy-tests: ok");

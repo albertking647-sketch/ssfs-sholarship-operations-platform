@@ -47,22 +47,15 @@ function resolveApiProxyCertificateAuthorityPath(env = {}, tlsConfig = {}, rootD
     return explicitPath;
   }
 
-  const pfxPath = resolveCandidatePath(
-    tlsConfig.pfxPath || env.TLS_PFX_PATH || env.HTTPS_PFX_PATH,
+  const certPath = resolveCandidatePath(
+    tlsConfig.certPath || env.TLS_CERT_PATH || env.HTTPS_CERT_PATH,
     rootDir
   );
-
-  if (!pfxPath) {
-    return "";
+  if (certPath && fs.existsSync(certPath)) {
+    return certPath;
   }
 
-  const siblingCandidates = [
-    pfxPath.replace(/\.[^.]+$/u, ".cer"),
-    pfxPath.replace(/\.[^.]+$/u, ".crt"),
-    pfxPath.replace(/\.[^.]+$/u, ".pem")
-  ];
-
-  return siblingCandidates.find((candidate) => fs.existsSync(candidate)) || "";
+  return "";
 }
 
 export function shouldProxyToApi(pathname) {

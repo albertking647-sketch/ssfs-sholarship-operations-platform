@@ -1,6 +1,10 @@
 import { createApp } from "../app.js";
 import { createRuntime } from "../bootstrap/createRuntime.js";
 import { config } from "../config.js";
+import {
+  buildTrustedNetworkRules,
+  enforceTrustedNetworkAccess
+} from "../../../../scripts/networkAccess.js";
 
 export function resolveVercelRequestUrl(requestUrl = "/") {
   const url = new URL(String(requestUrl || "/"), "http://localhost");
@@ -25,12 +29,22 @@ export function createVercelApiHandler({
     if (!appPromise) {
       appPromise = (async () => {
         const runtime = await createRuntimeFn(configValue);
-        return createAppFn(runtime);
+        return {
+          app: createAppFn(runtime),
+          trustedNetworkRules: buildTrustedNetworkRules(runtime.config.network?.trustedNetworks || [])
+        };
       })();
     }
 
+    const { app, trustedNetworkRules } = await appPromise;
+    const access = enforceTrustedNetworkAccess(req, res, trustedNetworkRules, {
+      trustProxyHeaders: true
+    });
+    if (!access.allowed) {
+      return;
+    }
+
     req.url = resolveVercelRequestUrl(req.url || "/");
-    const app = await appPromise;
     return app(req, res);
   };
 }

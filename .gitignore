@@ -6,3 +6,9 @@ public/
 .env.vercel
 .DS_Store
 npm-debug.log*
+local-certs/
+*.pfx
+*.pem
+*.p12
+*.zip
+# TODO(security): Rewrite git history with git-filter-repo or BFG to purge committed cert artifacts before merging to main.

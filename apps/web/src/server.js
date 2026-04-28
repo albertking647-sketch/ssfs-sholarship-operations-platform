@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "../../../scripts/load-env.js";
+import { HARDENING_HEADERS, buildHeaderMap } from "../../../scripts/httpSecurityHeaders.js";
 import {
   buildTrustedNetworkRules,
   getRemoteAddressFromRequest,
@@ -28,6 +29,7 @@ const trustedNetworkRules = buildTrustedNetworkRules(allowedNetworkText);
 const tlsConfig = readTlsConfig(process.env, repoRoot);
 const apiProxyTarget = new URL(buildApiProxyTarget(process.env, tlsConfig));
 const proxyTlsOptions = buildApiProxyTlsOptions(process.env, tlsConfig, repoRoot);
+const hardeningHeaderMap = buildHeaderMap(HARDENING_HEADERS);
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -100,7 +102,8 @@ const server = createServer(tlsConfig.httpsOptions || {}, (req, res) => {
     "Content-Type": mimeTypes[ext] || "application/octet-stream",
     "Cache-Control": "no-store, no-cache, must-revalidate",
     Pragma: "no-cache",
-    Expires: "0"
+    Expires: "0",
+    ...hardeningHeaderMap
   });
   fs.createReadStream(filePath).pipe(res);
 });
@@ -111,7 +114,7 @@ server.listen(port, host, () => {
     console.log(`Web local network allowlist enabled for: ${allowedNetworkText}`);
   }
   if (tlsConfig.enabled) {
-    console.log(`Web TLS certificate loaded from: ${tlsConfig.pfxPath}`);
+    console.log(`Web TLS certificate loaded from: ${tlsConfig.certPath}`);
   }
   console.log(`Web API proxy target: ${apiProxyTarget.href}`);
 });

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { buildVercelConfig } from "./vercelConfig.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +44,12 @@ function assertBuiltModulesExist() {
 
 function assertVercelSecurityHeadersAreConfigured() {
   const vercelConfig = JSON.parse(fs.readFileSync(vercelConfigPath, "utf8"));
+  assert.deepEqual(
+    vercelConfig,
+    buildVercelConfig(),
+    "Expected vercel.json to stay in sync with the shared Vercel config source."
+  );
+
   const headerRules = Array.isArray(vercelConfig.headers) ? vercelConfig.headers : [];
   const globalRule = headerRules.find((rule) => rule.source === "/(.*)");
   assert.ok(globalRule, "Expected vercel.json to define a global security header rule.");

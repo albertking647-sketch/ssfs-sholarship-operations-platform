@@ -13,32 +13,41 @@ function resolveCandidatePath(candidatePath, rootDir = process.cwd()) {
 }
 
 export function readTlsConfig(env = process.env, rootDir = process.cwd()) {
-  const pfxPath = resolveCandidatePath(
-    env.TLS_PFX_PATH || env.HTTPS_PFX_PATH || "",
+  const certPath = resolveCandidatePath(
+    env.TLS_CERT_PATH || env.HTTPS_CERT_PATH || "",
+    rootDir
+  );
+  const keyPath = resolveCandidatePath(
+    env.TLS_KEY_PATH || env.HTTPS_KEY_PATH || "",
     rootDir
   );
   const passphrase = String(
-    env.TLS_PFX_PASSPHRASE || env.HTTPS_PFX_PASSPHRASE || ""
+    env.TLS_KEY_PASSPHRASE ||
+      env.HTTPS_KEY_PASSPHRASE ||
+      ""
   );
 
-  if (!pfxPath || !fs.existsSync(pfxPath)) {
+  if (certPath && keyPath && fs.existsSync(certPath) && fs.existsSync(keyPath)) {
     return {
-      enabled: false,
-      protocol: "http",
-      pfxPath: "",
-      passphrase: "",
-      httpsOptions: null
+      enabled: true,
+      protocol: "https",
+      certPath,
+      keyPath,
+      passphrase,
+      httpsOptions: {
+        cert: fs.readFileSync(certPath),
+        key: fs.readFileSync(keyPath),
+        ...(passphrase ? { passphrase } : {})
+      }
     };
   }
 
   return {
-    enabled: true,
-    protocol: "https",
-    pfxPath,
-    passphrase,
-    httpsOptions: {
-      pfx: fs.readFileSync(pfxPath),
-      passphrase
-    }
+    enabled: false,
+    protocol: "http",
+    certPath: "",
+    keyPath: "",
+    passphrase: "",
+    httpsOptions: null
   };
 }

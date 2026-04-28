@@ -7,8 +7,7 @@ import { createRuntime } from "./bootstrap/createRuntime.js";
 import { config } from "./config.js";
 import {
   buildTrustedNetworkRules,
-  getRemoteAddressFromRequest,
-  isRemoteAddressAllowed
+  enforceTrustedNetworkAccess
 } from "../../../scripts/networkAccess.js";
 import { readTlsConfig } from "../../../scripts/tlsConfig.js";
 
@@ -21,18 +20,8 @@ const trustedNetworkRules = buildTrustedNetworkRules(runtime.config.network?.tru
 const tlsConfig = readTlsConfig(process.env, repoRoot);
 const createServer = tlsConfig.enabled ? https.createServer : http.createServer;
 const server = createServer(tlsConfig.httpsOptions || {}, (req, res) => {
-  const remoteAddress = getRemoteAddressFromRequest(req);
-  if (!isRemoteAddressAllowed(remoteAddress, trustedNetworkRules)) {
-    res.writeHead(403, {
-      "Content-Type": "application/json; charset=utf-8"
-    });
-    res.end(
-      JSON.stringify({
-        ok: false,
-        message: "This API is available only from approved local networks.",
-        remoteAddress
-      })
-    );
+  const access = enforceTrustedNetworkAccess(req, res, trustedNetworkRules);
+  if (!access.allowed) {
     return;
   }
 
@@ -49,7 +38,7 @@ server.listen(config.port, config.host, () => {
     );
   }
   if (tlsConfig.enabled) {
-    console.log(`API TLS certificate loaded from: ${tlsConfig.pfxPath}`);
+    console.log(`API TLS certificate loaded from: ${tlsConfig.certPath}`);
   }
 });
 

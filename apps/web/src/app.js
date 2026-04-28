@@ -5,6 +5,7 @@ import {
   getSanitizedLoginUrl,
   shouldUseStoredApiUrl
 } from "./network.js";
+import { confirmSessionAfterLogin } from "./sessionConfirmation.js";
 import {
   beginSessionRequest,
   createSessionRequestTracker,
@@ -1282,10 +1283,28 @@ async function handleLoginSubmit(event) {
       throw new Error(payload.message || "Unable to sign in.");
     }
 
+    state.session = {
+      ok: true,
+      authMode: payload.authMode,
+      authenticated: true,
+      actor: payload.actor || null
+    };
+    state.sessionRestorePending = false;
     elements.authSessionHint.value = "active";
     elements.loginPassword.value = "";
     persistConnectionState();
     setLoginMessage(`Welcome back, ${payload.actor?.fullName || username}.`, "success");
+    renderAccessShell();
+    renderModuleShell();
+
+    const confirmedSession = await confirmSessionAfterLogin({
+      fetchSession: async () => fetchSessionPayload(apiBaseUrl)
+    });
+
+    if (!confirmedSession.authenticated) {
+      throw new Error("Sign-in could not be confirmed. Please try again.");
+    }
+
     await requestSession({ reloadData: true });
   } catch (error) {
     elements.authSessionHint.value = "";
@@ -6200,6 +6219,23 @@ function getAuthHeaders() {
   return {};
 }
 
+async function fetchSessionPayload(apiBaseUrl) {
+  const response = await fetch(
+    buildSessionEndpointUrl(apiBaseUrl),
+    buildCookieSessionFetchOptions({
+      headers: {
+        ...getAuthHeaders()
+      }
+    })
+  );
+  const payload = await response.json();
+
+  return {
+    ok: response.ok,
+    payload
+  };
+}
+
 async function recoverExpiredSession(error) {
   if (!isAuthenticationSessionErrorMessage(error?.message)) {
     return false;
@@ -6235,21 +6271,13 @@ async function requestSession(options = {}) {
   setBadge("Checking API", "warning");
 
   try {
-    const response = await fetch(
-      buildSessionEndpointUrl(apiBaseUrl),
-      buildCookieSessionFetchOptions({
-        headers: {
-          ...getAuthHeaders()
-        }
-      })
-    );
-    const payload = await response.json();
+    const { ok, payload } = await fetchSessionPayload(apiBaseUrl);
 
     if (!isCurrentSessionRequest(sessionRequestTracker, requestId)) {
       return;
     }
 
-    if (!response.ok) {
+    if (!ok) {
       throw new Error(payload.message || "Unable to reach the API session endpoint.");
     }
 

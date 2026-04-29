@@ -88,8 +88,51 @@ function mapAcademicHistoryRecord(entry, student) {
     semesterLabel: entry.semesterLabel || null,
     cwa: entry.cwa ?? null,
     wassceAggregate: entry.wassceAggregate ?? student?.wassceAggregate ?? null,
+    importBatchReference: entry.importBatchReference || null,
+    sourceFileName: entry.sourceFileName || null,
     createdAt: entry.createdAt || null,
     updatedAt: entry.updatedAt || null
+  };
+}
+
+function cloneAcademicHistoryRecord(entry) {
+  if (!entry) {
+    return null;
+  }
+
+  return {
+    id: entry.id,
+    studentId: entry.studentId,
+    college: entry.college || null,
+    program: entry.program || null,
+    year: entry.year || null,
+    academicYearLabel: entry.academicYearLabel || null,
+    semesterLabel: entry.semesterLabel || null,
+    cwa: entry.cwa ?? null,
+    wassceAggregate: entry.wassceAggregate ?? null,
+    importBatchReference: entry.importBatchReference || null,
+    sourceFileName: entry.sourceFileName || null,
+    createdAt: entry.createdAt || null,
+    updatedAt: entry.updatedAt || null
+  };
+}
+
+function mapAcademicHistoryImportBatch(batch) {
+  return {
+    batchReference: batch.batchReference,
+    academicYearLabel: batch.academicYearLabel || null,
+    semesterLabel: batch.semesterLabel || null,
+    fileName: batch.fileName || null,
+    importedRows: Number(batch.importedRows || 0),
+    updatedRows: Number(batch.updatedRows || 0),
+    status: batch.status || "completed",
+    createdByName: batch.createdByName || null,
+    createdAt: batch.createdAt || null,
+    rollbackDeletedRows: Number(batch.rollbackDeletedRows || 0),
+    rollbackRestoredRows: Number(batch.rollbackRestoredRows || 0),
+    rollbackReason: batch.rollbackReason || null,
+    rolledBackByName: batch.rolledBackByName || null,
+    rolledBackAt: batch.rolledBackAt || null
   };
 }
 
@@ -112,6 +155,59 @@ function createSampleRepository() {
       updatedAt: new Date(Date.UTC(2026, 0, index + 1)).toISOString()
     }))
     .filter((item) => item.cwa !== null || item.wassceAggregate !== null);
+  const academicHistoryImportBatches = [];
+  let academicHistoryRecordSequence = academicHistory.length + 1;
+
+  function findAcademicHistoryEntryById(id) {
+    return academicHistory.find((entry) => entry.id === id) || null;
+  }
+
+  function findAcademicHistoryEntryForScope(input = {}) {
+    return (
+      academicHistory.find(
+        (entry) =>
+          entry.studentId === input.studentId &&
+          String(entry.academicYearLabel || "") === String(input.academicYearLabel || "") &&
+          String(entry.semesterLabel || "") === String(input.semesterLabel || "") &&
+          String(entry.program || "") === String(input.program || "")
+      ) || null
+    );
+  }
+
+  function syncStudentSnapshot(student, input = {}) {
+    student.cwa = input.cwa ?? student.cwa ?? null;
+    if (input.wassceAggregate !== undefined && input.wassceAggregate !== null) {
+      student.wassceAggregate = input.wassceAggregate;
+    }
+    if (input.college) student.college = input.college;
+    if (input.program) student.program = input.program;
+    if (input.year) student.year = input.year;
+  }
+
+  function buildAcademicHistoryEntry(input = {}, existing = null) {
+    const timestamp = new Date().toISOString();
+    return {
+      id: existing?.id || `academic-profile-${academicHistoryRecordSequence++}`,
+      studentId: input.studentId,
+      college: input.college || existing?.college || null,
+      program: input.program || existing?.program || null,
+      year: input.year || existing?.year || null,
+      academicYearLabel: input.academicYearLabel || existing?.academicYearLabel || null,
+      semesterLabel: input.semesterLabel || existing?.semesterLabel || null,
+      cwa: input.cwa ?? existing?.cwa ?? null,
+      wassceAggregate: input.wassceAggregate ?? existing?.wassceAggregate ?? null,
+      importBatchReference:
+        input.importBatchReference !== undefined
+          ? input.importBatchReference || null
+          : existing?.importBatchReference || null,
+      sourceFileName:
+        input.sourceFileName !== undefined
+          ? input.sourceFileName || null
+          : existing?.sourceFileName || null,
+      createdAt: existing?.createdAt || timestamp,
+      updatedAt: timestamp
+    };
+  }
 
   return {
     async search(filters) {
@@ -252,57 +348,227 @@ function createSampleRepository() {
           )
       );
     },
+    async getAcademicHistoryRecordById(id) {
+      const entry = findAcademicHistoryEntryById(String(id));
+      if (!entry) {
+        return null;
+      }
+
+      return mapAcademicHistoryRecord(
+        entry,
+        students.find((student) => student.id === entry.studentId) || null
+      );
+    },
+    async findAcademicHistoryRecord(input = {}) {
+      const entry = findAcademicHistoryEntryForScope(input);
+      if (!entry) {
+        return null;
+      }
+
+      return mapAcademicHistoryRecord(
+        entry,
+        students.find((student) => student.id === entry.studentId) || null
+      );
+    },
     async upsertAcademicHistoryEntry(input) {
       const student = students.find((item) => item.id === input.studentId);
       if (!student) {
         return null;
       }
 
-      const existing = academicHistory.find(
-        (entry) =>
-          entry.studentId === input.studentId &&
-          String(entry.academicYearLabel || "") === String(input.academicYearLabel || "") &&
-          String(entry.semesterLabel || "") === String(input.semesterLabel || "") &&
-          String(entry.program || "") === String(input.program || "")
-      );
+      const existing = findAcademicHistoryEntryForScope(input);
+      const nextEntry = buildAcademicHistoryEntry(input, existing);
 
       if (existing) {
-        existing.college = input.college || existing.college || null;
-        existing.program = input.program || existing.program || null;
-        existing.year = input.year || existing.year || null;
-        existing.academicYearLabel = input.academicYearLabel || existing.academicYearLabel || null;
-        existing.semesterLabel = input.semesterLabel || existing.semesterLabel || null;
-        existing.cwa = input.cwa ?? existing.cwa ?? null;
-        existing.wassceAggregate = input.wassceAggregate ?? existing.wassceAggregate ?? null;
-        existing.updatedAt = new Date().toISOString();
+        Object.assign(existing, nextEntry);
       } else {
-        academicHistory.push({
-          id: `academic-profile-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          studentId: input.studentId,
-          college: input.college || null,
-          program: input.program || null,
-          year: input.year || null,
-          academicYearLabel: input.academicYearLabel || null,
-          semesterLabel: input.semesterLabel || null,
-          cwa: input.cwa ?? null,
-          wassceAggregate: input.wassceAggregate ?? null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        });
+        academicHistory.push(nextEntry);
       }
 
-      student.cwa = input.cwa ?? student.cwa ?? null;
-      if (input.wassceAggregate !== undefined && input.wassceAggregate !== null) {
-        student.wassceAggregate = input.wassceAggregate;
-      }
-      if (input.college) student.college = input.college;
-      if (input.program) student.program = input.program;
-      if (input.year) student.year = input.year;
+      syncStudentSnapshot(student, input);
 
-      const current =
-        existing ||
-        academicHistory[academicHistory.length - 1];
+      const current = existing || academicHistory[academicHistory.length - 1];
       return mapAcademicHistoryRecord(current, student);
+    },
+    async updateAcademicHistoryRecord(id, input = {}) {
+      const entry = findAcademicHistoryEntryById(String(id));
+      if (!entry) {
+        return null;
+      }
+
+      const student = students.find((item) => item.id === entry.studentId);
+      if (!student) {
+        return null;
+      }
+
+      const nextEntry = buildAcademicHistoryEntry(
+        {
+          ...entry,
+          ...input,
+          studentId: entry.studentId
+        },
+        entry
+      );
+      Object.assign(entry, nextEntry);
+      syncStudentSnapshot(student, nextEntry);
+
+      return mapAcademicHistoryRecord(entry, student);
+    },
+    async deleteAcademicHistoryRecord(id) {
+      const index = academicHistory.findIndex((entry) => entry.id === String(id));
+      if (index < 0) {
+        return null;
+      }
+
+      const [removed] = academicHistory.splice(index, 1);
+      const student = students.find((item) => item.id === removed.studentId) || null;
+      return mapAcademicHistoryRecord(removed, student);
+    },
+    async saveAcademicHistoryImportBatch(batch = {}) {
+      const existingIndex = academicHistoryImportBatches.findIndex(
+        (item) => item.batchReference === batch.batchReference
+      );
+      const nextBatch = {
+        batchReference: batch.batchReference,
+        academicYearLabel: batch.academicYearLabel || null,
+        semesterLabel: batch.semesterLabel || null,
+        fileName: batch.fileName || null,
+        importedRows: Number(batch.importedRows || 0),
+        updatedRows: Number(batch.updatedRows || 0),
+        status: batch.status || "completed",
+        createdByName: batch.createdByName || null,
+        createdAt: batch.createdAt || new Date().toISOString(),
+        rollbackDeletedRows: Number(batch.rollbackDeletedRows || 0),
+        rollbackRestoredRows: Number(batch.rollbackRestoredRows || 0),
+        rollbackReason: batch.rollbackReason || null,
+        rolledBackByName: batch.rolledBackByName || null,
+        rolledBackAt: batch.rolledBackAt || null,
+        changes: Array.isArray(batch.changes)
+          ? batch.changes.map((item) => ({
+              profileId: item.profileId || null,
+              actionType: item.actionType || "created",
+              previousRecord: cloneAcademicHistoryRecord(item.previousRecord),
+              nextRecord: cloneAcademicHistoryRecord(item.nextRecord)
+            }))
+          : []
+      };
+
+      if (existingIndex >= 0) {
+        academicHistoryImportBatches.splice(existingIndex, 1, nextBatch);
+      } else {
+        academicHistoryImportBatches.unshift(nextBatch);
+      }
+
+      return mapAcademicHistoryImportBatch(nextBatch);
+    },
+    async listAcademicHistoryImportHistory(filters = {}) {
+      const academicYearLabel = String(filters.academicYearLabel || "").trim();
+      const semesterLabel = String(filters.semesterLabel || "").trim();
+
+      const items = academicHistoryImportBatches.filter((batch) => {
+        if (academicYearLabel && batch.academicYearLabel !== academicYearLabel) {
+          return false;
+        }
+        if (semesterLabel && batch.semesterLabel !== semesterLabel) {
+          return false;
+        }
+        return true;
+      });
+
+      return {
+        total: items.length,
+        items: items.map(mapAcademicHistoryImportBatch)
+      };
+    },
+    async getAcademicHistoryImportBatch(batchReference) {
+      const batch = academicHistoryImportBatches.find(
+        (item) => item.batchReference === String(batchReference)
+      );
+      if (!batch) {
+        return null;
+      }
+
+      return {
+        ...mapAcademicHistoryImportBatch(batch),
+        changes: (batch.changes || []).map((item) => ({
+          profileId: item.profileId || null,
+          actionType: item.actionType || "created",
+          previousRecord: cloneAcademicHistoryRecord(item.previousRecord),
+          nextRecord: cloneAcademicHistoryRecord(item.nextRecord)
+        }))
+      };
+    },
+    async rollbackAcademicHistoryImportBatch(batchReference, rollback = {}) {
+      const batch = academicHistoryImportBatches.find(
+        (item) => item.batchReference === String(batchReference)
+      );
+      if (!batch || batch.status === "rolled_back") {
+        return null;
+      }
+
+      let deletedRows = 0;
+      let restoredRows = 0;
+      for (const change of [...(batch.changes || [])].reverse()) {
+        if (change.actionType === "created" && change.nextRecord?.id) {
+          const deleted = await this.deleteAcademicHistoryRecord(change.nextRecord.id);
+          if (deleted) {
+            deletedRows += 1;
+          }
+          continue;
+        }
+
+        if (change.actionType === "updated" && change.previousRecord) {
+          const restored = await this.updateAcademicHistoryRecord(change.previousRecord.id, {
+            college: change.previousRecord.college,
+            program: change.previousRecord.program,
+            year: change.previousRecord.year,
+            academicYearLabel: change.previousRecord.academicYearLabel,
+            semesterLabel: change.previousRecord.semesterLabel,
+            cwa: change.previousRecord.cwa,
+            wassceAggregate: change.previousRecord.wassceAggregate,
+            importBatchReference: change.previousRecord.importBatchReference,
+            sourceFileName: change.previousRecord.sourceFileName
+          });
+          if (restored) {
+            restoredRows += 1;
+          }
+        }
+      }
+
+      batch.status = "rolled_back";
+      batch.rollbackDeletedRows = deletedRows;
+      batch.rollbackRestoredRows = restoredRows;
+      batch.rollbackReason = rollback.reason || null;
+      batch.rolledBackByName = rollback.actorName || null;
+      batch.rolledBackAt = new Date().toISOString();
+
+      return {
+        batch: mapAcademicHistoryImportBatch(batch),
+        deletedRows,
+        restoredRows
+      };
+    },
+    async clearAcademicHistoryScope(filters = {}) {
+      const academicYearLabel = String(filters.academicYearLabel || "").trim();
+      const semesterLabel = String(filters.semesterLabel || "").trim();
+      const removable = academicHistory.filter(
+        (entry) =>
+          entry.importBatchReference &&
+          (!academicYearLabel || String(entry.academicYearLabel || "") === academicYearLabel) &&
+          (!semesterLabel || String(entry.semesterLabel || "") === semesterLabel)
+      );
+
+      let deletedRows = 0;
+      for (const entry of removable) {
+        const deleted = await this.deleteAcademicHistoryRecord(entry.id);
+        if (deleted) {
+          deletedRows += 1;
+        }
+      }
+
+      return {
+        deletedRows
+      };
     }
   };
 }
@@ -330,6 +596,27 @@ function mapStudentRow(row) {
     conflictFlag: row.conflict_flag,
     notes: row.notes,
     activeSupportCount: 0
+  };
+}
+
+function mapAcademicHistoryRow(row) {
+  return {
+    id: row.id,
+    studentId: row.student_id,
+    studentName: row.student_name,
+    studentReferenceId: row.student_reference_id,
+    indexNumber: row.index_number,
+    college: row.college,
+    program: row.program_name,
+    year: row.year_of_study,
+    academicYearLabel: row.academic_year_label,
+    semesterLabel: row.semester_label,
+    cwa: row.cwa === null ? null : Number(row.cwa),
+    wassceAggregate: row.wassce_aggregate === null ? null : Number(row.wassce_aggregate),
+    importBatchReference: row.import_batch_reference || null,
+    sourceFileName: row.source_file_name || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }
 
@@ -371,24 +658,67 @@ function mapCreatedStudentFromInput(id, input) {
 function createPostgresRepository(database) {
   let academicProfileSchemaPromise;
   let ensuredAcademicProfileColumns = false;
+  let ensuredAcademicHistoryLifecycleSchema = false;
 
-    async function ensureAcademicProfileColumns() {
-      if (ensuredAcademicProfileColumns) {
-        return;
-      }
-
-      await database.query(`
-        ALTER TABLE academic_profiles
-        ADD COLUMN IF NOT EXISTS semester_label TEXT
-      `);
-      await database.query(`
-        ALTER TABLE academic_profiles
-        ADD COLUMN IF NOT EXISTS wassce_aggregate NUMERIC
-      `);
-
-      ensuredAcademicProfileColumns = true;
-      academicProfileSchemaPromise = null;
+  async function ensureAcademicHistoryLifecycleSchema() {
+    if (ensuredAcademicHistoryLifecycleSchema) {
+      return;
     }
+
+    await database.query(`
+      ALTER TABLE academic_profiles
+      ADD COLUMN IF NOT EXISTS import_batch_reference TEXT
+    `);
+    await database.query(`
+      ALTER TABLE academic_profiles
+      ADD COLUMN IF NOT EXISTS source_file_name TEXT
+    `);
+    await database.query(`
+      CREATE TABLE IF NOT EXISTS academic_history_import_batches (
+        id BIGSERIAL PRIMARY KEY,
+        batch_reference TEXT NOT NULL UNIQUE,
+        academic_year_label TEXT,
+        semester_label TEXT,
+        source_file_name TEXT,
+        imported_rows INTEGER NOT NULL DEFAULT 0,
+        updated_rows INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'completed',
+        created_by_name TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        rollback_deleted_rows INTEGER NOT NULL DEFAULT 0,
+        rollback_restored_rows INTEGER NOT NULL DEFAULT 0,
+        rollback_reason TEXT,
+        rolled_back_by_name TEXT,
+        rolled_back_at TIMESTAMPTZ,
+        change_set JSONB NOT NULL DEFAULT '[]'::jsonb
+      )
+    `);
+    await database.query(`
+      CREATE INDEX IF NOT EXISTS idx_academic_history_import_batches_scope
+      ON academic_history_import_batches(academic_year_label, semester_label, created_at DESC)
+    `);
+
+    ensuredAcademicHistoryLifecycleSchema = true;
+  }
+
+  async function ensureAcademicProfileColumns() {
+    if (ensuredAcademicProfileColumns) {
+      return;
+    }
+
+    await database.query(`
+      ALTER TABLE academic_profiles
+      ADD COLUMN IF NOT EXISTS semester_label TEXT
+    `);
+    await database.query(`
+      ALTER TABLE academic_profiles
+      ADD COLUMN IF NOT EXISTS wassce_aggregate NUMERIC
+    `);
+    await ensureAcademicHistoryLifecycleSchema();
+
+    ensuredAcademicProfileColumns = true;
+    academicProfileSchemaPromise = null;
+  }
 
   async function getAcademicProfileSchema() {
     await ensureAcademicProfileColumns();
@@ -1072,6 +1402,8 @@ function createPostgresRepository(database) {
                 ? `profile.${profileMapping.wassceAggregateColumn} AS wassce_aggregate,`
                 : "NULL::numeric AS wassce_aggregate,"
             }
+            profile.import_batch_reference,
+            profile.source_file_name,
             profile.created_at,
             profile.updated_at
           FROM academic_profiles profile
@@ -1090,22 +1422,78 @@ function createPostgresRepository(database) {
         params
       );
 
-      return result.rows.map((row) => ({
-        id: row.id,
-        studentId: row.student_id,
-        studentName: row.student_name,
-        studentReferenceId: row.student_reference_id,
-        indexNumber: row.index_number,
-        college: row.college,
-        program: row.program_name,
-        year: row.year_of_study,
-        academicYearLabel: row.academic_year_label,
-        semesterLabel: row.semester_label,
-        cwa: row.cwa === null ? null : Number(row.cwa),
-        wassceAggregate: row.wassce_aggregate === null ? null : Number(row.wassce_aggregate),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
-      }));
+      return result.rows.map(mapAcademicHistoryRow);
+    },
+    async getAcademicHistoryRecordById(id) {
+      const rows = await this.listAcademicHistory({ includeProfiles: "true" });
+      return rows.find((item) => item.id === String(id)) || null;
+    },
+    async findAcademicHistoryRecord(input = {}) {
+      const profileMapping = await getAcademicProfileMapping();
+      const result = await database.query(
+        `
+          SELECT
+            profile.id::text AS id,
+            s.id::text AS student_id,
+            s.full_name AS student_name,
+            reference_identifier.identifier_value AS student_reference_id,
+            index_identifier.identifier_value AS index_number,
+            profile.college,
+            profile.program_name,
+            ${
+              profileMapping.yearColumn
+                ? `profile.${profileMapping.yearColumn} AS year_of_study,`
+                : "NULL::text AS year_of_study,"
+            }
+            ${
+              profileMapping.academicYearLabelColumn
+                ? `profile.${profileMapping.academicYearLabelColumn} AS academic_year_label,`
+                : "NULL::text AS academic_year_label,"
+            }
+            ${
+              profileMapping.semesterColumn
+                ? `profile.${profileMapping.semesterColumn} AS semester_label,`
+                : "NULL::text AS semester_label,"
+            }
+            ${
+              profileMapping.cwaColumn
+                ? `profile.${profileMapping.cwaColumn} AS cwa,`
+                : "NULL::numeric AS cwa,"
+            }
+            ${
+              profileMapping.wassceAggregateColumn
+                ? `profile.${profileMapping.wassceAggregateColumn} AS wassce_aggregate,`
+                : "NULL::numeric AS wassce_aggregate,"
+            }
+            profile.import_batch_reference,
+            profile.source_file_name,
+            profile.created_at,
+            profile.updated_at
+          FROM academic_profiles profile
+          INNER JOIN students s ON s.id = profile.student_id
+          LEFT JOIN student_identifiers reference_identifier
+            ON reference_identifier.student_id = s.id
+            AND reference_identifier.identifier_type = 'student_reference_id'
+            AND reference_identifier.is_primary = TRUE
+          LEFT JOIN student_identifiers index_identifier
+            ON index_identifier.student_id = s.id
+            AND index_identifier.identifier_type = 'index_number'
+          WHERE profile.student_id::text = $1
+            AND COALESCE(profile.academic_year_label, '') = COALESCE($2, '')
+            AND COALESCE(profile.semester_label, '') = COALESCE($3, '')
+            AND COALESCE(profile.program_name, '') = COALESCE($4, '')
+          ORDER BY profile.updated_at DESC
+          LIMIT 1
+        `,
+        [
+          input.studentId,
+          input.academicYearLabel || "",
+          input.semesterLabel || "",
+          input.program || ""
+        ]
+      );
+
+      return result.rows[0] ? mapAcademicHistoryRow(result.rows[0]) : null;
     },
     async upsertAcademicHistoryEntry(input) {
       const profileMapping = await getAcademicProfileMapping();
@@ -1167,6 +1555,16 @@ function createPostgresRepository(database) {
             params.push(normalizeNumeric(input.wassceAggregate));
             updates.push(`${profileMapping.wassceAggregateColumn} = $${paramIndex}`);
           }
+          if (input.importBatchReference !== undefined) {
+            paramIndex += 1;
+            params.push(input.importBatchReference || null);
+            updates.push(`import_batch_reference = $${paramIndex}`);
+          }
+          if (input.sourceFileName !== undefined) {
+            paramIndex += 1;
+            params.push(input.sourceFileName || null);
+            updates.push(`source_file_name = $${paramIndex}`);
+          }
 
           params.push(existing.rows[0].id);
           await transaction.query(
@@ -1218,6 +1616,18 @@ function createPostgresRepository(database) {
           profileValues.push(`$${paramIndex}`);
           params.push(normalizeNumeric(input.wassceAggregate));
         }
+        if (input.importBatchReference !== undefined) {
+          paramIndex += 1;
+          profileColumns.push("import_batch_reference");
+          profileValues.push(`$${paramIndex}`);
+          params.push(input.importBatchReference || null);
+        }
+        if (input.sourceFileName !== undefined) {
+          paramIndex += 1;
+          profileColumns.push("source_file_name");
+          profileValues.push(`$${paramIndex}`);
+          params.push(input.sourceFileName || null);
+        }
 
         const created = await transaction.query(
           `
@@ -1235,6 +1645,324 @@ function createPostgresRepository(database) {
 
       const rows = await this.listAcademicHistory({ studentId: input.studentId });
       return rows.find((item) => item.id === result) || null;
+    },
+    async updateAcademicHistoryRecord(id, input = {}) {
+      const profileMapping = await getAcademicProfileMapping();
+      const existing = await this.getAcademicHistoryRecordById(id);
+      if (!existing) {
+        return null;
+      }
+
+      const params = [
+        input.cycleId !== undefined ? input.cycleId || "" : "",
+        input.college !== undefined ? input.college || null : existing.college,
+        input.program !== undefined ? input.program || null : existing.program
+      ];
+      const updates = [
+        `cycle_id = CASE WHEN $1 = '' THEN cycle_id ELSE NULLIF($1, '')::BIGINT END`,
+        `college = $2`,
+        `program_name = $3`
+      ];
+      let paramIndex = params.length;
+
+      if (profileMapping.yearColumn) {
+        paramIndex += 1;
+        params.push(input.year !== undefined ? input.year || null : existing.year);
+        updates.push(`${profileMapping.yearColumn} = $${paramIndex}`);
+      }
+      if (profileMapping.academicYearLabelColumn) {
+        paramIndex += 1;
+        params.push(
+          input.academicYearLabel !== undefined
+            ? input.academicYearLabel || null
+            : existing.academicYearLabel
+        );
+        updates.push(`${profileMapping.academicYearLabelColumn} = $${paramIndex}`);
+      }
+      if (profileMapping.semesterColumn) {
+        paramIndex += 1;
+        params.push(
+          input.semesterLabel !== undefined ? input.semesterLabel || null : existing.semesterLabel
+        );
+        updates.push(`${profileMapping.semesterColumn} = $${paramIndex}`);
+      }
+      if (profileMapping.cwaColumn) {
+        paramIndex += 1;
+        params.push(input.cwa !== undefined ? normalizeNumeric(input.cwa) : existing.cwa);
+        updates.push(`${profileMapping.cwaColumn} = $${paramIndex}`);
+      }
+      if (profileMapping.wassceAggregateColumn) {
+        paramIndex += 1;
+        params.push(
+          input.wassceAggregate !== undefined
+            ? normalizeNumeric(input.wassceAggregate)
+            : existing.wassceAggregate
+        );
+        updates.push(`${profileMapping.wassceAggregateColumn} = $${paramIndex}`);
+      }
+      if (input.importBatchReference !== undefined) {
+        paramIndex += 1;
+        params.push(input.importBatchReference || null);
+        updates.push(`import_batch_reference = $${paramIndex}`);
+      }
+      if (input.sourceFileName !== undefined) {
+        paramIndex += 1;
+        params.push(input.sourceFileName || null);
+        updates.push(`source_file_name = $${paramIndex}`);
+      }
+
+      params.push(String(id));
+      await database.query(
+        `
+          UPDATE academic_profiles
+          SET
+            ${updates.join(",\n            ")},
+            updated_at = NOW()
+          WHERE id::text = $${params.length}
+        `,
+        params
+      );
+
+      return this.getAcademicHistoryRecordById(id);
+    },
+    async deleteAcademicHistoryRecord(id) {
+      const existing = await this.getAcademicHistoryRecordById(id);
+      if (!existing) {
+        return null;
+      }
+
+      await database.query(`DELETE FROM academic_profiles WHERE id::text = $1`, [String(id)]);
+      return existing;
+    },
+    async saveAcademicHistoryImportBatch(batch = {}) {
+      await ensureAcademicHistoryLifecycleSchema();
+      await database.query(
+        `
+          INSERT INTO academic_history_import_batches (
+            batch_reference,
+            academic_year_label,
+            semester_label,
+            source_file_name,
+            imported_rows,
+            updated_rows,
+            status,
+            created_by_name,
+            rollback_deleted_rows,
+            rollback_restored_rows,
+            rollback_reason,
+            rolled_back_by_name,
+            rolled_back_at,
+            change_set
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
+          ON CONFLICT (batch_reference)
+          DO UPDATE SET
+            academic_year_label = EXCLUDED.academic_year_label,
+            semester_label = EXCLUDED.semester_label,
+            source_file_name = EXCLUDED.source_file_name,
+            imported_rows = EXCLUDED.imported_rows,
+            updated_rows = EXCLUDED.updated_rows,
+            status = EXCLUDED.status,
+            created_by_name = EXCLUDED.created_by_name,
+            rollback_deleted_rows = EXCLUDED.rollback_deleted_rows,
+            rollback_restored_rows = EXCLUDED.rollback_restored_rows,
+            rollback_reason = EXCLUDED.rollback_reason,
+            rolled_back_by_name = EXCLUDED.rolled_back_by_name,
+            rolled_back_at = EXCLUDED.rolled_back_at,
+            change_set = EXCLUDED.change_set
+        `,
+        [
+          batch.batchReference,
+          batch.academicYearLabel || null,
+          batch.semesterLabel || null,
+          batch.fileName || null,
+          Number(batch.importedRows || 0),
+          Number(batch.updatedRows || 0),
+          batch.status || "completed",
+          batch.createdByName || null,
+          Number(batch.rollbackDeletedRows || 0),
+          Number(batch.rollbackRestoredRows || 0),
+          batch.rollbackReason || null,
+          batch.rolledBackByName || null,
+          batch.rolledBackAt || null,
+          JSON.stringify(batch.changes || [])
+        ]
+      );
+
+      return this.getAcademicHistoryImportBatch(batch.batchReference);
+    },
+    async listAcademicHistoryImportHistory(filters = {}) {
+      await ensureAcademicHistoryLifecycleSchema();
+      const conditions = [];
+      const params = [];
+
+      if (filters.academicYearLabel) {
+        params.push(String(filters.academicYearLabel || "").trim());
+        conditions.push(`academic_year_label = $${params.length}`);
+      }
+      if (filters.semesterLabel) {
+        params.push(String(filters.semesterLabel || "").trim());
+        conditions.push(`semester_label = $${params.length}`);
+      }
+
+      const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+      const result = await database.query(
+        `
+          SELECT
+            batch_reference,
+            academic_year_label,
+            semester_label,
+            source_file_name,
+            imported_rows,
+            updated_rows,
+            status,
+            created_by_name,
+            created_at,
+            rollback_deleted_rows,
+            rollback_restored_rows,
+            rollback_reason,
+            rolled_back_by_name,
+            rolled_back_at
+          FROM academic_history_import_batches
+          ${whereClause}
+          ORDER BY created_at DESC, id DESC
+        `,
+        params
+      );
+
+      return {
+        total: result.rows.length,
+        items: result.rows.map((row) =>
+          mapAcademicHistoryImportBatch({
+            batchReference: row.batch_reference,
+            academicYearLabel: row.academic_year_label,
+            semesterLabel: row.semester_label,
+            fileName: row.source_file_name,
+            importedRows: row.imported_rows,
+            updatedRows: row.updated_rows,
+            status: row.status,
+            createdByName: row.created_by_name,
+            createdAt: row.created_at,
+            rollbackDeletedRows: row.rollback_deleted_rows,
+            rollbackRestoredRows: row.rollback_restored_rows,
+            rollbackReason: row.rollback_reason,
+            rolledBackByName: row.rolled_back_by_name,
+            rolledBackAt: row.rolled_back_at
+          })
+        )
+      };
+    },
+    async getAcademicHistoryImportBatch(batchReference) {
+      await ensureAcademicHistoryLifecycleSchema();
+      const result = await database.query(
+        `
+          SELECT *
+          FROM academic_history_import_batches
+          WHERE batch_reference = $1
+        `,
+        [String(batchReference)]
+      );
+      const row = result.rows[0];
+      if (!row) {
+        return null;
+      }
+
+      return {
+        ...mapAcademicHistoryImportBatch({
+          batchReference: row.batch_reference,
+          academicYearLabel: row.academic_year_label,
+          semesterLabel: row.semester_label,
+          fileName: row.source_file_name,
+          importedRows: row.imported_rows,
+          updatedRows: row.updated_rows,
+          status: row.status,
+          createdByName: row.created_by_name,
+          createdAt: row.created_at,
+          rollbackDeletedRows: row.rollback_deleted_rows,
+          rollbackRestoredRows: row.rollback_restored_rows,
+          rollbackReason: row.rollback_reason,
+          rolledBackByName: row.rolled_back_by_name,
+          rolledBackAt: row.rolled_back_at
+        }),
+        changes: Array.isArray(row.change_set) ? row.change_set : []
+      };
+    },
+    async rollbackAcademicHistoryImportBatch(batchReference, rollback = {}) {
+      const batch = await this.getAcademicHistoryImportBatch(batchReference);
+      if (!batch || batch.status === "rolled_back") {
+        return null;
+      }
+
+      let deletedRows = 0;
+      let restoredRows = 0;
+      for (const change of [...(batch.changes || [])].reverse()) {
+        if (change.actionType === "created" && change.nextRecord?.id) {
+          const deleted = await this.deleteAcademicHistoryRecord(change.nextRecord.id);
+          if (deleted) {
+            deletedRows += 1;
+          }
+          continue;
+        }
+
+        if (change.actionType === "updated" && change.previousRecord?.id) {
+          const restored = await this.updateAcademicHistoryRecord(change.previousRecord.id, {
+            cycleId: change.previousRecord.cycleId,
+            college: change.previousRecord.college,
+            program: change.previousRecord.program,
+            year: change.previousRecord.year,
+            academicYearLabel: change.previousRecord.academicYearLabel,
+            semesterLabel: change.previousRecord.semesterLabel,
+            cwa: change.previousRecord.cwa,
+            wassceAggregate: change.previousRecord.wassceAggregate,
+            importBatchReference: change.previousRecord.importBatchReference,
+            sourceFileName: change.previousRecord.sourceFileName
+          });
+          if (restored) {
+            restoredRows += 1;
+          }
+        }
+      }
+
+      await this.saveAcademicHistoryImportBatch({
+        ...batch,
+        status: "rolled_back",
+        rollbackDeletedRows: deletedRows,
+        rollbackRestoredRows: restoredRows,
+        rollbackReason: rollback.reason || null,
+        rolledBackByName: rollback.actorName || null,
+        rolledBackAt: new Date().toISOString()
+      });
+
+      return {
+        batch: await this.getAcademicHistoryImportBatch(batchReference),
+        deletedRows,
+        restoredRows
+      };
+    },
+    async clearAcademicHistoryScope(filters = {}) {
+      const params = [];
+      const conditions = [`import_batch_reference IS NOT NULL`];
+
+      if (filters.academicYearLabel) {
+        params.push(String(filters.academicYearLabel || "").trim());
+        conditions.push(`COALESCE(academic_year_label, '') = COALESCE($${params.length}, '')`);
+      }
+      if (filters.semesterLabel) {
+        params.push(String(filters.semesterLabel || "").trim());
+        conditions.push(`COALESCE(semester_label, '') = COALESCE($${params.length}, '')`);
+      }
+
+      const result = await database.query(
+        `
+          DELETE FROM academic_profiles
+          WHERE ${conditions.join(" AND ")}
+        `,
+        params
+      );
+
+      return {
+        deletedRows: Number(result.rowCount || 0)
+      };
     },
     async clearRegistry() {
       return database.withTransaction(async (transaction) => {

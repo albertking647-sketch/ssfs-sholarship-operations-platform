@@ -1,0 +1,2 @@
+Scholarship Operations Platform web shell running at http://127.0.0.1:4401
+Web API proxy target: http://127.0.0.1:4301/

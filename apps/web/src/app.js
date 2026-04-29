@@ -28,7 +28,14 @@ import {
   isAuthenticationSessionErrorMessage,
   resolveSessionFailurePolicy
 } from "./sessionFailurePolicy.js";
-import { focusApplicationReviewSearch } from "./applicationReviewNavigation.js";
+import {
+  beginApplicationReviewPostSaveTransition,
+  focusApplicationReviewSearch
+} from "./applicationReviewNavigation.js";
+import {
+  renderAcademicHistoryImportHistoryMarkup,
+  renderAcademicHistoryResultsMarkup
+} from "./academicHistoryLifecycle.js";
 import { showLoginGateMessage } from "./loginGateState.js";
 
 const STORAGE_KEY = "sop-theme";
@@ -278,6 +285,8 @@ const state = {
   academicHistoryPreview: null,
   lastAcademicHistoryImport: null,
   academicHistoryList: [],
+  academicHistoryImportHistory: [],
+  academicHistoryEditingRecordId: null,
   session: null,
   sessionRestorePending: false,
   accessUsers: [],
@@ -665,6 +674,27 @@ const elements = {
   academicHistorySearchButton: document.querySelector("#academicHistorySearchButton"),
   academicHistorySearchResetButton: document.querySelector("#academicHistorySearchResetButton"),
   academicHistorySearchMessage: document.querySelector("#academicHistorySearchMessage"),
+  academicHistoryImportHistoryForm: document.querySelector("#academicHistoryImportHistoryForm"),
+  academicHistoryScopeAcademicYear: document.querySelector("#academicHistoryScopeAcademicYear"),
+  academicHistoryScopeSemester: document.querySelector("#academicHistoryScopeSemester"),
+  academicHistoryImportHistoryButton: document.querySelector("#academicHistoryImportHistoryButton"),
+  academicHistoryClearButton: document.querySelector("#academicHistoryClearButton"),
+  academicHistoryImportHistoryMessage: document.querySelector("#academicHistoryImportHistoryMessage"),
+  academicHistoryImportHistoryList: document.querySelector("#academicHistoryImportHistoryList"),
+  academicHistoryEditorForm: document.querySelector("#academicHistoryEditorForm"),
+  academicHistoryEditorStudent: document.querySelector("#academicHistoryEditorStudent"),
+  academicHistoryEditorReferenceId: document.querySelector("#academicHistoryEditorReferenceId"),
+  academicHistoryEditorAcademicYear: document.querySelector("#academicHistoryEditorAcademicYear"),
+  academicHistoryEditorSemester: document.querySelector("#academicHistoryEditorSemester"),
+  academicHistoryEditorCollege: document.querySelector("#academicHistoryEditorCollege"),
+  academicHistoryEditorProgram: document.querySelector("#academicHistoryEditorProgram"),
+  academicHistoryEditorYear: document.querySelector("#academicHistoryEditorYear"),
+  academicHistoryEditorCwa: document.querySelector("#academicHistoryEditorCwa"),
+  academicHistoryEditorWassce: document.querySelector("#academicHistoryEditorWassce"),
+  academicHistoryEditorReason: document.querySelector("#academicHistoryEditorReason"),
+  academicHistoryEditorSaveButton: document.querySelector("#academicHistoryEditorSaveButton"),
+  academicHistoryEditorCancelButton: document.querySelector("#academicHistoryEditorCancelButton"),
+  academicHistoryEditorMessage: document.querySelector("#academicHistoryEditorMessage"),
   summaryCards: document.querySelector("#summaryCards"),
   validRowsTable: document.querySelector("#validRowsTable"),
   issueList: document.querySelector("#issueList"),
@@ -5839,6 +5869,18 @@ function setAcademicHistorySearchMessage(text, tone = "warning") {
   elements.academicHistorySearchMessage.className = `inline-note ${tone ? `tone-${tone}` : ""}`;
 }
 
+function setAcademicHistoryImportHistoryMessage(text, tone = "warning") {
+  if (!elements.academicHistoryImportHistoryMessage) return;
+  elements.academicHistoryImportHistoryMessage.textContent = text;
+  elements.academicHistoryImportHistoryMessage.className = `inline-note ${tone ? `tone-${tone}` : ""}`;
+}
+
+function setAcademicHistoryEditorMessage(text, tone = "warning") {
+  if (!elements.academicHistoryEditorMessage) return;
+  elements.academicHistoryEditorMessage.textContent = text;
+  elements.academicHistoryEditorMessage.className = `inline-note ${tone ? `tone-${tone}` : ""}`;
+}
+
 function setFlagReviewMessage(text, tone = "warning") {
   elements.flagReviewMessage.textContent = text;
   elements.flagReviewMessage.className = `inline-note ${tone ? `tone-${tone}` : ""}`;
@@ -6052,6 +6094,10 @@ function canManageRecommendedStudents() {
 }
 
 function canManageRecommendedImports() {
+  return getCurrentActorRole() === "admin";
+}
+
+function canManageAcademicHistoryLifecycle() {
   return getCurrentActorRole() === "admin";
 }
 
@@ -6315,6 +6361,7 @@ async function requestSession(options = {}) {
     renderSelectedApplicationReview();
     renderApplicationExportCards();
     syncBeneficiaryControls();
+    syncAcademicHistoryControls();
     renderAccessShell();
     renderModuleShell();
     if (getCurrentActorRole() === "admin") {
@@ -6458,6 +6505,8 @@ function resetRegistryWorkspace() {
 function resetAcademicHistoryWorkspace() {
   state.academicHistoryPreview = null;
   state.lastAcademicHistoryImport = null;
+  state.academicHistoryImportHistory = [];
+  state.academicHistoryEditingRecordId = null;
   elements.academicHistoryFile.value = "";
   elements.selectedAcademicHistoryFileName.textContent = "No CWA workbook selected yet";
   elements.academicHistoryImportButton.disabled = true;
@@ -6471,7 +6520,11 @@ function resetAcademicHistoryWorkspace() {
   });
   renderAcademicHistoryValidRows([]);
   renderAcademicHistoryIssues([]);
+  renderAcademicHistoryList([]);
+  renderAcademicHistoryImportHistory({ items: [] });
   renderAcademicHistoryImportResults(null);
+  renderAcademicHistoryEditor();
+  syncAcademicHistoryControls();
 }
 
 function renderApplicationSelectors() {
@@ -6744,6 +6797,48 @@ function syncApplicationReviewControls() {
   elements.applicationReviewReason.required = requiresReason;
   for (const input of elements.applicationReviewDocumentChecklist.querySelectorAll("[data-document-check-item]")) {
     input.disabled = !canReview || !hasSelection;
+  }
+}
+
+function syncAcademicHistoryControls() {
+  const canManageLifecycle = canManageAcademicHistoryLifecycle();
+  const hasSelectedRecord = Boolean(getSelectedAcademicHistoryRecord());
+
+  if (elements.academicHistoryImportHistoryButton) {
+    elements.academicHistoryImportHistoryButton.disabled = !canManageLifecycle;
+  }
+  if (elements.academicHistoryClearButton) {
+    elements.academicHistoryClearButton.disabled = !canManageLifecycle;
+  }
+  if (elements.academicHistoryEditorAcademicYear) {
+    elements.academicHistoryEditorAcademicYear.disabled = !canManageLifecycle || !hasSelectedRecord;
+  }
+  if (elements.academicHistoryEditorSemester) {
+    elements.academicHistoryEditorSemester.disabled = !canManageLifecycle || !hasSelectedRecord;
+  }
+  if (elements.academicHistoryEditorCollege) {
+    elements.academicHistoryEditorCollege.disabled = !canManageLifecycle || !hasSelectedRecord;
+  }
+  if (elements.academicHistoryEditorProgram) {
+    elements.academicHistoryEditorProgram.disabled = !canManageLifecycle || !hasSelectedRecord;
+  }
+  if (elements.academicHistoryEditorYear) {
+    elements.academicHistoryEditorYear.disabled = !canManageLifecycle || !hasSelectedRecord;
+  }
+  if (elements.academicHistoryEditorCwa) {
+    elements.academicHistoryEditorCwa.disabled = !canManageLifecycle || !hasSelectedRecord;
+  }
+  if (elements.academicHistoryEditorWassce) {
+    elements.academicHistoryEditorWassce.disabled = !canManageLifecycle || !hasSelectedRecord;
+  }
+  if (elements.academicHistoryEditorReason) {
+    elements.academicHistoryEditorReason.disabled = !canManageLifecycle || !hasSelectedRecord;
+  }
+  if (elements.academicHistoryEditorSaveButton) {
+    elements.academicHistoryEditorSaveButton.disabled = !canManageLifecycle || !hasSelectedRecord;
+  }
+  if (elements.academicHistoryEditorCancelButton) {
+    elements.academicHistoryEditorCancelButton.disabled = !hasSelectedRecord;
   }
 }
 
@@ -9098,34 +9193,9 @@ function renderAcademicHistoryImportResults(result) {
 }
 
 function renderAcademicHistoryList(items) {
-  if (!items.length) {
-    elements.academicHistoryResultsList.innerHTML =
-      `<p class="empty-state">No imported CWA history records match the current search. The student may still exist in the main registry without an imported CWA result yet.</p>`;
-    return;
-  }
-
-  elements.academicHistoryResultsList.innerHTML = items
-    .map(
-      (item) => `
-        <article class="search-result-card fade-in history-record-card">
-          <div class="search-result-top">
-            <div>
-              <strong>${escapeHtml(item.studentName || "Student record")}</strong>
-              <p class="detail-subcopy">${escapeHtml(item.program || "Program not captured")} | ${escapeHtml(item.college || "College not captured")}</p>
-            </div>
-            <button class="result-select-button" type="button" data-history-student-id="${escapeHtml(item.studentId || "")}">Open registry record</button>
-          </div>
-          <div class="search-meta">
-            <span class="meta-pill">Ref ID: ${escapeHtml(item.studentReferenceId || "N/A")}</span>
-            <span class="meta-pill">Index: ${escapeHtml(item.indexNumber || "N/A")}</span>
-            <span class="meta-pill">${escapeHtml(item.academicYearLabel || "Academic year not captured")}</span>
-            <span class="meta-pill">${escapeHtml(item.semesterLabel || "Semester not captured")}</span>
-            <span class="meta-pill">CWA: ${escapeHtml(item.cwa ?? "N/A")}</span>
-          </div>
-        </article>
-      `
-    )
-    .join("");
+  elements.academicHistoryResultsList.innerHTML = renderAcademicHistoryResultsMarkup(items, {
+    canManageLifecycle: canManageAcademicHistoryLifecycle()
+  });
 
   for (const button of elements.academicHistoryResultsList.querySelectorAll("[data-history-student-id]")) {
     button.addEventListener("click", () => {
@@ -9139,6 +9209,87 @@ function renderAcademicHistoryList(items) {
       void selectStudent(studentId);
     });
   }
+
+  for (const button of elements.academicHistoryResultsList.querySelectorAll("[data-academic-history-edit]")) {
+    button.addEventListener("click", () => {
+      state.academicHistoryEditingRecordId = button.getAttribute("data-academic-history-edit");
+      renderAcademicHistoryEditor();
+    });
+  }
+
+  for (const button of elements.academicHistoryResultsList.querySelectorAll("[data-academic-history-delete]")) {
+    button.addEventListener("click", () => {
+      void handleAcademicHistoryDelete(button.getAttribute("data-academic-history-delete"));
+    });
+  }
+}
+
+function renderAcademicHistoryImportHistory(history = state.academicHistoryImportHistory) {
+  if (!elements.academicHistoryImportHistoryList) {
+    return;
+  }
+
+  elements.academicHistoryImportHistoryList.innerHTML = renderAcademicHistoryImportHistoryMarkup(
+    history || { items: [] }
+  );
+
+  for (const button of elements.academicHistoryImportHistoryList.querySelectorAll(
+    "[data-academic-history-rollback]"
+  )) {
+    button.addEventListener("click", () => {
+      void handleAcademicHistoryRollback(button.getAttribute("data-academic-history-rollback"));
+    });
+  }
+}
+
+function getSelectedAcademicHistoryRecord() {
+  return state.academicHistoryList.find(
+    (item) => String(item.id) === String(state.academicHistoryEditingRecordId)
+  ) || null;
+}
+
+function renderAcademicHistoryEditor() {
+  const item = getSelectedAcademicHistoryRecord();
+
+  if (!elements.academicHistoryEditorStudent) {
+    return;
+  }
+
+  if (!item) {
+    state.academicHistoryEditingRecordId = null;
+    elements.academicHistoryEditorStudent.value = "";
+    elements.academicHistoryEditorReferenceId.value = "";
+    elements.academicHistoryEditorAcademicYear.value = "";
+    elements.academicHistoryEditorSemester.value = "";
+    elements.academicHistoryEditorCollege.value = "";
+    elements.academicHistoryEditorProgram.value = "";
+    elements.academicHistoryEditorYear.value = "";
+    elements.academicHistoryEditorCwa.value = "";
+    elements.academicHistoryEditorWassce.value = "";
+    elements.academicHistoryEditorReason.value = "";
+    setAcademicHistoryEditorMessage(
+      "Select an academic history row to edit or remove its registry record.",
+      "warning"
+    );
+    syncAcademicHistoryControls();
+    return;
+  }
+
+  elements.academicHistoryEditorStudent.value = item.studentName || "";
+  elements.academicHistoryEditorReferenceId.value = item.studentReferenceId || "";
+  elements.academicHistoryEditorAcademicYear.value = item.academicYearLabel || "";
+  elements.academicHistoryEditorSemester.value = item.semesterLabel || "";
+  elements.academicHistoryEditorCollege.value = item.college || "";
+  elements.academicHistoryEditorProgram.value = item.program || "";
+  elements.academicHistoryEditorYear.value = item.year || "";
+  elements.academicHistoryEditorCwa.value = item.cwa ?? "";
+  elements.academicHistoryEditorWassce.value = item.wassceAggregate ?? "";
+  elements.academicHistoryEditorReason.value = "";
+  setAcademicHistoryEditorMessage(
+    `Editing ${item.studentName || "the selected student"} for ${item.semesterLabel || "this semester"}.`,
+    "success"
+  );
+  syncAcademicHistoryControls();
 }
 
 function renderValidRows(rows) {
@@ -10894,21 +11045,21 @@ async function saveApplicationReview(event) {
       throw new Error(payload.message || "Unable to save the review decision.");
     }
 
-    setApplicationReviewMessage("Review decision saved successfully.", "success");
-    await loadApplicationsList();
-    await refreshApplicationReviewWorkspace(
-      elements.applicationReviewSearchReference.value.trim()
-        ? { studentReferenceId: elements.applicationReviewSearchReference.value.trim() }
-        : {}
-    );
-    await loadDashboard();
+    const reviewSearchFilters = elements.applicationReviewSearchReference.value.trim()
+      ? { studentReferenceId: elements.applicationReviewSearchReference.value.trim() }
+      : {};
+
     state.selectedApplicationId = payload.item?.id || application.id;
     renderSelectedApplicationReview();
-    requestAnimationFrame(() => {
-      focusApplicationReviewSearch({
-        searchForm: elements.applicationReviewSearchForm,
-        searchInput: elements.applicationReviewSearchReference
-      });
+    setApplicationReviewMessage("Review decision saved successfully.", "success");
+    void beginApplicationReviewPostSaveTransition({
+      searchForm: elements.applicationReviewSearchForm,
+      searchInput: elements.applicationReviewSearchReference,
+      refreshWork: [
+        () => loadApplicationsList(),
+        () => refreshApplicationReviewWorkspace(reviewSearchFilters),
+        () => loadDashboard()
+      ]
     });
   } catch (error) {
     setApplicationReviewMessage(error.message, "error");
@@ -11222,6 +11373,15 @@ async function loadAcademicHistory(event) {
 
     state.academicHistoryList = payload.items || [];
     renderAcademicHistoryList(state.academicHistoryList);
+    if (
+      state.academicHistoryEditingRecordId &&
+      !state.academicHistoryList.some(
+        (item) => String(item.id) === String(state.academicHistoryEditingRecordId)
+      )
+    ) {
+      state.academicHistoryEditingRecordId = null;
+    }
+    renderAcademicHistoryEditor();
     setAcademicHistorySearchMessage(
       `Loaded ${payload.total} academic history record(s).`,
       payload.total ? "success" : "warning"
@@ -11229,6 +11389,8 @@ async function loadAcademicHistory(event) {
   } catch (error) {
     state.academicHistoryList = [];
     renderAcademicHistoryList([]);
+    state.academicHistoryEditingRecordId = null;
+    renderAcademicHistoryEditor();
     setAcademicHistorySearchMessage(error.message, "error");
   } finally {
     elements.academicHistorySearchButton.disabled = false;
@@ -11238,11 +11400,326 @@ async function loadAcademicHistory(event) {
 function resetAcademicHistorySearch() {
   elements.academicHistorySearchForm.reset();
   state.academicHistoryList = [];
+  state.academicHistoryEditingRecordId = null;
   renderAcademicHistoryList([]);
+  renderAcademicHistoryEditor();
   setAcademicHistorySearchMessage(
     "Academic history search reset. Enter a student name, reference ID, or index number to search again.",
     "warning"
   );
+}
+
+function getAcademicHistoryScopeSelection() {
+  return {
+    academicYearLabel: elements.academicHistoryScopeAcademicYear?.value.trim() || "",
+    semesterLabel: elements.academicHistoryScopeSemester?.value.trim() || ""
+  };
+}
+
+async function loadAcademicHistoryImportHistory() {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl || !elements.academicHistoryImportHistoryList) {
+    return;
+  }
+
+  if (!canManageAcademicHistoryLifecycle()) {
+    state.academicHistoryImportHistory = [];
+    renderAcademicHistoryImportHistory({ items: [] });
+    setAcademicHistoryImportHistoryMessage(
+      "Only admins can manage academic history import batches.",
+      "warning"
+    );
+    return;
+  }
+
+  const { academicYearLabel, semesterLabel } = getAcademicHistoryScopeSelection();
+  if (!academicYearLabel || !semesterLabel) {
+    state.academicHistoryImportHistory = [];
+    renderAcademicHistoryImportHistory({ items: [] });
+    setAcademicHistoryImportHistoryMessage(
+      "Choose both the academic year and semester before loading import history.",
+      "warning"
+    );
+    return;
+  }
+
+  setAcademicHistoryImportHistoryMessage("Loading academic history import batches...", "warning");
+  try {
+    const url = new URL(`${apiBaseUrl}/api/students/history/import-history`);
+    url.searchParams.set("academicYearLabel", academicYearLabel);
+    url.searchParams.set("semesterLabel", semesterLabel);
+    const response = await fetch(url.toString(), {
+      headers: {
+        ...getAuthHeaders()
+      }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to load academic history import batches.");
+    }
+
+    state.academicHistoryImportHistory = payload;
+    renderAcademicHistoryImportHistory(payload);
+    setAcademicHistoryImportHistoryMessage(
+      `Loaded ${payload.total || 0} academic history import batch(es).`,
+      payload.total ? "success" : "warning"
+    );
+  } catch (error) {
+    state.academicHistoryImportHistory = [];
+    renderAcademicHistoryImportHistory({ items: [] });
+    setAcademicHistoryImportHistoryMessage(error.message, "error");
+  }
+}
+
+async function handleAcademicHistoryUpdate(event) {
+  event?.preventDefault();
+  const apiBaseUrl = getApiBaseUrl();
+  const selected = getSelectedAcademicHistoryRecord();
+
+  if (!canManageAcademicHistoryLifecycle()) {
+    setAcademicHistoryEditorMessage("Only admins can edit academic history records.", "error");
+    return;
+  }
+  if (!apiBaseUrl) {
+    setAcademicHistoryEditorMessage("Enter the API URL first.", "error");
+    return;
+  }
+  if (!selected) {
+    setAcademicHistoryEditorMessage("Select an academic history row first.", "error");
+    return;
+  }
+  if (!elements.academicHistoryEditorReason.value.trim()) {
+    setAcademicHistoryEditorMessage("Enter an update reason before saving.", "error");
+    return;
+  }
+
+  setAcademicHistoryEditorMessage("Saving academic history changes...", "warning");
+  syncAcademicHistoryControls();
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/api/students/history/${encodeURIComponent(selected.id)}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({
+          academicYearLabel: elements.academicHistoryEditorAcademicYear.value.trim(),
+          semesterLabel: elements.academicHistoryEditorSemester.value.trim(),
+          college: elements.academicHistoryEditorCollege.value.trim(),
+          program: elements.academicHistoryEditorProgram.value.trim(),
+          year: elements.academicHistoryEditorYear.value.trim(),
+          cwa: elements.academicHistoryEditorCwa.value,
+          wassceAggregate: elements.academicHistoryEditorWassce.value,
+          reason: elements.academicHistoryEditorReason.value.trim()
+        })
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to update academic history record.");
+    }
+
+    setAcademicHistoryEditorMessage(payload.message || "Academic history updated.", "success");
+    await loadAcademicHistory();
+    await loadRegistryStats();
+    await loadAcademicHistoryImportHistory();
+    if (state.selectedApplicationId) {
+      await selectApplicationForReview(state.selectedApplicationId);
+    }
+  } catch (error) {
+    setAcademicHistoryEditorMessage(error.message, "error");
+  } finally {
+    syncAcademicHistoryControls();
+  }
+}
+
+async function handleAcademicHistoryDelete(recordId) {
+  const apiBaseUrl = getApiBaseUrl();
+  const selected =
+    state.academicHistoryList.find((item) => String(item.id) === String(recordId)) || null;
+
+  if (!canManageAcademicHistoryLifecycle()) {
+    setAcademicHistoryEditorMessage("Only admins can remove academic history records.", "error");
+    return;
+  }
+  if (!apiBaseUrl) {
+    setAcademicHistoryEditorMessage("Enter the API URL first.", "error");
+    return;
+  }
+  if (!selected) {
+    setAcademicHistoryEditorMessage("Select an academic history row first.", "error");
+    return;
+  }
+
+  const reason = window.prompt(
+    "Enter a short reason for deleting this academic history record.",
+    "Remove incorrect academic history row"
+  );
+  if (!reason?.trim()) {
+    setAcademicHistoryEditorMessage("Academic history deletion cancelled.", "warning");
+    return;
+  }
+  if (!window.confirm("Delete this academic history record?")) {
+    setAcademicHistoryEditorMessage("Academic history deletion cancelled.", "warning");
+    return;
+  }
+
+  setAcademicHistoryEditorMessage("Deleting academic history record...", "warning");
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/api/students/history/${encodeURIComponent(selected.id)}`,
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({
+          reason: reason.trim()
+        })
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to delete academic history record.");
+    }
+
+    if (String(state.academicHistoryEditingRecordId) === String(selected.id)) {
+      state.academicHistoryEditingRecordId = null;
+    }
+    setAcademicHistoryEditorMessage(payload.message || "Academic history deleted.", "success");
+    await loadAcademicHistory();
+    await loadRegistryStats();
+    await loadAcademicHistoryImportHistory();
+  } catch (error) {
+    setAcademicHistoryEditorMessage(error.message, "error");
+  } finally {
+    renderAcademicHistoryEditor();
+    syncAcademicHistoryControls();
+  }
+}
+
+async function handleAcademicHistoryRollback(batchReference) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!canManageAcademicHistoryLifecycle()) {
+    setAcademicHistoryImportHistoryMessage("Only admins can roll back academic history batches.", "error");
+    return;
+  }
+  if (!apiBaseUrl) {
+    setAcademicHistoryImportHistoryMessage("Enter the API URL first.", "error");
+    return;
+  }
+  if (!batchReference) {
+    setAcademicHistoryImportHistoryMessage("Choose a valid import batch first.", "error");
+    return;
+  }
+
+  const reason = window.prompt(
+    "Enter a short reason for rolling back this academic history import batch.",
+    "Imported the wrong CWA workbook"
+  );
+  if (!reason?.trim()) {
+    setAcademicHistoryImportHistoryMessage("Academic history rollback cancelled.", "warning");
+    return;
+  }
+
+  setAcademicHistoryImportHistoryMessage("Rolling back academic history batch...", "warning");
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/students/history/rollback`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({
+        batchReference,
+        reason: reason.trim()
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to roll back academic history batch.");
+    }
+
+    setAcademicHistoryImportHistoryMessage(payload.message || "Academic history batch rolled back.", "success");
+    await loadAcademicHistory();
+    await loadRegistryStats();
+    await loadAcademicHistoryImportHistory();
+  } catch (error) {
+    setAcademicHistoryImportHistoryMessage(error.message, "error");
+  }
+}
+
+async function handleAcademicHistoryClear() {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!canManageAcademicHistoryLifecycle()) {
+    setAcademicHistoryImportHistoryMessage("Only admins can clear imported academic history.", "error");
+    return;
+  }
+  if (!apiBaseUrl) {
+    setAcademicHistoryImportHistoryMessage("Enter the API URL first.", "error");
+    return;
+  }
+
+  const { academicYearLabel, semesterLabel } = getAcademicHistoryScopeSelection();
+  if (!academicYearLabel || !semesterLabel) {
+    setAcademicHistoryImportHistoryMessage("Choose both the academic year and semester before clearing.", "error");
+    return;
+  }
+
+  const confirmation = window.prompt(
+    `Type CLEAR ACADEMIC HISTORY to remove imported academic history rows for ${semesterLabel} in ${academicYearLabel}.`
+  );
+  if (confirmation === null) {
+    setAcademicHistoryImportHistoryMessage("Academic history clear cancelled.", "warning");
+    return;
+  }
+  if (confirmation.trim().toUpperCase() !== "CLEAR ACADEMIC HISTORY") {
+    setAcademicHistoryImportHistoryMessage(
+      "Academic history clear cancelled because the confirmation text did not match.",
+      "error"
+    );
+    return;
+  }
+
+  const reason = window.prompt(
+    "Enter a short reason for clearing this imported academic history scope.",
+    `Clearing imported academic history for ${semesterLabel}`
+  );
+  if (!reason?.trim()) {
+    setAcademicHistoryImportHistoryMessage("Academic history clear cancelled.", "warning");
+    return;
+  }
+
+  setAcademicHistoryImportHistoryMessage("Clearing imported academic history...", "warning");
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/students/history/clear`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({
+        academicYearLabel,
+        semesterLabel,
+        reason: reason.trim()
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to clear imported academic history.");
+    }
+
+    setAcademicHistoryImportHistoryMessage(payload.message || "Imported academic history cleared.", "success");
+    await loadAcademicHistory();
+    await loadRegistryStats();
+    await loadAcademicHistoryImportHistory();
+  } catch (error) {
+    setAcademicHistoryImportHistoryMessage(error.message, "error");
+  }
 }
 
 async function handleAcademicHistoryPreview(event) {
@@ -11326,6 +11803,7 @@ async function handleAcademicHistoryImport() {
       await selectApplicationForReview(state.selectedApplicationId);
     }
     await loadRegistryStats();
+    await loadAcademicHistoryImportHistory();
   } catch (error) {
     setAcademicHistoryMessage(error.message, "error");
   } finally {
@@ -11585,6 +12063,9 @@ async function handleClearRegistry() {
     resetAcademicHistoryWorkspace();
     state.academicHistoryList = [];
     renderAcademicHistoryList([]);
+    renderAcademicHistoryImportHistory({ items: [] });
+    state.academicHistoryEditingRecordId = null;
+    renderAcademicHistoryEditor();
     setSearchMessage("Registry is now empty. Search results will appear here after new imports.", "warning");
     setAcademicHistorySearchMessage(
       "Registry is now empty. Academic history will appear here after new student and CWA imports.",
@@ -11805,6 +12286,20 @@ function bindEvents() {
   });
   elements.academicHistoryImportButton.addEventListener("click", () => {
     void handleAcademicHistoryImport();
+  });
+  elements.academicHistoryImportHistoryForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void loadAcademicHistoryImportHistory();
+  });
+  elements.academicHistoryClearButton?.addEventListener("click", () => {
+    void handleAcademicHistoryClear();
+  });
+  elements.academicHistoryEditorForm?.addEventListener("submit", (event) => {
+    void handleAcademicHistoryUpdate(event);
+  });
+  elements.academicHistoryEditorCancelButton?.addEventListener("click", () => {
+    state.academicHistoryEditingRecordId = null;
+    renderAcademicHistoryEditor();
   });
   elements.applicationsImportForm.addEventListener("submit", (event) => {
     void handleApplicationsPreview(event);
@@ -12485,7 +12980,9 @@ function init() {
   renderAcademicHistoryValidRows([]);
   renderAcademicHistoryIssues([]);
   renderAcademicHistoryList([]);
+  renderAcademicHistoryImportHistory({ items: [] });
   renderAcademicHistoryImportResults(null);
+  renderAcademicHistoryEditor();
   renderValidRows([]);
   renderIssues([]);
   renderDuplicateCases([]);
@@ -12660,6 +13157,7 @@ function init() {
   syncApplicationCriteriaControls();
   syncApplicationReviewControls();
   syncSchemeControls();
+  syncAcademicHistoryControls();
   renderSchemesList([]);
   renderSchemeFormState();
   renderSchemePanelVisibility();

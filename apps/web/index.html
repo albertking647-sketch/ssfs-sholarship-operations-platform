@@ -1030,6 +1030,112 @@
               </div>
             </section>
           </section>
+
+          <section class="results-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Import Lifecycle</p>
+                  <h3>Manage imported academic history batches</h3>
+                </div>
+              </div>
+
+              <form id="academicHistoryImportHistoryForm" class="import-form">
+                <div class="form-grid application-context-grid">
+                  <label class="field">
+                    <span>Academic year</span>
+                    <input id="academicHistoryScopeAcademicYear" type="text" placeholder="2032/2033 Academic Year" />
+                  </label>
+                  <label class="field">
+                    <span>Semester</span>
+                    <input id="academicHistoryScopeSemester" type="text" placeholder="First Semester" />
+                  </label>
+                </div>
+                <div class="action-row">
+                  <button id="academicHistoryImportHistoryButton" class="action-button tertiary" type="submit">Load import history</button>
+                  <button id="academicHistoryClearButton" class="action-button tertiary" type="button">Clear imported scope</button>
+                </div>
+              </form>
+
+              <div class="inline-note" id="academicHistoryImportHistoryMessage">
+                Choose an academic year and semester to review imported academic history batches or clear that imported scope.
+              </div>
+
+              <div id="academicHistoryImportHistoryList" class="result-list">
+                <p class="empty-state">Academic history import batches will appear here.</p>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Record Editor</p>
+                  <h3>Edit or remove a selected academic history row</h3>
+                </div>
+              </div>
+
+              <form id="academicHistoryEditorForm" class="import-form">
+                <div class="form-grid application-context-grid">
+                  <label class="field">
+                    <span>Student</span>
+                    <input id="academicHistoryEditorStudent" type="text" readonly />
+                  </label>
+                  <label class="field">
+                    <span>Reference ID</span>
+                    <input id="academicHistoryEditorReferenceId" type="text" readonly />
+                  </label>
+                </div>
+                <div class="form-grid application-context-grid">
+                  <label class="field">
+                    <span>Academic year</span>
+                    <input id="academicHistoryEditorAcademicYear" type="text" />
+                  </label>
+                  <label class="field">
+                    <span>Semester</span>
+                    <input id="academicHistoryEditorSemester" type="text" />
+                  </label>
+                </div>
+                <div class="form-grid application-context-grid">
+                  <label class="field">
+                    <span>College</span>
+                    <input id="academicHistoryEditorCollege" type="text" />
+                  </label>
+                  <label class="field">
+                    <span>Programme</span>
+                    <input id="academicHistoryEditorProgram" type="text" />
+                  </label>
+                </div>
+                <div class="form-grid application-context-grid">
+                  <label class="field">
+                    <span>Year</span>
+                    <input id="academicHistoryEditorYear" type="text" />
+                  </label>
+                  <label class="field">
+                    <span>CWA</span>
+                    <input id="academicHistoryEditorCwa" type="number" step="0.01" />
+                  </label>
+                </div>
+                <div class="form-grid application-context-grid">
+                  <label class="field">
+                    <span>WASSCE Aggregate</span>
+                    <input id="academicHistoryEditorWassce" type="number" step="0.01" />
+                  </label>
+                  <label class="field">
+                    <span>Reason</span>
+                    <input id="academicHistoryEditorReason" type="text" placeholder="Why this change is needed" />
+                  </label>
+                </div>
+                <div class="action-row">
+                  <button id="academicHistoryEditorSaveButton" class="action-button primary" type="submit">Save academic history</button>
+                  <button id="academicHistoryEditorCancelButton" class="action-button tertiary" type="button">Cancel</button>
+                </div>
+              </form>
+
+              <div class="inline-note" id="academicHistoryEditorMessage">
+                Select an academic history row to edit or remove its registry record.
+              </div>
+            </section>
+          </section>
         </section>
 
       </section><!-- /registry module -->

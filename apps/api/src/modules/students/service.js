@@ -456,6 +456,12 @@ export function createStudentService({ repositories }) {
         assessmentOnly: String(filters.includeProfiles || "").toLowerCase() !== "true"
       });
     },
+    async getAcademicHistoryImportHistory(filters = {}) {
+      return repositories.students.listAcademicHistoryImportHistory({
+        academicYearLabel: (filters.academicYearLabel || "").trim(),
+        semesterLabel: (filters.semesterLabel || "").trim()
+      });
+    },
     async clearRegistry(actor) {
       const cleared = await repositories.students.clearRegistry();
       await recordAuditEvent(repositories.audit, {
@@ -600,6 +606,9 @@ export function createStudentService({ repositories }) {
       const preview = await assessAcademicHistoryPreview(payload);
       const importedRows = [];
       const rejectedRows = [];
+      const batchReference = createId("academic-history-batch");
+      const batchChanges = [];
+      let updatedRows = 0;
 
       for (const row of preview.rows) {
         if (row.status !== "valid" || !row.matchedStudent) {
@@ -614,6 +623,14 @@ export function createStudentService({ repositories }) {
 
         try {
           const cycleId = await resolveCycleIdForAcademicYearLabel(row.payload.academicYearLabel);
+          const previousRecord = repositories.students.findAcademicHistoryRecord
+            ? await repositories.students.findAcademicHistoryRecord({
+                studentId: row.matchedStudent.id,
+                academicYearLabel: row.payload.academicYearLabel,
+                semesterLabel: row.payload.semesterLabel,
+                program: row.payload.program || row.matchedStudent.program || null
+              })
+            : null;
           const item = await repositories.students.upsertAcademicHistoryEntry({
             studentId: row.matchedStudent.id,
             cycleId,
@@ -623,12 +640,23 @@ export function createStudentService({ repositories }) {
             academicYearLabel: row.payload.academicYearLabel,
             semesterLabel: row.payload.semesterLabel,
             cwa: row.payload.cwa,
-            wassceAggregate: row.matchedStudent.wassceAggregate ?? null
+            wassceAggregate: row.matchedStudent.wassceAggregate ?? null,
+            importBatchReference: batchReference,
+            sourceFileName: payload.fileName || null
           });
 
           importedRows.push({
             rowNumber: row.rowNumber,
             item
+          });
+          if (previousRecord) {
+            updatedRows += 1;
+          }
+          batchChanges.push({
+            profileId: item?.id || null,
+            actionType: previousRecord ? "updated" : "created",
+            previousRecord,
+            nextRecord: item
           });
         } catch (error) {
           rejectedRows.push({
@@ -641,10 +669,12 @@ export function createStudentService({ repositories }) {
       }
 
       const result = {
+        batchReference,
         summary: {
           totalRows: preview.summary.totalRows,
           importedRows: importedRows.length,
-          rejectedRows: rejectedRows.length
+          rejectedRows: rejectedRows.length,
+          updatedRows
         },
         importedRows: importedRows.slice(0, IMPORT_RESULT_DISPLAY_LIMIT),
         rejectedRows: rejectedRows.slice(0, IMPORT_RESULT_DISPLAY_LIMIT),
@@ -654,15 +684,169 @@ export function createStudentService({ repositories }) {
         rejectedRowsTruncated: rejectedRows.length > IMPORT_RESULT_DISPLAY_LIMIT,
         preview: buildAcademicHistoryPreviewResponse(preview)
       };
+      if (repositories.students.saveAcademicHistoryImportBatch && importedRows.length) {
+        await repositories.students.saveAcademicHistoryImportBatch({
+          batchReference,
+          academicYearLabel: normalizeText(payload.academicYearLabel),
+          semesterLabel: normalizeText(payload.semesterLabel) || "Final Results",
+          fileName: payload.fileName || null,
+          importedRows: importedRows.length,
+          updatedRows,
+          status: "completed",
+          createdByName: actor?.fullName || null,
+          changes: batchChanges
+        });
+      }
       await recordAuditEvent(repositories.audit, {
         actor,
         actionCode: "student_registry.academic_history_imported",
         entityType: "student_registry_import",
-        entityId: payload.fileName || "student-history-import",
+        entityId: batchReference,
         summary: "Student academic history import completed.",
-        metadata: result.summary
+        metadata: {
+          ...result.summary,
+          batchReference,
+          fileName: payload.fileName || null
+        }
       });
       return result;
+    },
+    async updateAcademicHistoryRecord(id, payload, actor) {
+      assertRequiredString(id, "id", "Academic history record");
+      assertRequiredString(payload.reason, "reason", "Update reason");
+
+      const existing = await repositories.students.getAcademicHistoryRecordById(id);
+      if (!existing) {
+        throw new NotFoundError("Academic history record was not found.");
+      }
+
+      const item = await repositories.students.updateAcademicHistoryRecord(id, {
+        college:
+          payload.college !== undefined ? normalizeText(payload.college) : undefined,
+        program:
+          payload.program !== undefined ? normalizeText(payload.program) : undefined,
+        year: payload.year !== undefined ? normalizeText(payload.year) : undefined,
+        academicYearLabel:
+          payload.academicYearLabel !== undefined
+            ? normalizeText(payload.academicYearLabel)
+            : undefined,
+        semesterLabel:
+          payload.semesterLabel !== undefined ? normalizeText(payload.semesterLabel) : undefined,
+        cwa: payload.cwa !== undefined ? normalizeNumber(payload.cwa, "cwa", "CWA") : undefined,
+        wassceAggregate:
+          payload.wassceAggregate !== undefined
+            ? normalizeNumber(payload.wassceAggregate, "wassceAggregate", "WASSCE Aggregate")
+            : undefined
+      });
+
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "student_registry.academic_history_updated",
+        entityType: "student_academic_history",
+        entityId: String(id),
+        summary: "Academic history record was updated.",
+        metadata: {
+          reason: normalizeText(payload.reason),
+          before: existing,
+          after: item
+        }
+      });
+
+      return {
+        item,
+        message: "Academic history record updated successfully."
+      };
+    },
+    async deleteAcademicHistoryRecord(id, payload, actor) {
+      assertRequiredString(id, "id", "Academic history record");
+      assertRequiredString(payload.reason, "reason", "Deletion reason");
+
+      const existing = await repositories.students.deleteAcademicHistoryRecord(id);
+      if (!existing) {
+        throw new NotFoundError("Academic history record was not found.");
+      }
+
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "student_registry.academic_history_deleted",
+        entityType: "student_academic_history",
+        entityId: String(id),
+        summary: "Academic history record was deleted.",
+        metadata: {
+          reason: normalizeText(payload.reason),
+          record: existing
+        }
+      });
+
+      return {
+        removedId: String(id),
+        record: existing,
+        message: "Academic history record deleted successfully."
+      };
+    },
+    async rollbackAcademicHistoryImportBatch(payload, actor) {
+      assertRequiredString(payload.batchReference, "batchReference", "Import batch");
+      assertRequiredString(payload.reason, "reason", "Rollback reason");
+
+      const result = await repositories.students.rollbackAcademicHistoryImportBatch(
+        payload.batchReference,
+        {
+          reason: normalizeText(payload.reason),
+          actorName: actor?.fullName || null
+        }
+      );
+      if (!result) {
+        throw new NotFoundError("Academic history import batch was not found or has already been rolled back.");
+      }
+
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "student_registry.academic_history_import_rolled_back",
+        entityType: "student_registry_import",
+        entityId: String(payload.batchReference),
+        summary: "Academic history import batch was rolled back.",
+        metadata: {
+          reason: normalizeText(payload.reason),
+          deletedRows: result.deletedRows,
+          restoredRows: result.restoredRows
+        }
+      });
+
+      return {
+        batch: result.batch,
+        deletedRows: result.deletedRows,
+        restoredRows: result.restoredRows,
+        message: `Academic history batch rollback completed. Removed ${result.deletedRows} record(s) and restored ${result.restoredRows} record(s).`
+      };
+    },
+    async clearAcademicHistoryScope(payload, actor) {
+      assertRequiredString(payload.academicYearLabel, "academicYearLabel", "Academic year");
+      assertRequiredString(payload.semesterLabel, "semesterLabel", "Semester");
+      assertRequiredString(payload.reason, "reason", "Clear reason");
+
+      const summary = await repositories.students.clearAcademicHistoryScope({
+        academicYearLabel: normalizeText(payload.academicYearLabel),
+        semesterLabel: normalizeText(payload.semesterLabel)
+      });
+
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "student_registry.academic_history_cleared",
+        entityType: "student_academic_history_scope",
+        entityId: `${payload.academicYearLabel}:${payload.semesterLabel}`,
+        summary: "Academic history scope was cleared.",
+        metadata: {
+          reason: normalizeText(payload.reason),
+          academicYearLabel: normalizeText(payload.academicYearLabel),
+          semesterLabel: normalizeText(payload.semesterLabel),
+          deletedRows: summary.deletedRows
+        }
+      });
+
+      return {
+        summary,
+        message: `Cleared ${summary.deletedRows} imported academic history record(s) for ${payload.semesterLabel} in ${payload.academicYearLabel}.`
+      };
     }
   };
 }

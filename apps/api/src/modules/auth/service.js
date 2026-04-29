@@ -14,6 +14,7 @@ import {
   verifyPassword
 } from "./passwords.js";
 import { readCookie } from "../../lib/cookies.js";
+import { recordAuditEvent } from "../../lib/audit.js";
 
 function parseBearerToken(authorizationHeader) {
   if (!authorizationHeader) return null;
@@ -220,9 +221,18 @@ export function createAuthService({ config, users = [], repository = null, clock
   );
   const loginRateLimit = normalizeLoginRateLimitConfig(config.auth.loginRateLimit || {});
   const loginThrottleState = new Map();
+  const runtime = config.runtime || {
+    mode: "development",
+    isDevelopment: true,
+    isTest: false,
+    isProduction: false
+  };
 
   if (config.auth.mode === "password" && !sessionSecret.trim()) {
     throw new Error("AUTH_SESSION_SECRET must be configured when AUTH_MODE=password.");
+  }
+  if (runtime.isProduction && config.auth.mode !== "password") {
+    throw new Error("Production startup requires AUTH_MODE=password.");
   }
 
   function getClockNow() {
@@ -469,7 +479,7 @@ export function createAuthService({ config, users = [], repository = null, clock
   }
 
   async function seedDevTokenUsers() {
-    if (!repository || config.auth.mode !== "dev-token") {
+    if (!repository || config.auth.mode !== "dev-token" || runtime.isProduction) {
       return;
     }
 
@@ -504,7 +514,7 @@ export function createAuthService({ config, users = [], repository = null, clock
   }
 
   async function hydrateDevTokenActors() {
-    if (!repository || config.auth.mode !== "dev-token") {
+    if (!repository || config.auth.mode !== "dev-token" || runtime.isProduction) {
       return;
     }
 
@@ -540,7 +550,17 @@ export function createAuthService({ config, users = [], repository = null, clock
       }
 
       const bootstrapAdmin = normalizeBootstrapAdmin(config.auth.bootstrapAdmin);
+      const activeAdminCount = typeof repository.countActiveAdmins === "function"
+        ? await repository.countActiveAdmins()
+        : 0;
+      const requiresBootstrapAdmin = runtime.isProduction && activeAdminCount <= 0;
+
       if (!bootstrapAdmin.fullName || !bootstrapAdmin.username || !bootstrapAdmin.password) {
+        if (requiresBootstrapAdmin) {
+          throw new Error(
+            "BOOTSTRAP_ADMIN_FULL_NAME, BOOTSTRAP_ADMIN_USERNAME, and BOOTSTRAP_ADMIN_PASSWORD are required when no active admin exists in production."
+          );
+        }
         return null;
       }
 
@@ -548,6 +568,14 @@ export function createAuthService({ config, users = [], repository = null, clock
 
       const existingUser = await repository.findUserByUsername(bootstrapAdmin.username);
       if (existingUser) {
+        if (
+          requiresBootstrapAdmin &&
+          (existingUser.roleCode !== "admin" || existingUser.status !== "active")
+        ) {
+          throw new Error(
+            "BOOTSTRAP_ADMIN_USERNAME already exists but is not an active admin account."
+          );
+        }
         return existingUser;
       }
 
@@ -650,6 +678,18 @@ export function createAuthService({ config, users = [], repository = null, clock
         status: normalizedInput.status
       });
 
+      await recordAuditEvent(repository.audit, {
+        actor,
+        actionCode: "auth.user.created",
+        entityType: "user",
+        entityId: createdUser.id,
+        summary: `User account ${createdUser.username} was created.`,
+        metadata: {
+          roleCode: createdUser.roleCode,
+          status: createdUser.status
+        }
+      });
+
       return sanitizeUser(createdUser);
     },
     async updateUser(userId, input, actor) {
@@ -703,6 +743,18 @@ export function createAuthService({ config, users = [], repository = null, clock
         throw new NotFoundError("User account was not found.");
       }
 
+      await recordAuditEvent(repository.audit, {
+        actor,
+        actionCode: "auth.user.updated",
+        entityType: "user",
+        entityId: updatedUser.id,
+        summary: `User account ${updatedUser.username} was updated.`,
+        metadata: {
+          roleCode: updatedUser.roleCode,
+          status: updatedUser.status
+        }
+      });
+
       return sanitizeUser(updatedUser);
     },
     async resetPassword(userId, input, actor) {
@@ -719,6 +771,17 @@ export function createAuthService({ config, users = [], repository = null, clock
       if (!updatedUser) {
         throw new NotFoundError("User account was not found.");
       }
+
+      await recordAuditEvent(repository.audit, {
+        actor,
+        actionCode: "auth.user.password_reset",
+        entityType: "user",
+        entityId: updatedUser.id,
+        summary: `Password was reset for ${updatedUser.username}.`,
+        metadata: {
+          roleCode: updatedUser.roleCode
+        }
+      });
 
       return {
         updated: true
@@ -747,6 +810,18 @@ export function createAuthService({ config, users = [], repository = null, clock
       if (!deletedUser) {
         throw new NotFoundError("User account was not found.");
       }
+
+      await recordAuditEvent(repository.audit, {
+        actor,
+        actionCode: "auth.user.deleted",
+        entityType: "user",
+        entityId: deletedUser.id,
+        summary: `User account ${deletedUser.username} was deleted.`,
+        metadata: {
+          roleCode: deletedUser.roleCode,
+          status: deletedUser.status
+        }
+      });
 
       return {
         deleted: true,

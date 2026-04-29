@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError } from "../../lib/errors.js";
+import { recordAuditEvent } from "../../lib/audit.js";
 import { buildRecommendedImportPreview } from "./import.js";
 
 function assertRequiredString(value, label) {
@@ -399,7 +400,7 @@ export function createWaitlistService({ repositories, services }) {
         );
       }
 
-      return repositories.waitlist.create(
+      const item = await repositories.waitlist.create(
         {
           studentId: student.id,
           studentReferenceId: student.studentReferenceId || String(payload.studentReferenceId || "").trim(),
@@ -420,6 +421,19 @@ export function createWaitlistService({ repositories, services }) {
         },
         actor
       );
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "recommended_student.created",
+        entityType: "recommended_student",
+        entityId: item.id,
+        summary: "Recommended student record was created.",
+        metadata: {
+          studentId: item.studentId,
+          schemeId: item.schemeId,
+          cycleId: item.cycleId
+        }
+      });
+      return item;
     },
 
     async update(entryId, payload, actor) {
@@ -446,7 +460,7 @@ export function createWaitlistService({ repositories, services }) {
         );
       }
 
-      return repositories.waitlist.update(
+      const item = await repositories.waitlist.update(
         entryId,
         {
           studentId: student.id,
@@ -467,6 +481,19 @@ export function createWaitlistService({ repositories, services }) {
         },
         actor
       );
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "recommended_student.updated",
+        entityType: "recommended_student",
+        entityId: item.id,
+        summary: "Recommended student record was updated.",
+        metadata: {
+          studentId: item.studentId,
+          schemeId: item.schemeId,
+          cycleId: item.cycleId
+        }
+      });
+      return item;
     },
 
     async remove(entryId, actor) {
@@ -502,6 +529,17 @@ export function createWaitlistService({ repositories, services }) {
         },
         actor
       );
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "recommended_student.imported",
+        entityType: "recommended_student_import",
+        entityId: imported.batchReference || payload.fileName || "recommended-import",
+        summary: "Recommended students import completed.",
+        metadata: {
+          totalRows: assessment.summary.totalRows,
+          importedRows: imported.items.length
+        }
+      });
 
       return {
         batchReference: imported.batchReference,
@@ -569,6 +607,19 @@ export function createWaitlistService({ repositories, services }) {
         },
         actor
       );
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "recommended_student.handoff_to_application",
+        entityType: "recommended_student",
+        entityId: record?.id || String(entryId),
+        summary: "Recommended student was handed off to applications.",
+        metadata: {
+          applicationId: application.id,
+          studentId: entry.studentId,
+          schemeId: entry.schemeId,
+          cycleId: entry.cycleId
+        }
+      });
 
       return {
         record,
@@ -648,6 +699,19 @@ export function createWaitlistService({ repositories, services }) {
         },
         actor
       );
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "recommended_student.handoff_to_beneficiary",
+        entityType: "recommended_student",
+        entityId: record?.id || String(entryId),
+        summary: "Recommended student was handed off to beneficiaries.",
+        metadata: {
+          beneficiaryId: beneficiary?.id || null,
+          studentId: entry.studentId,
+          schemeId: entry.schemeId,
+          cycleId: entry.cycleId
+        }
+      });
 
       return {
         record,
@@ -656,7 +720,18 @@ export function createWaitlistService({ repositories, services }) {
     },
 
     async promote(entryId, payload, actor) {
-      return this.handoffToBeneficiary(entryId, payload, actor);
+      const result = await this.handoffToBeneficiary(entryId, payload, actor);
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "recommended_student.promoted",
+        entityType: "recommended_student",
+        entityId: result.record?.id || String(entryId),
+        summary: "Recommended student was promoted into active support.",
+        metadata: {
+          beneficiaryId: result.beneficiary?.id || null
+        }
+      });
+      return result;
     }
   };
 }

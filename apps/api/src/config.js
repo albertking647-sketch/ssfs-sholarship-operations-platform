@@ -34,6 +34,15 @@ function parsePositiveNumber(value, fallback) {
   return numeric;
 }
 
+function parseRuntimeMode(value) {
+  const normalized = String(value || "development").trim().toLowerCase();
+  if (normalized === "production" || normalized === "test") {
+    return normalized;
+  }
+
+  return "development";
+}
+
 function buildDefaultDevTokensFromEnv(env = process.env) {
   return [
     {
@@ -64,6 +73,15 @@ function buildDefaultDevTokensFromEnv(env = process.env) {
 }
 
 export const config = {
+  runtime: (() => {
+    const mode = parseRuntimeMode(process.env.NODE_ENV);
+    return {
+      mode,
+      isDevelopment: mode === "development",
+      isTest: mode === "test",
+      isProduction: mode === "production"
+    };
+  })(),
   host: process.env.API_HOST || "127.0.0.1",
   port: Number(process.env.API_PORT || process.env.PORT || 4300),
   appName: "Scholarship Operations Platform API",
@@ -81,7 +99,17 @@ export const config = {
   database: {
     url: process.env.DATABASE_URL || "",
     enabled: Boolean(process.env.DATABASE_URL),
-    sslMode: process.env.PGSSLMODE || "disable"
+    sslMode: process.env.PGSSLMODE || "disable",
+    allowInvalidCertificates: parseBoolean(process.env.PG_ALLOW_INVALID_CERTS, false),
+    runtime: (() => {
+      const mode = parseRuntimeMode(process.env.NODE_ENV);
+      return {
+        mode,
+        isDevelopment: mode === "development",
+        isTest: mode === "test",
+        isProduction: mode === "production"
+      };
+    })()
   },
   auth: {
     mode: process.env.AUTH_MODE || "password",

@@ -1,4 +1,5 @@
 import { ValidationError } from "../../lib/errors.js";
+import { recordAuditEvent } from "../../lib/audit.js";
 import { buildBeneficiaryImportPreview } from "./import.js";
 
 const VALID_IMPORT_MODES = new Set(["current_cycle_linked", "historical_archive"]);
@@ -315,6 +316,28 @@ export function createBeneficiaryService({ repositories }) {
         duplicateRowActions,
         actor
       });
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "beneficiary.imported",
+        entityType: "beneficiary_import",
+        entityId: result.batchReference || payload.fileName || "beneficiary-import",
+        summary: "Beneficiary import completed.",
+        metadata: result.summary
+      });
+      for (const item of result.items || []) {
+        await recordAuditEvent(repositories.audit, {
+          actor,
+          actionCode: "beneficiary.updated",
+          entityType: "beneficiary",
+          entityId: item.id,
+          summary: "Beneficiary record was imported.",
+          metadata: {
+            academicYearLabel: item.academicYearLabel,
+            schemeName: item.schemeName,
+            studentReferenceId: item.studentReferenceId || null
+          }
+        });
+      }
 
       return {
         batchReference: result.batchReference,
@@ -406,13 +429,24 @@ export function createBeneficiaryService({ repositories }) {
         throw new ValidationError("Provide at least one beneficiary field to update.");
       }
 
-      return repositories.beneficiaries.updateRecord({
+      const item = await repositories.beneficiaries.updateRecord({
         id: recordId,
         updates,
         replaceExisting: Boolean(payload.replaceExisting),
         reason,
         actor
       });
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "beneficiary.updated",
+        entityType: "beneficiary",
+        entityId: item.id || recordId,
+        summary: "Beneficiary record was updated.",
+        metadata: {
+          reason
+        }
+      });
+      return item;
     },
 
     async deleteRecord(id, payload = {}, actor) {
@@ -425,7 +459,19 @@ export function createBeneficiaryService({ repositories }) {
         throw new ValidationError("Provide a short reason before removing a beneficiary record.");
       }
 
-      return repositories.beneficiaries.deleteRecord({ id: recordId, reason, actor });
+      const result = await repositories.beneficiaries.deleteRecord({ id: recordId, reason, actor });
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "beneficiary.deleted",
+        entityType: "beneficiary",
+        entityId: recordId,
+        summary: "Beneficiary record was deleted.",
+        metadata: {
+          reason,
+          deletedRows: result.deletedRows || 0
+        }
+      });
+      return result;
     },
 
     async getImportHistory(filters = {}) {
@@ -459,11 +505,23 @@ export function createBeneficiaryService({ repositories }) {
       }
       const reason = String(payload.reason || "").trim();
 
-      return repositories.beneficiaries.rollbackBatch({
+      const result = await repositories.beneficiaries.rollbackBatch({
         batchReference,
         actor,
         reason
       });
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "beneficiary.rollback",
+        entityType: "beneficiary_import",
+        entityId: batchReference,
+        summary: "Beneficiary import batch was rolled back.",
+        metadata: {
+          reason,
+          deletedRows: result.deletedRows || 0
+        }
+      });
+      return result;
     },
 
     async clearBySchemeAndYear(payload = {}, actor) {
@@ -483,6 +541,19 @@ export function createBeneficiaryService({ repositories }) {
         schemeName,
         reason,
         actor
+      });
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "beneficiary.cleared",
+        entityType: "beneficiary_scope",
+        entityId: `${academicYearLabel}:${schemeName}`,
+        summary: "Beneficiary records were cleared for a scheme and year.",
+        metadata: {
+          academicYearLabel,
+          schemeName,
+          deletedRows: result.deletedRows || 0,
+          reason
+        }
       });
 
       return {

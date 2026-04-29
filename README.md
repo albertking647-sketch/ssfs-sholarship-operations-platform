@@ -116,11 +116,12 @@ npm run check
 
 ## Backend Foundation
 
-The API now has a production-oriented backend foundation while remaining runnable without a database.
+The API now has a production-oriented backend foundation with different expectations for development and production.
 
 - The API and database scripts automatically load `.env` and `.env.local` from the project root.
-- If `DATABASE_URL` is not set after env loading, the API starts in sample mode using the scaffold data.
+- If `DATABASE_URL` is not set after env loading, the API starts in sample mode only in development and test.
 - If `DATABASE_URL` is set, the API will use PostgreSQL repositories for the student registry, applications, schemes, and waitlist workflows.
+- In `production`, startup fails closed unless PostgreSQL, password auth, TLS, and trusted network allowlists are all configured.
 - Database migrations live in `packages/database/postgres/migrations`.
 - Seed scripts live in `packages/database/scripts`.
 
@@ -134,55 +135,24 @@ npm run db:seed
 npm run db:setup
 ```
 
-## Development Authentication
+## Authentication and Bootstrap
 
-Write endpoints are protected with development bearer tokens so the auth and role boundary exists now without blocking local progress.
+The normal operating mode for shared staff use is password-based authentication.
 
-Sample tokens:
+- Set `AUTH_MODE=password`.
+- Set `AUTH_SESSION_SECRET`.
+- On a fresh production database with no active admin accounts, set:
+  - `BOOTSTRAP_ADMIN_FULL_NAME`
+  - `BOOTSTRAP_ADMIN_USERNAME`
+  - `BOOTSTRAP_ADMIN_PASSWORD`
 
-- `admin-demo-token`
-- `reviewer-demo-token`
-- `auditor-demo-token`
-
-Example:
-
-```powershell
-curl.exe -H "Authorization: Bearer admin-demo-token" http://127.0.0.1:4300/api/auth/session
-```
-
-Student import preview example:
-
-```powershell
-curl.exe -X POST ^
-  -H "Authorization: Bearer reviewer-demo-token" ^
-  -H "Content-Type: application/json" ^
-  -d "{""rows"":[{""Student ID"":""20261234"",""Index Number"":""ENG/24/001"",""Full Name"":""Akosua Mensah"",""College"":""Engineering"",""Programme"":""Computer Engineering"",""Year"":""Year 2"",""CWA"":78.45}]}" ^
-  http://127.0.0.1:4300/api/students/import/preview
-```
-
-Student import preview with a real file upload:
-
-```powershell
-curl.exe -X POST ^
-  -H "Authorization: Bearer reviewer-demo-token" ^
-  -F "file=@C:\path\to\students.xlsx" ^
-  http://127.0.0.1:4300/api/students/import/preview
-```
-
-Student import write with a real file upload:
-
-```powershell
-curl.exe -X POST ^
-  -H "Authorization: Bearer reviewer-demo-token" ^
-  -F "file=@C:\path\to\students.csv" ^
-  http://127.0.0.1:4300/api/students/import
-```
+On first startup, the API creates that admin account with a PBKDF2 password hash. After that, staff sign in through the normal login flow and use the session cookie returned by `/api/auth/login`.
 
 ## Suggested Next Steps
 
 1. Replace the remaining sample-backed modules with database implementations.
-2. Add password-based sign-in for the admin, reviewer, and auditor roles.
-3. Enforce audit logging on create, update, and promotion workflows.
+2. Expand audit review and reporting workflows on top of the standardized audit spine.
+3. Add more operational dashboards for administrators, reviewers, and auditors.
 4. Add Excel import and export jobs for application intake and reporting.
 5. Build the next production workflows:
    - student registry

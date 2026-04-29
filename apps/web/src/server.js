@@ -17,6 +17,10 @@ import {
   buildApiProxyTarget,
   shouldProxyToApi
 } from "./apiProxy.js";
+import {
+  assertWebRuntimeSecurity,
+  createRuntimeDescriptor
+} from "../../../scripts/runtimeSecurity.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +31,15 @@ const host = process.env.WEB_HOST || "127.0.0.1";
 const allowedNetworkText = process.env.WEB_TRUSTED_NETWORKS || process.env.TRUSTED_NETWORKS || "";
 const trustedNetworkRules = buildTrustedNetworkRules(allowedNetworkText);
 const tlsConfig = readTlsConfig(process.env, repoRoot);
+assertWebRuntimeSecurity({
+  runtime: createRuntimeDescriptor(process.env.NODE_ENV),
+  trustedNetworks: allowedNetworkText
+    .split(/[,\n;]/u)
+    .map((item) => item.trim())
+    .filter(Boolean),
+  tlsConfig,
+  env: process.env
+});
 const apiProxyTarget = new URL(buildApiProxyTarget(process.env, tlsConfig));
 const proxyTlsOptions = buildApiProxyTlsOptions(process.env, tlsConfig, repoRoot);
 const hardeningHeaderMap = buildHeaderMap(HARDENING_HEADERS);

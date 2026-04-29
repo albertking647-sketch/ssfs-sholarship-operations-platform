@@ -9,7 +9,6 @@ import {
   schemes,
   supportPrograms,
   students,
-  users,
   waitlistEntries
 } from "../../../apps/api/src/data/sampleData.js";
 import { createPool } from "./shared.js";
@@ -26,25 +25,6 @@ async function upsertRole(client, role) {
       RETURNING id
     `,
     [role.code, role.name, `Seeded role for ${role.name}`]
-  );
-
-  return result.rows[0].id;
-}
-
-async function upsertUser(client, user, roleIds) {
-  const result = await client.query(
-    `
-      INSERT INTO users (role_id, full_name, email, password_hash, is_active)
-      VALUES ($1, $2, $3, $4, TRUE)
-      ON CONFLICT (email)
-      DO UPDATE SET
-        role_id = EXCLUDED.role_id,
-        full_name = EXCLUDED.full_name,
-        is_active = EXCLUDED.is_active,
-        updated_at = NOW()
-      RETURNING id
-    `,
-    [roleIds.get(user.roleCode), user.fullName, user.email, "seed-dev-token-placeholder"]
   );
 
   return result.rows[0].id;
@@ -577,9 +557,6 @@ try {
   }
 
   const userIds = new Map();
-  for (const user of users) {
-    userIds.set(user.id, await upsertUser(pool, user, roleIds));
-  }
 
   const funderIds = new Map();
   for (const funder of funders) {
@@ -656,7 +633,7 @@ try {
 
   console.log("Seeded core scholarship operations data.");
   console.log(`- roles: ${roles.length}`);
-  console.log(`- users: ${users.length}`);
+  console.log(`- users: ${userIds.size}`);
   console.log(`- funders: ${funders.length}`);
   console.log(`- cycles: ${cycles.length}`);
   console.log(`- schemes: ${schemes.length}`);

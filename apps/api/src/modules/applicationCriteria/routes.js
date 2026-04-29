@@ -5,7 +5,8 @@ export function createApplicationCriteriaRoutes({ config, services }) {
     {
       method: "GET",
       path: "/api/application-criteria",
-      auth: "optional",
+      auth: "required",
+      roles: ["admin", "reviewer"],
       async handler({ res, url }) {
         const item = await services.applicationCriteria.getBySchemeCycle({
           schemeId: url.searchParams.get("schemeId") || "",

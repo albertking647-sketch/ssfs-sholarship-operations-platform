@@ -4,6 +4,7 @@ import { createAuthRepository } from "../modules/auth/repository.js";
 import { createAuthService } from "../modules/auth/service.js";
 import { createApplicationRepository } from "../modules/applications/repository.js";
 import { createApplicationService } from "../modules/applications/service.js";
+import { createAuditRepository } from "../modules/audit/repository.js";
 import { createApplicationCriteriaRepository } from "../modules/applicationCriteria/repository.js";
 import { createApplicationCriteriaService } from "../modules/applicationCriteria/service.js";
 import { createBeneficiaryRepository } from "../modules/beneficiaries/repository.js";
@@ -21,9 +22,15 @@ import { createWaitlistRepository } from "../modules/waitlist/repository.js";
 import { createWaitlistService } from "../modules/waitlist/service.js";
 
 export async function createRuntime(config, dependencies = {}) {
+  if (config.runtime?.isProduction && (!config.database?.enabled || !config.database?.url)) {
+    throw new Error("Production startup requires DATABASE_URL and PostgreSQL persistence.");
+  }
+
   const database = dependencies.database || await createDatabaseClient(config.database);
   const runtimeUsers = dependencies.users ?? users;
+  const auditRepository = createAuditRepository({ database });
   const authRepository = createAuthRepository({ database });
+  authRepository.audit = auditRepository;
   const authService = createAuthService({
     config,
     users: runtimeUsers,
@@ -31,6 +38,7 @@ export async function createRuntime(config, dependencies = {}) {
   });
 
   const repositories = {
+    audit: auditRepository,
     auth: authRepository,
     cycles: createCycleRepository({ database }),
     schemes: createSchemeRepository({ database }),

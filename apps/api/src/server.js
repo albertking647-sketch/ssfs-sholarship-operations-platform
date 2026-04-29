@@ -9,15 +9,34 @@ import {
   buildTrustedNetworkRules,
   enforceTrustedNetworkAccess
 } from "../../../scripts/networkAccess.js";
+import {
+  assertApiRuntimeSecurity,
+  createRuntimeDescriptor
+} from "../../../scripts/runtimeSecurity.js";
 import { readTlsConfig } from "../../../scripts/tlsConfig.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
+const tlsConfig = readTlsConfig(process.env, repoRoot);
+assertApiRuntimeSecurity({
+  runtime: createRuntimeDescriptor(config.runtime?.mode),
+  config,
+  tlsConfig,
+  env: process.env
+});
 const runtime = await createRuntime(config);
+const databaseHealth = await runtime.database.healthCheck();
+assertApiRuntimeSecurity({
+  runtime: createRuntimeDescriptor(config.runtime?.mode),
+  config,
+  tlsConfig,
+  env: process.env,
+  databaseHealth,
+  runtimeState: runtime
+});
 const app = createApp(runtime);
 const trustedNetworkRules = buildTrustedNetworkRules(runtime.config.network?.trustedNetworks || []);
-const tlsConfig = readTlsConfig(process.env, repoRoot);
 const createServer = tlsConfig.enabled ? https.createServer : http.createServer;
 const server = createServer(tlsConfig.httpsOptions || {}, (req, res) => {
   const access = enforceTrustedNetworkAccess(req, res, trustedNetworkRules);

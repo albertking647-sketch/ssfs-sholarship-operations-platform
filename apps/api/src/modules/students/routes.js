@@ -85,9 +85,9 @@ export function createStudentRoutes({ config, services }) {
       path: "/api/students/history/import",
       auth: "required",
       roles: ["admin"],
-      async handler({ req, res }) {
+      async handler({ actor, req, res }) {
         const payload = await resolveStudentHistoryImportPayload(req, config.limits.jsonBodyBytes);
-        const result = await services.students.importAcademicHistoryRows(payload);
+        const result = await services.students.importAcademicHistoryRows(payload, actor);
 
         return sendJson(res, 201, {
           ok: true,
@@ -137,9 +137,9 @@ export function createStudentRoutes({ config, services }) {
       path: "/api/students/import",
       auth: "required",
       roles: ["admin"],
-      async handler({ req, res }) {
+      async handler({ actor, req, res }) {
         const payload = await resolveStudentImportPayload(req, config.limits.jsonBodyBytes);
-        const result = await services.students.importRows(payload);
+        const result = await services.students.importRows(payload, actor);
 
         return sendJson(res, 201, {
           ok: true,
@@ -155,7 +155,7 @@ export function createStudentRoutes({ config, services }) {
       path: "/api/students/clear",
       auth: "required",
       roles: ["admin"],
-      async handler({ req, res }) {
+      async handler({ actor, req, res }) {
         const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
 
         if (String(payload.confirmation || "").trim().toUpperCase() !== "CLEAR REGISTRY") {
@@ -165,7 +165,7 @@ export function createStudentRoutes({ config, services }) {
           });
         }
 
-        const result = await services.students.clearRegistry();
+        const result = await services.students.clearRegistry(actor);
 
         return sendJson(res, 200, {
           ok: true,

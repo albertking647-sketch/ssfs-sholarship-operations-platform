@@ -53,8 +53,8 @@ export function createFoodBankRoutes({ config, services }) {
       path: "/api/food-bank/:foodBankId",
       auth: "required",
       roles: ["admin", "reviewer"],
-      async handler({ params, res }) {
-        const result = await services.foodBank.remove(params.foodBankId);
+      async handler({ actor, params, res }) {
+        const result = await services.foodBank.remove(params.foodBankId, actor);
         return sendJson(res, 200, {
           ok: true,
           ...result

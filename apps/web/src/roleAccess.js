@@ -1,6 +1,7 @@
 const MODULES_BY_ROLE = {
   admin: ["dashboard", "registry", "applications", "waitlist", "awards", "support", "reports"],
-  reviewer: ["dashboard", "applications", "support"]
+  reviewer: ["dashboard", "applications", "support"],
+  auditor: ["dashboard", "reports"]
 };
 
 export function getVisibleModulesForRole(roleCode) {

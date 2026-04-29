@@ -1,4 +1,5 @@
 import { NotFoundError, ValidationError } from "../../lib/errors.js";
+import { recordAuditEvent } from "../../lib/audit.js";
 
 function normalizeNumber(value, label) {
   if (value === undefined || value === null || value === "") {
@@ -57,7 +58,7 @@ export function createApplicationCriteriaService({ repositories }) {
         throw new NotFoundError("The selected cycle does not exist.");
       }
 
-      return repositories.applicationCriteria.upsert(
+      const item = await repositories.applicationCriteria.upsert(
         {
           schemeId,
           cycleId,
@@ -69,6 +70,18 @@ export function createApplicationCriteriaService({ repositories }) {
         },
         actor
       );
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "application_criteria.upserted",
+        entityType: "application_criteria",
+        entityId: item.id || `${schemeId}:${cycleId}`,
+        summary: "Application criteria were saved.",
+        metadata: {
+          schemeId,
+          cycleId
+        }
+      });
+      return item;
     }
   };
 }

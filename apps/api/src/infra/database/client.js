@@ -11,7 +11,10 @@ export function buildDatabaseSslOptions(config, env = process.env) {
     return undefined;
   }
 
-  const allowInvalidCertificates = parseBoolean(env.PG_ALLOW_INVALID_CERTS, false);
+  const allowInvalidCertificates =
+    typeof config.allowInvalidCertificates === "boolean"
+      ? config.allowInvalidCertificates
+      : parseBoolean(env.PG_ALLOW_INVALID_CERTS, false);
   return {
     rejectUnauthorized: !allowInvalidCertificates
   };
@@ -24,6 +27,10 @@ export function createPoolErrorHandler(logger = console) {
 }
 
 export async function createDatabaseClient(config, dependencies = {}) {
+  if (config.runtime?.isProduction && (!config.enabled || !config.url)) {
+    throw new Error("DATABASE_URL must be configured for production startup.");
+  }
+
   if (!config.enabled || !config.url) {
     return {
       enabled: false,

@@ -1,5 +1,6 @@
 import { ConflictError, NotFoundError, ValidationError } from "../../lib/errors.js";
 import { createId } from "../../lib/ids.js";
+import { recordAuditEvent } from "../../lib/audit.js";
 import { buildStudentImportPreview } from "./import.js";
 
 const PREVIEW_DISPLAY_LIMIT = 160;
@@ -455,8 +456,16 @@ export function createStudentService({ repositories }) {
         assessmentOnly: String(filters.includeProfiles || "").toLowerCase() !== "true"
       });
     },
-    async clearRegistry() {
+    async clearRegistry(actor) {
       const cleared = await repositories.students.clearRegistry();
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "student_registry.cleared",
+        entityType: "student_registry",
+        entityId: "registry",
+        summary: "Student registry records were cleared.",
+        metadata: cleared
+      });
 
       return {
         summary: cleared,
@@ -470,7 +479,7 @@ export function createStudentService({ repositories }) {
       const preview = await assessImportPreview(payload);
       return buildPreviewResponse(preview);
     },
-    async importRows(payload) {
+    async importRows(payload, actor) {
       const preview = await assessImportPreview(payload);
       const importableRows = [];
       const rejectedRows = [];
@@ -555,7 +564,7 @@ export function createStudentService({ repositories }) {
         }
       }
 
-      return {
+      const result = {
         summary: {
           totalRows: preview.summary.totalRows,
           importedRows: importableRows.length,
@@ -573,12 +582,21 @@ export function createStudentService({ repositories }) {
         skippedRowsTruncated: skippedRows.length > IMPORT_RESULT_DISPLAY_LIMIT,
         preview: buildPreviewResponse(preview)
       };
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "student_registry.imported",
+        entityType: "student_registry_import",
+        entityId: payload.fileName || "student-import",
+        summary: "Student registry import completed.",
+        metadata: result.summary
+      });
+      return result;
     },
     async previewAcademicHistoryImport(payload) {
       const preview = await assessAcademicHistoryPreview(payload);
       return buildAcademicHistoryPreviewResponse(preview);
     },
-    async importAcademicHistoryRows(payload) {
+    async importAcademicHistoryRows(payload, actor) {
       const preview = await assessAcademicHistoryPreview(payload);
       const importedRows = [];
       const rejectedRows = [];
@@ -622,7 +640,7 @@ export function createStudentService({ repositories }) {
         }
       }
 
-      return {
+      const result = {
         summary: {
           totalRows: preview.summary.totalRows,
           importedRows: importedRows.length,
@@ -636,6 +654,15 @@ export function createStudentService({ repositories }) {
         rejectedRowsTruncated: rejectedRows.length > IMPORT_RESULT_DISPLAY_LIMIT,
         preview: buildAcademicHistoryPreviewResponse(preview)
       };
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "student_registry.academic_history_imported",
+        entityType: "student_registry_import",
+        entityId: payload.fileName || "student-history-import",
+        summary: "Student academic history import completed.",
+        metadata: result.summary
+      });
+      return result;
     }
   };
 }

@@ -5,7 +5,8 @@ export function createCycleRoutes({ services }) {
     {
       method: "GET",
       path: "/api/cycles",
-      auth: "optional",
+      auth: "required",
+      roles: ["admin", "reviewer", "auditor"],
       async handler({ res }) {
         const items = await services.cycles.list();
 

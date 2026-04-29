@@ -5,7 +5,8 @@ export function createSchemeRoutes({ config, services }) {
     {
       method: "GET",
       path: "/api/schemes",
-      auth: "optional",
+      auth: "required",
+      roles: ["admin", "reviewer", "auditor"],
       async handler({ res }) {
         const items = await services.schemes.list();
 
@@ -21,9 +22,9 @@ export function createSchemeRoutes({ config, services }) {
       path: "/api/schemes",
       auth: "required",
       roles: ["admin"],
-      async handler({ req, res }) {
+      async handler({ actor, req, res }) {
         const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
-        const item = await services.schemes.create(payload);
+        const item = await services.schemes.create(payload, actor);
 
         return sendJson(res, 201, {
           ok: true,
@@ -36,9 +37,9 @@ export function createSchemeRoutes({ config, services }) {
       path: "/api/schemes/:schemeId",
       auth: "required",
       roles: ["admin"],
-      async handler({ req, res, params }) {
+      async handler({ actor, req, res, params }) {
         const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
-        const item = await services.schemes.update(params.schemeId, payload);
+        const item = await services.schemes.update(params.schemeId, payload, actor);
 
         return sendJson(res, 200, {
           ok: true,
@@ -51,8 +52,8 @@ export function createSchemeRoutes({ config, services }) {
       path: "/api/schemes/:schemeId",
       auth: "required",
       roles: ["admin"],
-      async handler({ params, res }) {
-        const result = await services.schemes.remove(params.schemeId);
+      async handler({ actor, params, res }) {
+        const result = await services.schemes.remove(params.schemeId, actor);
 
         return sendJson(res, 200, {
           ok: true,

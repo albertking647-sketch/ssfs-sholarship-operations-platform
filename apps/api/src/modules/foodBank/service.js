@@ -1,4 +1,5 @@
 import { NotFoundError, ValidationError } from "../../lib/errors.js";
+import { recordAuditEvent } from "../../lib/audit.js";
 import { buildFoodBankImportPreview } from "./import.js";
 
 function normalizeAcademicYearLabel(value) {
@@ -263,6 +264,18 @@ export function createFoodBankService({ repositories }) {
         },
         actor
       );
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "food_bank.created",
+        entityType: "food_bank_registration",
+        entityId: item.id,
+        summary: "Food bank registration was created.",
+        metadata: {
+          studentId: item.studentId,
+          academicYearLabel: item.academicYearLabel,
+          semester: item.semester
+        }
+      });
       return hydrateRecord(repositories, item);
     },
     async update(id, payload, actor) {
@@ -307,6 +320,18 @@ export function createFoodBankService({ repositories }) {
         },
         actor
       );
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "food_bank.updated",
+        entityType: "food_bank_registration",
+        entityId: item.id,
+        summary: "Food bank registration was updated.",
+        metadata: {
+          studentId: item.studentId,
+          academicYearLabel: item.academicYearLabel,
+          semester: item.semester
+        }
+      });
       return hydrateRecord(repositories, item);
     },
     async previewImport(payload) {
@@ -338,6 +363,17 @@ export function createFoodBankService({ repositories }) {
         },
         actor
       );
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "food_bank.imported",
+        entityType: "food_bank_import",
+        entityId: result.batchReference || payload.fileName || "food-bank-import",
+        summary: "Food bank import completed.",
+        metadata: {
+          totalRows: preview.summary.totalRows,
+          importedRows: result.items.length
+        }
+      });
 
       return {
         summary: {
@@ -360,14 +396,38 @@ export function createFoodBankService({ repositories }) {
         throw new ValidationError("This support registration has already been marked as served.");
       }
       const item = await repositories.foodBank.markServed(id, actor);
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "food_bank.served",
+        entityType: "food_bank_registration",
+        entityId: item.id,
+        summary: "Food bank registration was marked as served.",
+        metadata: {
+          studentId: item.studentId,
+          academicYearLabel: item.academicYearLabel,
+          semester: item.semester
+        }
+      });
       return hydrateRecord(repositories, item);
     },
-    async remove(id) {
+    async remove(id, actor) {
       const existing = await repositories.foodBank.getById(id);
       if (!existing) {
         throw new NotFoundError("Support registration was not found.");
       }
       await repositories.foodBank.remove(id);
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "food_bank.deleted",
+        entityType: "food_bank_registration",
+        entityId: String(id),
+        summary: "Food bank registration was deleted.",
+        metadata: {
+          studentId: existing.studentId,
+          academicYearLabel: existing.academicYearLabel,
+          semester: existing.semester
+        }
+      });
       return {
         id: String(id),
         removed: true

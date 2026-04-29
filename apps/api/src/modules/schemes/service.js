@@ -1,5 +1,6 @@
 import { ConflictError, NotFoundError, ValidationError } from "../../lib/errors.js";
 import { createId } from "../../lib/ids.js";
+import { recordAuditEvent } from "../../lib/audit.js";
 
 function assertRequiredString(value, label) {
   if (!String(value || "").trim()) {
@@ -116,7 +117,7 @@ export function createSchemeService({ repositories }) {
     async list() {
       return repositories.schemes.list();
     },
-    async create(payload) {
+    async create(payload, actor) {
       const normalized = await validateInput(payload);
 
       const baseCode = buildSchemeCode(normalized.name, normalized.cycle.academicYearLabel || normalized.cycle.label);
@@ -130,15 +131,28 @@ export function createSchemeService({ repositories }) {
         existing = await repositories.schemes.findByCode(code);
       }
 
-      return repositories.schemes.create({
+      const created = await repositories.schemes.create({
         id: createId("scheme"),
         code,
         name: normalized.name,
         category: normalized.category,
         cycleId: normalized.cycleId
       });
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "scheme.created",
+        entityType: "scheme",
+        entityId: created.id,
+        summary: `Scheme ${created.name} was created.`,
+        metadata: {
+          code: created.code,
+          category: created.category,
+          cycleId: created.cycleId
+        }
+      });
+      return created;
     },
-    async update(id, payload) {
+    async update(id, payload, actor) {
       const existing = await repositories.schemes.getById(id);
       if (!existing) {
         throw new NotFoundError("Scheme was not found.");
@@ -155,9 +169,22 @@ export function createSchemeService({ repositories }) {
         throw new NotFoundError("Scheme was not found.");
       }
 
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "scheme.updated",
+        entityType: "scheme",
+        entityId: updated.id,
+        summary: `Scheme ${updated.name} was updated.`,
+        metadata: {
+          code: updated.code,
+          category: updated.category,
+          cycleId: updated.cycleId
+        }
+      });
+
       return updated;
     },
-    async remove(id) {
+    async remove(id, actor) {
       const item = await repositories.schemes.getById(id);
       if (!item) {
         throw new NotFoundError("Scheme was not found.");
@@ -167,6 +194,19 @@ export function createSchemeService({ repositories }) {
       if (!removed) {
         throw new NotFoundError("Scheme was not found.");
       }
+
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "scheme.deleted",
+        entityType: "scheme",
+        entityId: item.id,
+        summary: `Scheme ${item.name} was deleted.`,
+        metadata: {
+          code: item.code,
+          category: item.category,
+          cycleId: item.cycleId
+        }
+      });
 
       return {
         id,

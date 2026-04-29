@@ -58,6 +58,7 @@ function createSampleAuthRepository() {
   let nextId = 1;
 
   return {
+    audit: null,
     async countUsers() {
       return users.length;
     },
@@ -200,6 +201,7 @@ function createPostgresAuthRepository({ database }) {
   }
 
   return {
+    audit: null,
     async countUsers() {
       const result = await database.query(`
         SELECT COUNT(*)::INT AS total
@@ -544,7 +546,9 @@ function createPostgresAuthRepository({ database }) {
 }
 
 export function createAuthRepository({ database }) {
-  return database.enabled
+  const repository = database.enabled
     ? createPostgresAuthRepository({ database })
     : createSampleAuthRepository();
+  repository.audit = null;
+  return repository;
 }

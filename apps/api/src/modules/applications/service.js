@@ -1,4 +1,5 @@
 import { config } from "../../config.js";
+import { recordAuditEvent } from "../../lib/audit.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../lib/errors.js";
 import { createId } from "../../lib/ids.js";
 import { buildApplicationImportPreview } from "./import.js";
@@ -1547,6 +1548,19 @@ export function createApplicationService({ repositories }) {
         },
         actor
       );
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "application.created",
+        entityType: "application",
+        entityId: created.id,
+        summary: "Application record was created.",
+        metadata: {
+          studentId: created.studentId,
+          schemeId: created.schemeId,
+          cycleId: created.cycleId,
+          status: created.status
+        }
+      });
       return enrichApplication(created);
     },
     async previewImport(payload) {
@@ -1658,7 +1672,7 @@ export function createApplicationService({ repositories }) {
         }))
       });
 
-      return {
+      const result = {
         summary: {
           totalRows: preview.summary.totalRows,
           importedRows: importedRows.length,
@@ -1672,6 +1686,15 @@ export function createApplicationService({ repositories }) {
         rejectedRowsTruncated: rejectedRows.length > IMPORT_RESULT_DISPLAY_LIMIT,
         preview: buildPreviewResponse(preview)
       };
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "application.imported",
+        entityType: "application_import",
+        entityId: payload.fileName || "application-import",
+        summary: "Application import completed.",
+        metadata: result.summary
+      });
+      return result;
     },
     async previewInterviewImport(payload) {
       const preview = await assessInterviewImportPreview(payload, repositories, validateContext);
@@ -1754,7 +1777,7 @@ export function createApplicationService({ repositories }) {
         }
       }
 
-      return {
+      const result = {
         summary: {
           totalRows: preview.summary.totalRows,
           importedRows: importedRows.length,
@@ -1770,6 +1793,15 @@ export function createApplicationService({ repositories }) {
         rejectedRowsTruncated: rejectedRows.length > IMPORT_RESULT_DISPLAY_LIMIT,
         preview: buildPreviewResponse(preview)
       };
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "application.review_imported",
+        entityType: "application_import",
+        entityId: payload.fileName || "application-interview-import",
+        summary: "Application interview import completed.",
+        metadata: result.summary
+      });
+      return result;
     },
     async bulkUpdateInterview(payload, actor) {
       await validateContext(payload);
@@ -1797,12 +1829,24 @@ export function createApplicationService({ repositories }) {
         actor
       );
 
-      return {
+      const response = {
         summary: {
           updatedApplications: result.updatedApplications || 0
         },
         updatedApplications: result.updatedApplications || 0
       };
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "application.interview_bulk_updated",
+        entityType: "application_batch",
+        entityId: `${String(payload.schemeId || "").trim()}:${String(payload.cycleId || "").trim()}`,
+        summary: "Interview details were bulk updated.",
+        metadata: {
+          updatedApplications: result.updatedApplications || 0,
+          interviewStatus
+        }
+      });
+      return response;
     },
     async bulkApplyOutcomes(payload, actor) {
       await validateContext(payload);
@@ -1848,7 +1892,7 @@ export function createApplicationService({ repositories }) {
         actor
       );
 
-      return {
+      const response = {
         summary: {
           updatedApplications: result.updatedApplications || 0,
           sourceQualificationStatus,
@@ -1858,6 +1902,19 @@ export function createApplicationService({ repositories }) {
         sourceQualificationStatus,
         outcomeDecision
       };
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "application.outcomes_bulk_updated",
+        entityType: "application_batch",
+        entityId: `${String(payload.schemeId || "").trim()}:${String(payload.cycleId || "").trim()}`,
+        summary: "Application outcomes were bulk updated.",
+        metadata: {
+          updatedApplications: result.updatedApplications || 0,
+          sourceQualificationStatus,
+          outcomeDecision
+        }
+      });
+      return response;
     },
     async saveAcademicHistoryEntry(id, payload, actor) {
       const existing = await repositories.applications.getById(id);
@@ -2017,6 +2074,19 @@ export function createApplicationService({ repositories }) {
       if (!updated) {
         throw new NotFoundError("Application was not found.");
       }
+
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "application.reviewed",
+        entityType: "application",
+        entityId: updated.id,
+        summary: "Application review state was updated.",
+        metadata: {
+          status: updated.status,
+          eligibilityStatus: updated.eligibilityStatus,
+          reviewDecision: nextReviewDecision || null
+        }
+      });
 
       return enrichApplication(updated);
     }

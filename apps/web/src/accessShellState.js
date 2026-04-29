@@ -1,3 +1,5 @@
+import { LOGIN_PASSWORD_GUIDANCE_MESSAGE } from "./passwordVisibility.js";
+
 function normalizeBoolean(value) {
   return value === true;
 }
@@ -42,7 +44,7 @@ export function buildAccessShellState({
     loginFormHidden: false,
     appShellHidden: true,
     logoutHidden: true,
-    loginMessage: "Enter your username and password to continue.",
+    loginMessage: LOGIN_PASSWORD_GUIDANCE_MESSAGE,
     loginTone: "",
     authBootMode: "login"
   };

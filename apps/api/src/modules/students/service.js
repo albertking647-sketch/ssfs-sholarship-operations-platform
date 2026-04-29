@@ -182,6 +182,42 @@ export function createStudentService({ repositories }) {
     };
   }
 
+  function buildAcademicHistoryImportScopeOptions(history = {}) {
+    const grouped = new Map();
+    const items = Array.isArray(history.items) ? history.items : [];
+
+    for (const item of items) {
+      const academicYearLabel = normalizeText(item?.academicYearLabel);
+      const semesterLabel = normalizeText(item?.semesterLabel);
+      if (!academicYearLabel || !semesterLabel) {
+        continue;
+      }
+
+      const semesters = grouped.get(academicYearLabel) || new Set();
+      semesters.add(semesterLabel);
+      grouped.set(academicYearLabel, semesters);
+    }
+
+    const scopeItems = Array.from(grouped.entries())
+      .map(([academicYearLabel, semesters]) => ({
+        academicYearLabel,
+        semesters: Array.from(semesters).sort((left, right) =>
+          left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" })
+        )
+      }))
+      .sort((left, right) =>
+        right.academicYearLabel.localeCompare(left.academicYearLabel, undefined, {
+          numeric: true,
+          sensitivity: "base"
+        })
+      );
+
+    return {
+      totalAcademicYears: scopeItems.length,
+      items: scopeItems
+    };
+  }
+
   async function assessAcademicHistoryPreview(payload) {
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     const previewRows = rows.map((rawRow, index) => {
@@ -461,6 +497,10 @@ export function createStudentService({ repositories }) {
         academicYearLabel: (filters.academicYearLabel || "").trim(),
         semesterLabel: (filters.semesterLabel || "").trim()
       });
+    },
+    async getAcademicHistoryImportScopeOptions() {
+      const history = await repositories.students.listAcademicHistoryImportHistory({});
+      return buildAcademicHistoryImportScopeOptions(history);
     },
     async clearRegistry(actor) {
       const cleared = await repositories.students.clearRegistry();

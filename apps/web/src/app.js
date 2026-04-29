@@ -25,6 +25,10 @@ import {
   shouldAttemptSessionRestore
 } from "./accessShellState.js";
 import {
+  getAcademicHistoryScopeSemesters,
+  normalizeAcademicHistoryImportScopeOptions
+} from "./academicHistoryScopeOptions.js";
+import {
   isAuthenticationSessionErrorMessage,
   resolveSessionFailurePolicy
 } from "./sessionFailurePolicy.js";
@@ -37,6 +41,11 @@ import {
   renderAcademicHistoryResultsMarkup
 } from "./academicHistoryLifecycle.js";
 import { showLoginGateMessage } from "./loginGateState.js";
+import {
+  LOGIN_PASSWORD_GUIDANCE_MESSAGE,
+  setPasswordVisibility,
+  togglePasswordVisibility
+} from "./passwordVisibility.js";
 
 const STORAGE_KEY = "sop-theme";
 
@@ -285,6 +294,10 @@ const state = {
   academicHistoryPreview: null,
   lastAcademicHistoryImport: null,
   academicHistoryList: [],
+  academicHistoryImportScopeOptions: {
+    totalAcademicYears: 0,
+    items: []
+  },
   academicHistoryImportHistory: [],
   academicHistoryEditingRecordId: null,
   session: null,
@@ -314,6 +327,7 @@ const elements = {
   loginApiUrl: document.querySelector("#loginApiUrl"),
   loginUsername: document.querySelector("#loginUsername"),
   loginPassword: document.querySelector("#loginPassword"),
+  loginPasswordToggle: document.querySelector("#loginPasswordToggle"),
   loginButton: document.querySelector("#loginButton"),
   loginMessage: document.querySelector("#loginMessage"),
   apiUrl: document.querySelector("#apiUrl"),
@@ -730,6 +744,7 @@ const elements = {
   accessUsername: document.querySelector("#accessUsername"),
   accessRole: document.querySelector("#accessRole"),
   accessPassword: document.querySelector("#accessPassword"),
+  accessPasswordToggle: document.querySelector("#accessPasswordToggle"),
   accessManagementMessage: document.querySelector("#accessManagementMessage"),
   accessManagementList: document.querySelector("#accessManagementList"),
   navItems: document.querySelectorAll("[data-module]"),
@@ -860,6 +875,14 @@ function setLoginMessage(text, tone = "warning") {
   }
   elements.loginMessage.textContent = text;
   elements.loginMessage.className = `inline-note ${tone ? `tone-${tone}` : ""}`.trim();
+}
+
+function initializePasswordToggle(input, button) {
+  if (!input || !button) {
+    return;
+  }
+
+  setPasswordVisibility(input, button, false);
 }
 
 function renderSessionSummary() {
@@ -1077,6 +1100,7 @@ async function refreshRoleScopedWorkspace() {
 
   const adminOnlyLoaders = [
     () => loadRegistryStats(),
+    () => loadAcademicHistoryImportScopeOptions(),
     () => loadBeneficiaryRecords(),
     () => loadRecommendedRecords(),
     () => loadReportsOverview()
@@ -1139,6 +1163,7 @@ async function handleAccessManagementSubmit(event) {
     if (elements.accessRole) {
       elements.accessRole.value = "reviewer";
     }
+    initializePasswordToggle(elements.accessPassword, elements.accessPasswordToggle);
     if (elements.accessManagementMessage) {
       elements.accessManagementMessage.textContent = `${result.item?.fullName || payload.fullName} can now sign in with the assigned role.`;
       elements.accessManagementMessage.className = "inline-note tone-success";
@@ -1289,7 +1314,7 @@ async function handleLoginSubmit(event) {
   }
 
   if (!username || !password) {
-    setLoginMessage("Enter your username and password to continue.", "error");
+    setLoginMessage(LOGIN_PASSWORD_GUIDANCE_MESSAGE, "error");
     return;
   }
 
@@ -1324,6 +1349,7 @@ async function handleLoginSubmit(event) {
     state.sessionRestorePending = false;
     elements.authSessionHint.value = "active";
     elements.loginPassword.value = "";
+    initializePasswordToggle(elements.loginPassword, elements.loginPasswordToggle);
     persistConnectionState();
     setLoginMessage(`Welcome back, ${payload.actor?.fullName || username}.`, "success");
     renderAccessShell();
@@ -6505,11 +6531,21 @@ function resetRegistryWorkspace() {
 function resetAcademicHistoryWorkspace() {
   state.academicHistoryPreview = null;
   state.lastAcademicHistoryImport = null;
+  state.academicHistoryImportScopeOptions = {
+    totalAcademicYears: 0,
+    items: []
+  };
   state.academicHistoryImportHistory = [];
   state.academicHistoryEditingRecordId = null;
   elements.academicHistoryFile.value = "";
   elements.selectedAcademicHistoryFileName.textContent = "No CWA workbook selected yet";
   elements.academicHistoryImportButton.disabled = true;
+  if (elements.academicHistoryScopeAcademicYear) {
+    elements.academicHistoryScopeAcademicYear.value = "";
+  }
+  if (elements.academicHistoryScopeSemester) {
+    elements.academicHistoryScopeSemester.value = "";
+  }
   renderAcademicHistorySummary({
     totalRows: 0,
     matchedRows: 0,
@@ -6524,6 +6560,7 @@ function resetAcademicHistoryWorkspace() {
   renderAcademicHistoryImportHistory({ items: [] });
   renderAcademicHistoryImportResults(null);
   renderAcademicHistoryEditor();
+  renderAcademicHistoryScopeSelectors();
   syncAcademicHistoryControls();
 }
 
@@ -6803,12 +6840,15 @@ function syncApplicationReviewControls() {
 function syncAcademicHistoryControls() {
   const canManageLifecycle = canManageAcademicHistoryLifecycle();
   const hasSelectedRecord = Boolean(getSelectedAcademicHistoryRecord());
+  const { academicYearLabel, semesterLabel } = getAcademicHistoryScopeSelection();
+  const hasSelectedScope = Boolean(academicYearLabel && semesterLabel);
 
   if (elements.academicHistoryImportHistoryButton) {
-    elements.academicHistoryImportHistoryButton.disabled = !canManageLifecycle;
+    elements.academicHistoryImportHistoryButton.disabled =
+      !canManageLifecycle || !hasSelectedScope;
   }
   if (elements.academicHistoryClearButton) {
-    elements.academicHistoryClearButton.disabled = !canManageLifecycle;
+    elements.academicHistoryClearButton.disabled = !canManageLifecycle || !hasSelectedScope;
   }
   if (elements.academicHistoryEditorAcademicYear) {
     elements.academicHistoryEditorAcademicYear.disabled = !canManageLifecycle || !hasSelectedRecord;
@@ -11409,11 +11449,127 @@ function resetAcademicHistorySearch() {
   );
 }
 
+function renderAcademicHistoryScopeSelectors(selection = {}) {
+  const normalizedOptions = normalizeAcademicHistoryImportScopeOptions(
+    state.academicHistoryImportScopeOptions
+  );
+  const requestedAcademicYearLabel =
+    selection.academicYearLabel ??
+    String(elements.academicHistoryScopeAcademicYear?.value || "").trim();
+  const currentAcademicYearLabel = normalizedOptions.items.some(
+    (item) => item.academicYearLabel === requestedAcademicYearLabel
+  )
+    ? requestedAcademicYearLabel
+    : "";
+  const semesters = getAcademicHistoryScopeSemesters(
+    normalizedOptions,
+    currentAcademicYearLabel
+  );
+  const requestedSemesterLabel =
+    selection.semesterLabel ?? String(elements.academicHistoryScopeSemester?.value || "").trim();
+  const currentSemesterLabel = semesters.includes(requestedSemesterLabel)
+    ? requestedSemesterLabel
+    : "";
+  const canManageLifecycle = canManageAcademicHistoryLifecycle();
+
+  if (elements.academicHistoryScopeAcademicYear) {
+    const academicYearOptions = normalizedOptions.items.length
+      ? normalizedOptions.items
+          .map(
+            (item) =>
+              `<option value="${escapeHtml(item.academicYearLabel)}">${escapeHtml(item.academicYearLabel)}</option>`
+          )
+          .join("")
+      : `<option value="">No imported academic years available</option>`;
+    elements.academicHistoryScopeAcademicYear.innerHTML = `
+      <option value="">Choose an academic year</option>
+      ${academicYearOptions}
+    `;
+    elements.academicHistoryScopeAcademicYear.value = currentAcademicYearLabel;
+    elements.academicHistoryScopeAcademicYear.disabled =
+      !canManageLifecycle || normalizedOptions.items.length === 0;
+  }
+
+  if (elements.academicHistoryScopeSemester) {
+    const semesterOptions = semesters.length
+      ? semesters
+          .map(
+            (item) =>
+              `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`
+          )
+          .join("")
+      : `<option value="">${
+          currentAcademicYearLabel ? "No imported semesters available" : "Choose an academic year first"
+        }</option>`;
+    elements.academicHistoryScopeSemester.innerHTML = `
+      <option value="">Choose a semester</option>
+      ${semesterOptions}
+    `;
+    elements.academicHistoryScopeSemester.value = currentSemesterLabel;
+    elements.academicHistoryScopeSemester.disabled =
+      !canManageLifecycle || !currentAcademicYearLabel || semesters.length === 0;
+  }
+}
+
 function getAcademicHistoryScopeSelection() {
   return {
     academicYearLabel: elements.academicHistoryScopeAcademicYear?.value.trim() || "",
     semesterLabel: elements.academicHistoryScopeSemester?.value.trim() || ""
   };
+}
+
+async function loadAcademicHistoryImportScopeOptions(selection = {}) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!elements.academicHistoryScopeAcademicYear || !elements.academicHistoryScopeSemester) {
+    return;
+  }
+
+  if (!apiBaseUrl || !canManageAcademicHistoryLifecycle()) {
+    state.academicHistoryImportScopeOptions = {
+      totalAcademicYears: 0,
+      items: []
+    };
+    state.academicHistoryImportHistory = [];
+    renderAcademicHistoryImportHistory({ items: [] });
+    renderAcademicHistoryScopeSelectors(selection);
+    syncAcademicHistoryControls();
+    return;
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/students/history/import-scope-options`, {
+      headers: {
+        ...getAuthHeaders()
+      }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to load academic history import scopes.");
+    }
+
+    state.academicHistoryImportScopeOptions = normalizeAcademicHistoryImportScopeOptions(payload);
+    renderAcademicHistoryScopeSelectors(selection);
+    syncAcademicHistoryControls();
+
+    if (state.academicHistoryImportScopeOptions.items.length === 0) {
+      state.academicHistoryImportHistory = [];
+      renderAcademicHistoryImportHistory({ items: [] });
+      setAcademicHistoryImportHistoryMessage(
+        "No imported academic history scopes are available yet. Import CWA history first.",
+        "warning"
+      );
+    }
+  } catch (error) {
+    state.academicHistoryImportScopeOptions = {
+      totalAcademicYears: 0,
+      items: []
+    };
+    state.academicHistoryImportHistory = [];
+    renderAcademicHistoryImportHistory({ items: [] });
+    renderAcademicHistoryScopeSelectors(selection);
+    syncAcademicHistoryControls();
+    setAcademicHistoryImportHistoryMessage(error.message, "error");
+  }
 }
 
 async function loadAcademicHistoryImportHistory() {
@@ -11525,6 +11681,7 @@ async function handleAcademicHistoryUpdate(event) {
     setAcademicHistoryEditorMessage(payload.message || "Academic history updated.", "success");
     await loadAcademicHistory();
     await loadRegistryStats();
+    await loadAcademicHistoryImportScopeOptions();
     await loadAcademicHistoryImportHistory();
     if (state.selectedApplicationId) {
       await selectApplicationForReview(state.selectedApplicationId);
@@ -11593,6 +11750,7 @@ async function handleAcademicHistoryDelete(recordId) {
     setAcademicHistoryEditorMessage(payload.message || "Academic history deleted.", "success");
     await loadAcademicHistory();
     await loadRegistryStats();
+    await loadAcademicHistoryImportScopeOptions();
     await loadAcademicHistoryImportHistory();
   } catch (error) {
     setAcademicHistoryEditorMessage(error.message, "error");
@@ -11647,6 +11805,7 @@ async function handleAcademicHistoryRollback(batchReference) {
     setAcademicHistoryImportHistoryMessage(payload.message || "Academic history batch rolled back.", "success");
     await loadAcademicHistory();
     await loadRegistryStats();
+    await loadAcademicHistoryImportScopeOptions();
     await loadAcademicHistoryImportHistory();
   } catch (error) {
     setAcademicHistoryImportHistoryMessage(error.message, "error");
@@ -11716,6 +11875,10 @@ async function handleAcademicHistoryClear() {
     setAcademicHistoryImportHistoryMessage(payload.message || "Imported academic history cleared.", "success");
     await loadAcademicHistory();
     await loadRegistryStats();
+    await loadAcademicHistoryImportScopeOptions({
+      academicYearLabel,
+      semesterLabel
+    });
     await loadAcademicHistoryImportHistory();
   } catch (error) {
     setAcademicHistoryImportHistoryMessage(error.message, "error");
@@ -11803,6 +11966,10 @@ async function handleAcademicHistoryImport() {
       await selectApplicationForReview(state.selectedApplicationId);
     }
     await loadRegistryStats();
+    await loadAcademicHistoryImportScopeOptions({
+      academicYearLabel: payload.academicYearLabel,
+      semesterLabel: payload.semesterLabel
+    });
     await loadAcademicHistoryImportHistory();
   } catch (error) {
     setAcademicHistoryMessage(error.message, "error");
@@ -12112,6 +12279,9 @@ function bindEvents() {
   elements.loginForm?.addEventListener("submit", (event) => {
     void handleLoginSubmit(event);
   });
+  elements.loginPasswordToggle?.addEventListener("click", () => {
+    togglePasswordVisibility(elements.loginPassword, elements.loginPasswordToggle);
+  });
   elements.logoutButton?.addEventListener("click", () => {
     void handleLogout();
   });
@@ -12121,6 +12291,9 @@ function bindEvents() {
   });
   elements.accessManagementForm?.addEventListener("submit", (event) => {
     void handleAccessManagementSubmit(event);
+  });
+  elements.accessPasswordToggle?.addEventListener("click", () => {
+    togglePasswordVisibility(elements.accessPassword, elements.accessPasswordToggle);
   });
   elements.accessManagementList?.addEventListener("click", (event) => {
     const actionButton = event.target.closest("[data-access-action]");
@@ -12286,6 +12459,16 @@ function bindEvents() {
   });
   elements.academicHistoryImportButton.addEventListener("click", () => {
     void handleAcademicHistoryImport();
+  });
+  elements.academicHistoryScopeAcademicYear?.addEventListener("change", () => {
+    renderAcademicHistoryScopeSelectors({
+      academicYearLabel: elements.academicHistoryScopeAcademicYear.value,
+      semesterLabel: ""
+    });
+    syncAcademicHistoryControls();
+  });
+  elements.academicHistoryScopeSemester?.addEventListener("change", () => {
+    syncAcademicHistoryControls();
   });
   elements.academicHistoryImportHistoryForm?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -13150,6 +13333,10 @@ function init() {
     "Search academic history to review imported CWA records by student, reference ID, or index number.",
     "warning"
   );
+  setAcademicHistoryImportHistoryMessage(
+    "Choose an academic year and semester to review imported academic history batches or clear that imported scope.",
+    "warning"
+  );
   setApplicationIssueEditorMessage(
     "Correct unmatched rows here, confirm the registry student, and add them into the active application list.",
     "warning"
@@ -13157,7 +13344,10 @@ function init() {
   syncApplicationCriteriaControls();
   syncApplicationReviewControls();
   syncSchemeControls();
+  renderAcademicHistoryScopeSelectors();
   syncAcademicHistoryControls();
+  initializePasswordToggle(elements.loginPassword, elements.loginPasswordToggle);
+  initializePasswordToggle(elements.accessPassword, elements.accessPasswordToggle);
   renderSchemesList([]);
   renderSchemeFormState();
   renderSchemePanelVisibility();

@@ -63,14 +63,31 @@
         </label>
         <label class="field">
           <span>Password</span>
-          <input id="loginPassword" name="loginPassword" type="password" autocomplete="current-password" />
+          <div class="password-field-group">
+            <input
+              id="loginPassword"
+              class="password-field-input"
+              name="loginPassword"
+              type="password"
+              autocomplete="current-password"
+            />
+            <button
+              id="loginPasswordToggle"
+              class="password-visibility-toggle"
+              type="button"
+              aria-controls="loginPassword"
+              aria-pressed="false"
+            >
+              Show
+            </button>
+          </div>
         </label>
         <div class="action-row">
           <button id="loginButton" class="action-button primary" type="submit">Sign in</button>
         </div>
       </form>
       <div class="inline-note" id="loginMessage">
-        Enter your username and password to continue.
+        Enter your username and password to continue. Password must be at least 12 characters and include uppercase, lowercase, number, and symbol characters.
       </div>
     </div>
   </section>
@@ -430,7 +447,26 @@
                 </label>
                 <label class="field">
                   <span>Password</span>
-                  <input id="accessPassword" name="accessPassword" type="password" />
+                  <div class="password-field-group">
+                    <input
+                      id="accessPassword"
+                      class="password-field-input"
+                      name="accessPassword"
+                      type="password"
+                    />
+                    <button
+                      id="accessPasswordToggle"
+                      class="password-visibility-toggle"
+                      type="button"
+                      aria-controls="accessPassword"
+                      aria-pressed="false"
+                    >
+                      Show
+                    </button>
+                  </div>
+                  <small class="field-help">
+                    Password must be at least 12 characters and include uppercase, lowercase, number, and symbol characters.
+                  </small>
                 </label>
                 <div class="action-row">
                   <button id="accessCreateButton" class="action-button primary" type="submit">Create account</button>
@@ -1044,16 +1080,20 @@
                 <div class="form-grid application-context-grid">
                   <label class="field">
                     <span>Academic year</span>
-                    <input id="academicHistoryScopeAcademicYear" type="text" placeholder="2032/2033 Academic Year" />
+                    <select id="academicHistoryScopeAcademicYear" class="select-field">
+                      <option value="">Choose an academic year</option>
+                    </select>
                   </label>
                   <label class="field">
                     <span>Semester</span>
-                    <input id="academicHistoryScopeSemester" type="text" placeholder="First Semester" />
+                    <select id="academicHistoryScopeSemester" class="select-field">
+                      <option value="">Choose a semester</option>
+                    </select>
                   </label>
                 </div>
                 <div class="action-row">
                   <button id="academicHistoryImportHistoryButton" class="action-button tertiary" type="submit">Load import history</button>
-                  <button id="academicHistoryClearButton" class="action-button tertiary" type="button">Clear imported scope</button>
+                  <button id="academicHistoryClearButton" class="action-button danger" type="button">Clear imported scope</button>
                 </div>
               </form>
 

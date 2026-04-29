@@ -61,7 +61,8 @@ function showsNormalLoginWhenNoSessionExists() {
       loginFormHidden: false,
       appShellHidden: true,
       logoutHidden: true,
-      loginMessage: "Enter your username and password to continue.",
+      loginMessage:
+        "Enter your username and password to continue. Password must be at least 12 characters and include uppercase, lowercase, number, and symbol characters.",
       loginTone: "",
       authBootMode: "login"
     }

@@ -189,9 +189,79 @@ async function updateDeleteAndClearAcademicHistoryRecords() {
   );
 }
 
+async function academicHistoryImportScopeOptionsGroupSemestersByAcademicYear() {
+  const { repositories } = createRepositories();
+  const service = createStudentService({ repositories });
+
+  await service.importAcademicHistoryRows(
+    {
+      fileName: "scope-options.xlsx",
+      academicYearLabel: "2032/2033 Academic Year",
+      semesterLabel: "First Semester",
+      rows: [
+        {
+          "Index Number": "ENG/24/001",
+          "Full Name": "Akosua Mensah",
+          CWA: 74
+        }
+      ]
+    },
+    { userId: "user-admin", fullName: "Platform Admin" }
+  );
+
+  await service.importAcademicHistoryRows(
+    {
+      fileName: "scope-options-final.xlsx",
+      academicYearLabel: "2032/2033 Academic Year",
+      semesterLabel: "Final Results",
+      rows: [
+        {
+          "Index Number": "SCI/24/015",
+          "Full Name": "Kwame Arthur",
+          CWA: 68
+        }
+      ]
+    },
+    { userId: "user-admin", fullName: "Platform Admin" }
+  );
+
+  await service.importAcademicHistoryRows(
+    {
+      fileName: "scope-options-older.xlsx",
+      academicYearLabel: "2031/2032 Academic Year",
+      semesterLabel: "Second Semester",
+      rows: [
+        {
+          "Index Number": "BUS/24/111",
+          "Full Name": "Esi Boateng",
+          CWA: 80
+        }
+      ]
+    },
+    { userId: "user-admin", fullName: "Platform Admin" }
+  );
+
+  const scopes = await service.getAcademicHistoryImportScopeOptions();
+
+  assert.deepEqual(scopes, {
+    totalAcademicYears: 2,
+    items: [
+      {
+        academicYearLabel: "2032/2033 Academic Year",
+        semesters: ["Final Results", "First Semester"]
+      },
+      {
+        academicYearLabel: "2031/2032 Academic Year",
+        semesters: ["Second Semester"]
+      }
+    ]
+  });
+}
+
 async function main() {
   await importRollbackRestoresUpdatedAcademicHistoryRecord();
   await updateDeleteAndClearAcademicHistoryRecords();
+  await academicHistoryImportScopeOptionsGroupSemestersByAcademicYear();
   console.log("students-service-tests: ok");
 }
 

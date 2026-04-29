@@ -102,6 +102,20 @@ export function createStudentRoutes({ config, services }) {
     },
     {
       method: "GET",
+      path: "/api/students/history/import-scope-options",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ res }) {
+        const result = await services.students.getAcademicHistoryImportScopeOptions();
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "GET",
       path: "/api/students/history/import-history",
       auth: "required",
       roles: ["admin"],

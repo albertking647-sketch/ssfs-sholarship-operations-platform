@@ -121,8 +121,29 @@ CREATE TABLE academic_profiles (
   enrollment_status TEXT,
   cwa NUMERIC(5, 2),
   wassce_aggregate NUMERIC(5, 2),
+  import_batch_reference TEXT,
+  source_file_name TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE academic_history_import_batches (
+  id BIGSERIAL PRIMARY KEY,
+  batch_reference TEXT NOT NULL UNIQUE,
+  academic_year_label TEXT,
+  semester_label TEXT,
+  source_file_name TEXT,
+  imported_rows INTEGER NOT NULL DEFAULT 0,
+  updated_rows INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'completed',
+  created_by_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  rollback_deleted_rows INTEGER NOT NULL DEFAULT 0,
+  rollback_restored_rows INTEGER NOT NULL DEFAULT 0,
+  rollback_reason TEXT,
+  rolled_back_by_name TEXT,
+  rolled_back_at TIMESTAMPTZ,
+  change_set JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
 CREATE TABLE applications (
@@ -414,6 +435,8 @@ CREATE TABLE audit_logs (
 CREATE INDEX idx_students_full_name ON students(full_name);
 CREATE INDEX idx_student_identifiers_value ON student_identifiers(identifier_value);
 CREATE INDEX idx_academic_profiles_student_id ON academic_profiles(student_id);
+CREATE INDEX idx_academic_history_import_batches_scope
+  ON academic_history_import_batches(academic_year_label, semester_label, created_at DESC);
 CREATE INDEX idx_applications_scheme_cycle ON applications(scheme_id, cycle_id);
 CREATE INDEX idx_applications_student_id ON applications(student_id);
 CREATE INDEX idx_recommendations_status ON recommendations(status);

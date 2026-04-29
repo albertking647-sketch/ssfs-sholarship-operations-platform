@@ -102,6 +102,91 @@ export function createStudentRoutes({ config, services }) {
     },
     {
       method: "GET",
+      path: "/api/students/history/import-history",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ res, url }) {
+        const result = await services.students.getAcademicHistoryImportHistory({
+          academicYearLabel: url.searchParams.get("academicYearLabel") || "",
+          semesterLabel: url.searchParams.get("semesterLabel") || ""
+        });
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "POST",
+      path: "/api/students/history/rollback",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, req, res }) {
+        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const result = await services.students.rollbackAcademicHistoryImportBatch(payload, actor);
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "POST",
+      path: "/api/students/history/clear",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, req, res }) {
+        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const result = await services.students.clearAcademicHistoryScope(payload, actor);
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "PUT",
+      path: "/api/students/history/:historyId",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, params, req, res }) {
+        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const result = await services.students.updateAcademicHistoryRecord(
+          params.historyId,
+          payload,
+          actor
+        );
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "DELETE",
+      path: "/api/students/history/:historyId",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, params, req, res }) {
+        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const result = await services.students.deleteAcademicHistoryRecord(
+          params.historyId,
+          payload,
+          actor
+        );
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "GET",
       path: "/api/students/:studentId",
       auth: "required",
       roles: ["admin", "reviewer"],

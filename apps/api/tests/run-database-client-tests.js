@@ -67,7 +67,50 @@ async function databaseClientRegistersPoolErrorHandler() {
   await client.close();
 }
 
+async function databaseClientRetriesTransientControlPlaneFailure() {
+  let queryCalls = 0;
+
+  class MockPool {
+    constructor() {}
+
+    on() {}
+
+    async query() {
+      queryCalls += 1;
+      if (queryCalls === 1) {
+        const error = new Error("Control plane request failed");
+        error.code = "XX000";
+        throw error;
+      }
+
+      return { rows: [{ ok: true }] };
+    }
+
+    async end() {}
+  }
+
+  const client = await createDatabaseClient(
+    {
+      enabled: true,
+      url: "postgres://example.test/mock",
+      sslMode: "require"
+    },
+    {
+      pgModule: { Pool: MockPool },
+      logger: console
+    }
+  );
+
+  const result = await client.query("SELECT 1");
+
+  assert.equal(queryCalls, 2);
+  assert.deepEqual(result.rows, [{ ok: true }]);
+
+  await client.close();
+}
+
 sslOptionsRejectInvalidCertificatesByDefault();
 await databaseClientRegistersPoolErrorHandler();
+await databaseClientRetriesTransientControlPlaneFailure();
 
 console.log("database-client-tests: ok");

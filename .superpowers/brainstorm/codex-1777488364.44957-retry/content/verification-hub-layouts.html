@@ -1,0 +1,72 @@
+﻿<h2>Inside The Verification Hub</h2>
+<p class="subtitle">Same direction, three different internal layouts. Recommendation: A because it preserves current behavior best while matching your mockup.</p>
+
+<div class="cards">
+  <div class="card selected" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Balanced Operations Layout</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Header: Verify students | Export CSV | Export XLSX | Run verification</div>
+          <div class="placeholder" style="height:66px;margin-top:8px;">Top KPI row</div>
+          <div style="display:grid;grid-template-columns:1.25fr 0.75fr;gap:10px;margin-top:10px;">
+            <div>
+              <div class="placeholder" style="height:154px;">Verification mode + input workspace</div>
+            </div>
+            <div>
+              <div class="placeholder" style="height:154px;">Upload file panel + detected reference column + file queue</div>
+            </div>
+          </div>
+          <div class="placeholder" style="height:132px;margin-top:10px;">Results panel with horizontal pan, text selection, copy support</div>
+          <div class="placeholder" style="height:112px;margin-top:10px;">Audit trail snapshot</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Balanced operations layout</h3>
+      <p>Very close to your sample. Keeps upload and verification tightly paired, then gives results and audit their own full-width zones.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Three-Column Command Center</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Header + quick actions</div>
+          <div class="placeholder" style="height:66px;margin-top:8px;">Top KPI row</div>
+          <div style="display:grid;grid-template-columns:0.9fr 1.2fr 0.9fr;gap:10px;margin-top:10px;">
+            <div class="placeholder" style="height:314px;">Verification modes + paste / manual input</div>
+            <div class="placeholder" style="height:314px;">Central results workspace</div>
+            <div class="placeholder" style="height:314px;">Upload intelligence + audit + file history</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Three-column command center</h3>
+      <p>Feels more like an analyst console. Strong for live operations, but denser and a bit riskier on smaller screens.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Step-Based Workflow Layout</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Header + quick actions</div>
+          <div class="placeholder" style="height:66px;margin-top:8px;">Top KPI row</div>
+          <div class="placeholder" style="height:58px;margin-top:10px;">Workflow steps: Choose mode -> Add input -> Review results -> Audit/export</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+            <div class="placeholder" style="height:246px;">Current step workspace</div>
+            <div class="placeholder" style="height:246px;">Context panel / file intelligence / audit notes</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Step-based workflow</h3>
+      <p>Cleaner for guided operation, but it may hide the at-a-glance power-user feel you liked in the example.</p>
+    </div>
+  </div>
+</div>

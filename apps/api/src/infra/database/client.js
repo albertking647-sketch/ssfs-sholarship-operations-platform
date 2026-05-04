@@ -26,6 +26,23 @@ export function createPoolErrorHandler(logger = console) {
   };
 }
 
+function isTransientDatabaseQueryError(error) {
+  const code = String(error?.code || "").trim().toUpperCase();
+  const message = String(error?.message || "");
+
+  return (
+    /control plane request failed/i.test(message) ||
+    /terminating connection due to administrator command/i.test(message) ||
+    code === "57P01"
+  );
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 export async function createDatabaseClient(config, dependencies = {}) {
   if (config.runtime?.isProduction && (!config.enabled || !config.url)) {
     throw new Error("DATABASE_URL must be configured for production startup.");
@@ -77,7 +94,19 @@ export async function createDatabaseClient(config, dependencies = {}) {
   return {
     enabled: true,
     async query(text, params = []) {
-      return pool.query(text, params);
+      let attempt = 0;
+      while (true) {
+        try {
+          return await pool.query(text, params);
+        } catch (error) {
+          if (attempt >= 1 || !isTransientDatabaseQueryError(error)) {
+            throw error;
+          }
+
+          attempt += 1;
+          await delay(150);
+        }
+      }
     },
     async withTransaction(run) {
       const client = await pool.connect();

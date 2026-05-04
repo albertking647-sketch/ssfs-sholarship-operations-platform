@@ -150,9 +150,49 @@ async function allowsRequestsFromTrustedForwardedNetworks() {
   assert.equal(seenRemoteAddress, "203.0.113.7, 10.0.0.5");
 }
 
+async function retriesRuntimeInitializationAfterStartupFailure() {
+  let runtimeCalls = 0;
+  const handler = createVercelApiHandler({
+    configValue: { name: "test-config" },
+    async createRuntimeFn(config) {
+      runtimeCalls += 1;
+      if (runtimeCalls === 1) {
+        throw new Error("Control plane request failed");
+      }
+
+      return { config };
+    },
+    createAppFn(runtime) {
+      return async function app(req, res) {
+        res.runtimeName = runtime.config.name;
+        res.seenUrl = req.url;
+      };
+    }
+  });
+
+  await assert.rejects(
+    handler(
+      { url: "/api?__pathname=%2Fapi%2Fauth%2Fsession" },
+      {}
+    ),
+    /control plane request failed/i
+  );
+
+  const response = {};
+  await handler(
+    { url: "/api?__pathname=%2Fapi%2Fauth%2Fsession" },
+    response
+  );
+
+  assert.equal(runtimeCalls, 2);
+  assert.equal(response.runtimeName, "test-config");
+  assert.equal(response.seenUrl, "/api/auth/session");
+}
+
 rewritesPathOverrideIntoNodeStyleRequestUrl();
 await cachesRuntimeAndAppAcrossRequests();
 await rejectsRequestsFromUntrustedForwardedNetworks();
 await allowsRequestsFromTrustedForwardedNetworks();
+await retriesRuntimeInitializationAfterStartupFailure();
 
 console.log("vercel-handler-tests: ok");

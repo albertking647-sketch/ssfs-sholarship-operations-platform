@@ -33,7 +33,10 @@ export function createVercelApiHandler({
           app: createAppFn(runtime),
           trustedNetworkRules: buildTrustedNetworkRules(runtime.config.network?.trustedNetworks || [])
         };
-      })();
+      })().catch((error) => {
+        appPromise = undefined;
+        throw error;
+      });
     }
 
     const { app, trustedNetworkRules } = await appPromise;

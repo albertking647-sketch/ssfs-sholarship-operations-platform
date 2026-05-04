@@ -1,0 +1,86 @@
+﻿<h2>Verification Hub Direction</h2>
+<p class="subtitle">Pick the structure that best matches what you want the refreshed app to feel like. Recommendation: A.</p>
+
+<div class="cards">
+  <div class="card selected" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Dedicated Verification Hub</div>
+        <div class="mockup-body">
+          <div class="mock-nav">SSFS | Verify students | Results | Sync jobs | Audit</div>
+          <div style="display:grid;grid-template-columns:1.3fr 0.7fr;gap:12px;">
+            <div>
+              <div class="placeholder" style="height:88px;">Stats row + verification mode cards</div>
+              <div class="placeholder" style="height:160px;margin-top:10px;">Primary verification workspace</div>
+              <div class="placeholder" style="height:132px;margin-top:10px;">Scrollable selectable results</div>
+            </div>
+            <div>
+              <div class="placeholder" style="height:258px;">Upload panel + file intelligence</div>
+              <div class="placeholder" style="height:122px;margin-top:10px;">Audit snapshot</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Verification-first hub</h3>
+      <p>Closest to your mockup. Adds a new verification landing workspace while keeping the current modules behind it.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Best visual impact</li><li>Low risk to existing modules</li><li>Clear place for upload, results, audit, exports</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Needs a careful bridge back into current module flows</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Shared Shell Refresh</div>
+        <div class="mockup-body">
+          <div class="mock-nav">SSFS | Dashboard | Registry | Applications | Reports</div>
+          <div style="display:flex;gap:10px;">
+            <div class="mock-sidebar">Current modules stay primary</div>
+            <div class="mock-content">
+              <div class="placeholder" style="height:94px;">New topbar, metrics, typography, tokens</div>
+              <div class="placeholder" style="height:210px;margin-top:10px;">Existing module content reskinned in place</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Shared shell reskin</h3>
+      <p>Modernizes the whole app chrome first, then keeps most internal layouts where they are.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Lowest implementation risk</li><li>Improves the whole product consistently</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Less dramatic</li><li>Won't feel as much like your verification-suite mockup</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Whole-app redesign</div>
+        <div class="mockup-body">
+          <div class="mock-nav">SSFS Ops Center</div>
+          <div style="display:grid;grid-template-columns:220px 1fr;gap:10px;">
+            <div class="mock-sidebar">Modules reorganized around verification, intake, support, reports</div>
+            <div class="mock-content">
+              <div class="placeholder" style="height:88px;">Cross-app KPI row</div>
+              <div class="placeholder" style="height:220px;margin-top:10px;">New page architecture for multiple domains</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Whole-app redesign</h3>
+      <p>Most ambitious option. Reframes the broader operations platform around a new IA and visual language all at once.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Strongest transformation</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Highest regression risk</li><li>Broadest test surface</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -77,6 +77,35 @@ function createRepositories() {
   };
 }
 
+function createRepositoriesWithActiveBeneficiaryYear(activeAcademicYearLabel) {
+  const repositories = createRepositories();
+  repositories.schemes = {
+    async list() {
+      return [
+        {
+          id: "scheme-1",
+          name: "SRC KBN",
+          academicYearLabel: activeAcademicYearLabel,
+          status: "active"
+        }
+      ];
+    }
+  };
+  repositories.cycles = {
+    async list() {
+      return [
+        {
+          id: "cycle-1",
+          label: activeAcademicYearLabel,
+          academicYearLabel: activeAcademicYearLabel,
+          status: "active"
+        }
+      ];
+    }
+  };
+  return repositories;
+}
+
 async function beneficiarySummaryReportIncludesComparisonsAndAmounts() {
   const repositories = createRepositories();
   const service = createReportService({
@@ -199,9 +228,57 @@ async function beneficiarySummaryExportBuildsWorkbook() {
   assert.equal(foodBankSummarySheet.B6?.v, 1);
 }
 
+async function dashboardFallsBackToLatestImportedBeneficiaryYearWhenActiveYearIsEmpty() {
+  const repositories = createRepositoriesWithActiveBeneficiaryYear("2028/2029 Academic Year");
+  const service = createReportService({
+    repositories,
+    database: { enabled: false },
+    config: { auth: { devTokens: [] } }
+  });
+
+  await repositories.beneficiaries.importRows({
+    items: [
+      {
+        academicYearLabel: "2026/2027 Academic Year",
+        schemeName: "SRC KBN",
+        sponsorName: "SRC",
+        fullName: "Fallback Student",
+        studentReferenceId: "20260004",
+        college: "Engineering",
+        amountPaid: 3000,
+        beneficiaryCohort: "current",
+        supportType: "internal"
+      },
+      {
+        academicYearLabel: "2025/2026 Academic Year",
+        schemeName: "SRC KBN",
+        sponsorName: "SRC",
+        fullName: "Older Student",
+        studentReferenceId: "20250002",
+        college: "Science",
+        amountPaid: 1200,
+        beneficiaryCohort: "new",
+        supportType: "external"
+      }
+    ],
+    importMode: "historical_archive",
+    sourceFileName: "dashboard-fallback.xlsx",
+    actor: { userId: "user-admin" }
+  });
+
+  const result = await service.getDashboard();
+
+  assert.equal(result.beneficiarySupport.currentYearLabel, "2026/2027 Academic Year");
+  assert.equal(result.beneficiarySupport.currentYear.totalBeneficiaries, 1);
+  assert.equal(result.beneficiarySupport.currentYear.totalAmountPaidLabel, "GHS 3,000");
+  assert.equal(result.beneficiarySupport.previousYears.length, 1);
+  assert.equal(result.beneficiarySupport.previousYears[0].label, "2025/2026 Academic Year");
+}
+
 async function main() {
   await beneficiarySummaryReportIncludesComparisonsAndAmounts();
   await beneficiarySummaryExportBuildsWorkbook();
+  await dashboardFallsBackToLatestImportedBeneficiaryYearWhenActiveYearIsEmpty();
   console.log("reports-service-tests: ok");
 }
 

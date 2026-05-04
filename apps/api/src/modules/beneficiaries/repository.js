@@ -192,7 +192,12 @@ function aggregateDashboard(records, options = {}) {
   )].sort(sortAcademicYearsDesc);
 
   const preferredCurrentYear = normalizeYearLabel(options.currentYearLabel);
-  const currentYearLabel = preferredCurrentYear || availableYears[0] || "";
+  const hasPreferredCurrentYearData = preferredCurrentYear
+    ? normalizedRecords.some((item) => item.academicYearLabel === preferredCurrentYear)
+    : false;
+  const currentYearLabel = hasPreferredCurrentYearData
+    ? preferredCurrentYear
+    : availableYears[0] || preferredCurrentYear || "";
   const currentYearItems = normalizedRecords.filter(
     (item) => item.academicYearLabel === currentYearLabel
   );

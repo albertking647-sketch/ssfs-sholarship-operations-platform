@@ -61,6 +61,7 @@ async function uploadedWorkbookMapsPhoneNumberColumn() {
   const payload = await resolveApplicationImportPayload(request, 1024 * 1024);
 
   assert.equal(payload.rows.length, 1);
+  assert.equal(payload.rows[0]["Reference Number"], "22684353");
   assert.equal(payload.rows[0]["Phone Number"], "0241333439");
 }
 

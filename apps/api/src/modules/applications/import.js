@@ -38,7 +38,8 @@ function normalizeHeader(header) {
     .trim()
     .toLowerCase()
     .replace(/[_./()-]+/g, " ")
-    .replace(/\s+/g, " ");
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function trimString(value) {

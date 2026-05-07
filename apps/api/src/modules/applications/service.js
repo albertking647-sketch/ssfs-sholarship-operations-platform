@@ -256,6 +256,38 @@ function hasApplicantMismatch(
   );
 }
 
+function buildApplicationContactBackfill(existingApplication, payload, matchedStudent) {
+  if (!existingApplication || !payload) {
+    return {
+      hasUpdates: false,
+      email: null,
+      phoneNumber: null
+    };
+  }
+
+  const email = normalizeEmail(payload.applicantEmail);
+  const phoneNumber = normalizeStringOrNull(payload.phoneNumber);
+  const hasExistingEmail = Boolean(
+    normalizeStringOrNull(existingApplication.applicantEmail) ||
+      normalizeStringOrNull(existingApplication.email) ||
+      normalizeStringOrNull(matchedStudent?.email)
+  );
+  const hasExistingPhone = Boolean(
+    normalizeStringOrNull(existingApplication.applicantPhone) ||
+      normalizeStringOrNull(existingApplication.phoneNumber) ||
+      normalizeStringOrNull(existingApplication.studentPhoneNumber) ||
+      normalizeStringOrNull(matchedStudent?.phoneNumber)
+  );
+  const nextEmail = email && !hasExistingEmail ? email : null;
+  const nextPhoneNumber = phoneNumber && !hasExistingPhone ? phoneNumber : null;
+
+  return {
+    hasUpdates: Boolean(nextEmail || nextPhoneNumber),
+    email: nextEmail,
+    phoneNumber: nextPhoneNumber
+  };
+}
+
   function buildPreviewResponse(preview) {
     const rows = preview.rows.slice(0, PREVIEW_DISPLAY_LIMIT);
     return {
@@ -851,8 +883,19 @@ export function createApplicationService({ repositories }) {
 
       const existingApplication =
         matchedStudent ? existingApplications.get(matchedStudent.id) || null : null;
+      const contactBackfill = buildApplicationContactBackfill(
+        existingApplication,
+        row.payload,
+        matchedStudent
+      );
       if (existingApplication) {
-        issues.push("This student already has an application for the selected scheme and academic year.");
+        if (contactBackfill.hasUpdates) {
+          warnings.push(
+            "This student already has an application; missing contact details will be updated from the uploaded row."
+          );
+        } else {
+          issues.push("This student already has an application for the selected scheme and academic year.");
+        }
       }
 
       const nameMismatchFlag = matchedStudent
@@ -876,6 +919,7 @@ export function createApplicationService({ repositories }) {
         warnings,
         matchedStudent,
         existingApplication,
+        contactBackfill,
         nameMismatchFlag,
         screeningAssessment,
         resolvedStatus: applicationStatusFromMode(payload.importMode),
@@ -1695,6 +1739,76 @@ export function createApplicationService({ repositories }) {
         }
 
         try {
+          if (row.existingApplication && row.contactBackfill?.hasUpdates) {
+            const existing = row.existingApplication;
+            const applicantEmail =
+              row.contactBackfill.email ||
+              existing.applicantEmail ||
+              existing.email ||
+              row.matchedStudent.email ||
+              null;
+            const applicantPhone =
+              row.contactBackfill.phoneNumber ||
+              existing.applicantPhone ||
+              existing.phoneNumber ||
+              existing.studentPhoneNumber ||
+              row.matchedStudent.phoneNumber ||
+              null;
+
+            const item = await repositories.applications.updateReview(existing.id, {
+              status: existing.status,
+              eligibilityStatus: existing.eligibilityStatus,
+              reviewerMetadata: {
+                noteText: existing.reviewerNotes || null,
+                uploadedFullName: existing.uploadedFullName || existing.studentName || null,
+                uploadedStudentReferenceId:
+                  existing.uploadedStudentReferenceId || existing.studentReferenceId || null,
+                applicantEmail,
+                applicantPhone,
+                uploadedProgram: existing.uploadedProgram || existing.program || null,
+                documentChecklist: normalizeDocumentChecklist(existing.documentChecklist),
+                nameMismatchFlag: Boolean(existing.nameMismatchFlag),
+                interviewStatus: existing.interviewStatus || null,
+                interviewScore: existing.interviewScore ?? null,
+                interviewDate: existing.interviewDate || null,
+                interviewNotes: existing.interviewNotes || null,
+                reviewDecision: existing.reviewDecision || null,
+                reviewReason: existing.reviewReason || null,
+                reviewComment: existing.reviewComment || null,
+                outcomeDecision: existing.outcomeDecision || null,
+                outcomeAmount: existing.outcomeAmount ?? null,
+                outcomeNotes: existing.outcomeNotes || null,
+                outcomeUpdatedAt: existing.outcomeUpdatedAt || null,
+                outcomeUpdatedByUserId: existing.outcomeUpdatedByUserId || null,
+                outcomeUpdatedByName: existing.outcomeUpdatedByName || null,
+                reviewUpdatedAt: existing.reviewUpdatedAt || null,
+                reviewedByUserId: existing.reviewedByUserId || null,
+                reviewedByName: existing.reviewedByName || null
+              }
+            });
+
+            const contactPayload = {};
+            if (row.contactBackfill.email) {
+              contactPayload.email = row.contactBackfill.email;
+            }
+            if (row.contactBackfill.phoneNumber) {
+              contactPayload.phoneNumber = row.contactBackfill.phoneNumber;
+            }
+            if (Object.keys(contactPayload).length) {
+              try {
+                await repositories.students.updateContact(row.matchedStudent.id, contactPayload);
+              } catch {
+                // Best-effort contact enrichment should not block the application import.
+              }
+            }
+
+            importedRows.push({
+              rowNumber: row.rowNumber,
+              item: await enrichApplication(item)
+            });
+            continue;
+          }
+
           const item = await repositories.applications.create(
             {
               id: createId("application"),

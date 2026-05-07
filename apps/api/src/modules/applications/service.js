@@ -603,6 +603,43 @@ export function createApplicationService({ repositories }) {
       }
   }
 
+  async function sendMNotifyMessage({ toPhone, bodyText, channel }) {
+    const messagingChannel = normalizeMessagingChannel(channel);
+    if (messagingChannel !== "sms") {
+      throw new ValidationError("MNotify only supports SMS, not WhatsApp.");
+    }
+    if (!config.messaging.mnotifyApiKey) {
+      throw new ValidationError("MNOTIFY_API_KEY is not configured. Add it before sending SMS messages.");
+    }
+    if (!config.messaging.mnotifySenderId) {
+      throw new ValidationError("MNOTIFY_SENDER_ID is not configured. Add it before sending SMS messages.");
+    }
+
+    const response = await fetch("https://api.mnotify.com/api/sms/quick", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        key: config.messaging.mnotifyApiKey,
+        to: toPhone,
+        from: config.messaging.mnotifySenderId,
+        text: bodyText
+      })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.status !== "success") {
+      throw new ValidationError(
+        payload.message || payload.error || "MNotify rejected the SMS send request."
+      );
+    }
+
+    return {
+      providerMessageId: payload.message_id || null
+    };
+  }
+
   async function sendTwilioMessage({ toPhone, bodyText, channel }) {
     const messagingChannel = normalizeMessagingChannel(channel);
     if (!["sms", "whatsapp"].includes(messagingChannel)) {
@@ -975,6 +1012,10 @@ export function createApplicationService({ repositories }) {
       };
     },
     async getMessagingSettings() {
+      const senderPhone = config.messaging.smsProvider === "mnotify"
+        ? config.messaging.mnotifySenderId || ""
+        : config.messaging.twilioFromNumber || "";
+
       return {
         senderEmail: APPLICATION_MESSAGE_SENDER,
         senderName: APPLICATION_MESSAGE_SENDER_NAME,
@@ -982,7 +1023,7 @@ export function createApplicationService({ repositories }) {
         sendingEnabled: Boolean(config.messaging.enabled && config.messaging.brevoApiKey),
         smsProvider: config.messaging.smsProvider,
         smsEnabled: Boolean(config.messaging.smsEnabled),
-        senderPhone: config.messaging.twilioFromNumber || "",
+        senderPhone: senderPhone,
         whatsAppEnabled: Boolean(config.messaging.whatsAppEnabled),
         senderWhatsApp: config.messaging.twilioWhatsAppFromNumber || ""
       };
@@ -1394,6 +1435,12 @@ export function createApplicationService({ repositories }) {
                   toName: item.recipientName,
                   subjectLine: batch.subjectLine,
                   bodyText
+                })
+              : config.messaging.smsProvider === "mnotify"
+              ? await sendMNotifyMessage({
+                  toPhone: item.recipientPhone,
+                  bodyText,
+                  channel
                 })
               : await sendTwilioMessage({
                   toPhone: item.recipientPhone,

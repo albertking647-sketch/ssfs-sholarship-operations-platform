@@ -258,6 +258,20 @@ export function createApplicationRoutes({ config, services }) {
       }
     },
     {
+      method: "DELETE",
+      path: "/api/applications/:applicationId",
+      auth: "required",
+      roles: ["admin", "reviewer"],
+      async handler({ actor, params, res }) {
+        const result = await services.applications.remove(params.applicationId, actor);
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
       method: "POST",
       path: "/api/applications/messages/log",
       auth: "required",

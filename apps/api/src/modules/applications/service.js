@@ -2046,6 +2046,39 @@ export function createApplicationService({ repositories }) {
         application: await enrichApplication(await repositories.applications.getById(id))
       };
     },
+    async remove(id, actor) {
+      const existing = await repositories.applications.getById(id);
+      if (!existing) {
+        throw new NotFoundError("Application was not found.");
+      }
+
+      const removed = await repositories.applications.remove(id);
+      if (!removed) {
+        throw new NotFoundError("Application was not found.");
+      }
+
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "application.deleted",
+        entityType: "application",
+        entityId: String(id),
+        summary: "Application record was deleted.",
+        metadata: {
+          studentId: existing.studentId,
+          studentName: existing.studentName,
+          studentReferenceId: existing.studentReferenceId,
+          schemeId: existing.schemeId,
+          schemeName: existing.schemeName,
+          cycleId: existing.cycleId,
+          cycleLabel: existing.cycleLabel
+        }
+      });
+
+      return {
+        id: String(id),
+        removed: true
+      };
+    },
     async review(id, payload, actor) {
       const existing = await repositories.applications.getById(id);
       if (!existing) {

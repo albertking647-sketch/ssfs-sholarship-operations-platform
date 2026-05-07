@@ -992,10 +992,14 @@ export function createApplicationService({ repositories }) {
       const readyRecipients = recipients.filter((item) => !item.issue);
       const missingContactRecipients = recipients.filter((item) => item.issue);
 
+      const senderPhone = config.messaging.smsProvider === "mnotify"
+        ? config.messaging.mnotifySenderId || ""
+        : config.messaging.twilioFromNumber || "";
+
       return {
         channel,
         senderEmail: APPLICATION_MESSAGE_SENDER,
-        senderPhone: config.messaging.twilioFromNumber || "",
+        senderPhone: senderPhone,
         senderWhatsApp: config.messaging.twilioWhatsAppFromNumber || "",
         messageType,
         subjectLine: template.subjectLine,
@@ -1328,10 +1332,14 @@ export function createApplicationService({ repositories }) {
         }))
       });
 
+      const senderPhone = config.messaging.smsProvider === "mnotify"
+        ? config.messaging.mnotifySenderId || ""
+        : config.messaging.twilioFromNumber || "";
+
       return {
         channel: preview.channel,
         senderEmail: APPLICATION_MESSAGE_SENDER,
-        senderPhone: config.messaging.twilioFromNumber || "",
+        senderPhone: senderPhone,
         senderWhatsApp: config.messaging.twilioWhatsAppFromNumber || "",
         batch
       };

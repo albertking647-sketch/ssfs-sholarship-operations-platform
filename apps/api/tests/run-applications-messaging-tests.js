@@ -195,6 +195,37 @@ async function recordMessageBatchLogsAllRecipientsBeyondPreviewLimit() {
   assert.equal(createdBatches[0].items.length, 525);
 }
 
+async function smsPreviewUsesImportedApplicantPhoneWhenRegistryPhoneIsMissing() {
+  applyMessagingConfig({
+    smsProvider: "mnotify",
+    mnotifyApiKey: "mnotify-key",
+    mnotifySenderId: "DoSA SSFS"
+  });
+
+  const { repositories } = createRepositories({
+    applications: [
+      createApplication(1, {
+        phoneNumber: null,
+        studentPhoneNumber: null,
+        applicantPhone: "0241333439"
+      })
+    ]
+  });
+  const service = createApplicationService({ repositories });
+
+  const preview = await service.messagingPreview({
+    schemeId: "scheme-1",
+    cycleId: "cycle-1",
+    channel: "sms",
+    messageType: "interview_invite"
+  });
+
+  assert.equal(preview.summary.readyRecipients, 1);
+  assert.equal(preview.summary.missingPhoneRecipients, 0);
+  assert.equal(preview.recipients[0].phone, "0241333439");
+  assert.equal(preview.recipients[0].issue, null);
+}
+
 async function sendMessageBatchUsesMNotifyWhenConfigured() {
   applyMessagingConfig({
     smsProvider: "mnotify",
@@ -310,6 +341,7 @@ async function run() {
   try {
     await mnotifySettingsAndBatchUseSenderId();
     await recordMessageBatchLogsAllRecipientsBeyondPreviewLimit();
+    await smsPreviewUsesImportedApplicantPhoneWhenRegistryPhoneIsMissing();
     await sendMessageBatchUsesMNotifyWhenConfigured();
     await missingMNotifyCredentialsLeaveBatchLogged();
     console.log("applications-messaging-tests: ok");

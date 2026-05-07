@@ -168,6 +168,15 @@ function rowsFromSheet(sheet, fileName, sheetName) {
         "applicant email",
         "student email"
       ]),
+      "Phone Number": getMappedValue(normalizedHeaders, row, [
+        "phone number",
+        "phone no",
+        "phone",
+        "mobile number",
+        "mobile",
+        "contact number",
+        "tel"
+      ]),
       "Programme of Study": getMappedValue(normalizedHeaders, row, [
         "programme of study",
         "program of study",

@@ -1283,7 +1283,7 @@ export function createApplicationService({ repositories }) {
         studentName: item.studentName || null,
         studentReferenceId: item.studentReferenceId || null,
         email: item.email || null,
-        phone: item.phoneNumber || item.studentPhoneNumber || null,
+        phone: item.phoneNumber || item.applicantPhone || item.studentPhoneNumber || null,
         qualificationStatus: item.qualificationStatus || null,
         outcomeDecision: item.outcomeDecision || null,
         reviewReason: item.reviewReason || null,
@@ -1294,7 +1294,7 @@ export function createApplicationService({ repositories }) {
             ? item.email
               ? null
               : "Applicant email is missing from the application record and registry."
-            : item.phoneNumber || item.studentPhoneNumber
+            : item.phoneNumber || item.applicantPhone || item.studentPhoneNumber
               ? null
               : "Applicant phone number is missing from the application record and registry."
       }));
@@ -1588,6 +1588,11 @@ export function createApplicationService({ repositories }) {
         normalizeStringOrNull(payload.email) ||
         student.email ||
         null;
+      const applicantPhone =
+        normalizeStringOrNull(payload.applicantPhone) ||
+        normalizeStringOrNull(payload.phoneNumber) ||
+        student.phoneNumber ||
+        null;
       const uploadedProgram =
         normalizeStringOrNull(payload.uploadedProgram) ||
         normalizeStringOrNull(payload.program) ||
@@ -1612,6 +1617,7 @@ export function createApplicationService({ repositories }) {
             uploadedFullName,
             uploadedStudentReferenceId,
             applicantEmail,
+            applicantPhone,
             uploadedProgram,
             documentChecklist: normalizeDocumentChecklist(payload.documentChecklist),
             nameMismatchFlag: hasApplicantMismatch(
@@ -1708,6 +1714,7 @@ export function createApplicationService({ repositories }) {
                 uploadedFullName: row.payload.fullName || null,
                 uploadedStudentReferenceId: row.payload.studentReferenceId || null,
                 applicantEmail: row.payload.applicantEmail || null,
+                applicantPhone: row.payload.phoneNumber || null,
                 uploadedProgram: row.payload.program || null,
                 documentChecklist: normalizeDocumentChecklist(row.payload.documentChecklist),
                 nameMismatchFlag: row.nameMismatchFlag,
@@ -1824,6 +1831,7 @@ export function createApplicationService({ repositories }) {
                 uploadedStudentReferenceId:
                   existing.uploadedStudentReferenceId || existing.studentReferenceId || null,
                 applicantEmail: existing.applicantEmail || existing.email || null,
+                applicantPhone: existing.applicantPhone || existing.phoneNumber || existing.studentPhoneNumber || null,
                 uploadedProgram: existing.uploadedProgram || existing.program || null,
                 documentChecklist: normalizeDocumentChecklist(existing.documentChecklist),
                 nameMismatchFlag: Boolean(existing.nameMismatchFlag),
@@ -2115,6 +2123,13 @@ export function createApplicationService({ repositories }) {
         existing.applicantEmail ||
         existing.email ||
         null;
+      const applicantPhone =
+        normalizeStringOrNull(payload.applicantPhone) ||
+        normalizeStringOrNull(payload.phoneNumber) ||
+        existing.applicantPhone ||
+        existing.phoneNumber ||
+        existing.studentPhoneNumber ||
+        null;
       const interviewStatus =
         normalizeInterviewStatus(payload.interviewStatus) || existing.interviewStatus || null;
       const interviewScore =
@@ -2165,6 +2180,7 @@ export function createApplicationService({ repositories }) {
             uploadedFullName,
             uploadedStudentReferenceId,
             applicantEmail,
+            applicantPhone,
             uploadedProgram: existing.uploadedProgram || existing.program || null,
             documentChecklist,
             nameMismatchFlag: hasApplicantMismatch(

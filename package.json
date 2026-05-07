@@ -25,5 +25,8 @@
     "db:status": "npm --workspace packages/database run status",
     "db:seed": "npm --workspace packages/database run seed",
     "db:setup": "npm run db:migrate && npm run db:seed"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
   }
 }

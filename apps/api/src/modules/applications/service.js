@@ -146,6 +146,19 @@ function normalizeMessagingChannel(value) {
   return "email";
 }
 
+function getSmsSenderForChannel(channel) {
+  const normalizedChannel = normalizeMessagingChannel(channel);
+  if (normalizedChannel === "sms") {
+    return config.messaging.smsProvider === "mnotify"
+      ? config.messaging.mnotifySenderId || ""
+      : config.messaging.twilioFromNumber || "";
+  }
+  if (normalizedChannel === "whatsapp") {
+    return config.messaging.twilioWhatsAppFromNumber || "";
+  }
+  return APPLICATION_MESSAGE_SENDER;
+}
+
 function normalizeStringOrNull(value) {
   const text = String(value || "").trim();
   return text || null;
@@ -948,71 +961,37 @@ export function createApplicationService({ repositories }) {
       if (!messageType) {
         throw new ValidationError("Choose a valid message type before generating the recipient preview.");
       }
-      const channel = normalizeMessagingChannel(filters.channel);
 
       const { scheme, cycle } = await validateContext(filters);
       const scope = getMessageTypeScope(messageType);
-      const items = await enrichApplications(
-        await repositories.applications.list({
-          schemeId: String(filters.schemeId || "").trim(),
-          cycleId: String(filters.cycleId || "").trim(),
-          qualificationStatus: scope.qualificationStatus || ""
-        })
-      );
-
-      const filteredItems = items.filter((item) => {
-        if (scope.outcomeDecision) {
-          return item.outcomeDecision === scope.outcomeDecision;
-        }
-        return true;
-      });
-
+      const { recipients, channel } = await this.buildRecipientListForBatch(filters);
       const template = buildMessageTemplate(messageType, { scheme, cycle }, channel);
-      const recipients = filteredItems.map((item) => ({
-        applicationId: item.id,
-        studentId: item.studentId,
-        studentName: item.studentName || null,
-        studentReferenceId: item.studentReferenceId || null,
-        email: item.email || null,
-        phone: item.phoneNumber || item.studentPhoneNumber || null,
-        qualificationStatus: item.qualificationStatus || null,
-        outcomeDecision: item.outcomeDecision || null,
-        reviewReason: item.reviewReason || null,
-        issue:
-          channel === "email"
-            ? item.email
-              ? null
-              : "Applicant email is missing from the application record and registry."
-            : item.phoneNumber || item.studentPhoneNumber
-              ? null
-              : "Applicant phone number is missing from the application record and registry.",
-        previewBody: renderMessageTemplate(template.bodyTemplate, item)
+
+      const enrichedRecipients = recipients.map((item) => ({
+        ...item,
+        previewBody: renderMessageTemplate(template.bodyTemplate, { ...item })
       }));
 
-      const readyRecipients = recipients.filter((item) => !item.issue);
-      const missingContactRecipients = recipients.filter((item) => item.issue);
-
-      const senderPhone = config.messaging.smsProvider === "mnotify"
-        ? config.messaging.mnotifySenderId || ""
-        : config.messaging.twilioFromNumber || "";
+      const readyRecipients = enrichedRecipients.filter((item) => !item.issue);
+      const missingContactRecipients = enrichedRecipients.filter((item) => item.issue);
 
       return {
         channel,
         senderEmail: APPLICATION_MESSAGE_SENDER,
-        senderPhone: senderPhone,
+        senderPhone: getSmsSenderForChannel(channel),
         senderWhatsApp: config.messaging.twilioWhatsAppFromNumber || "",
         messageType,
         subjectLine: template.subjectLine,
         bodyTemplate: template.bodyTemplate,
         summary: {
-          totalRecipients: recipients.length,
+          totalRecipients: enrichedRecipients.length,
           readyRecipients: readyRecipients.length,
           missingEmailRecipients: channel === "email" ? missingContactRecipients.length : 0,
           missingPhoneRecipients: channel === "email" ? 0 : missingContactRecipients.length
         },
-        recipients: recipients.slice(0, PREVIEW_DISPLAY_LIMIT),
-        returnedRecipients: Math.min(recipients.length, PREVIEW_DISPLAY_LIMIT),
-        recipientsTruncated: recipients.length > PREVIEW_DISPLAY_LIMIT
+        recipients: enrichedRecipients.slice(0, PREVIEW_DISPLAY_LIMIT),
+        returnedRecipients: Math.min(enrichedRecipients.length, PREVIEW_DISPLAY_LIMIT),
+        recipientsTruncated: enrichedRecipients.length > PREVIEW_DISPLAY_LIMIT
       };
     },
     async getMessagingSettings() {
@@ -1265,6 +1244,49 @@ export function createApplicationService({ repositories }) {
         item
       };
     },
+    async buildRecipientListForBatch(filters) {
+      const messageType = normalizeMessageType(filters.messageType);
+      if (!messageType) {
+        throw new ValidationError("Choose a valid message type before generating the recipient list.");
+      }
+      const channel = normalizeMessagingChannel(filters.channel);
+
+      const { scheme, cycle } = await validateContext(filters);
+      const scope = getMessageTypeScope(messageType);
+      const items = await enrichApplications(
+        await repositories.applications.list({
+          schemeId: String(filters.schemeId || "").trim(),
+          cycleId: String(filters.cycleId || "").trim(),
+          qualificationStatus: scope.qualificationStatus || ""
+        })
+      );
+
+      const filteredItems = items.filter((item) => {
+        if (scope.outcomeDecision) {
+          return item.outcomeDecision === scope.outcomeDecision;
+        }
+        return true;
+      });
+
+      const recipients = filteredItems.map((item) => ({
+        applicationId: item.id,
+        studentId: item.studentId,
+        studentName: item.studentName || null,
+        email: item.email || null,
+        phone: item.phoneNumber || item.studentPhoneNumber || null,
+        issue:
+          channel === "email"
+            ? item.email
+              ? null
+              : "Applicant email is missing from the application record and registry."
+            : item.phoneNumber || item.studentPhoneNumber
+              ? null
+              : "Applicant phone number is missing from the application record and registry."
+      }));
+
+      return { recipients, channel };
+    }
+
     async recordMessageBatch(payload, actor) {
       const preview = await this.messagingPreview(payload);
       const recipientEdits = normalizeRecipientEdits(payload.recipientEdits);
@@ -1277,7 +1299,9 @@ export function createApplicationService({ repositories }) {
         preview.bodyTemplate,
         "bodyTemplate"
       );
-      const recipients = (preview.recipients || []).map((item) => {
+
+      const { recipients: allRecipients } = await this.buildRecipientListForBatch(payload);
+      const recipients = allRecipients.map((item) => {
         const edit = recipientEdits[String(item.applicationId || "")] || null;
         const email = edit?.email ?? item.email ?? null;
         const phone = edit?.phone ?? item.phone ?? null;
@@ -1303,12 +1327,7 @@ export function createApplicationService({ repositories }) {
         );
       }
 
-      const senderValue =
-        preview.channel === "sms"
-          ? config.messaging.twilioFromNumber || ""
-          : preview.channel === "whatsapp"
-            ? config.messaging.twilioWhatsAppFromNumber || ""
-            : APPLICATION_MESSAGE_SENDER;
+      const senderValue = getSmsSenderForChannel(preview.channel);
 
       const batch = await repositories.applications.createMessageBatch({
         schemeId: String(payload.schemeId || "").trim(),
@@ -1332,14 +1351,10 @@ export function createApplicationService({ repositories }) {
         }))
       });
 
-      const senderPhone = config.messaging.smsProvider === "mnotify"
-        ? config.messaging.mnotifySenderId || ""
-        : config.messaging.twilioFromNumber || "";
-
       return {
         channel: preview.channel,
-        senderEmail: APPLICATION_MESSAGE_SENDER,
-        senderPhone: senderPhone,
+        senderEmail: senderValue,
+        senderPhone: getSmsSenderForChannel(preview.channel),
         senderWhatsApp: config.messaging.twilioWhatsAppFromNumber || "",
         batch
       };
@@ -1384,13 +1399,19 @@ export function createApplicationService({ repositories }) {
         channel === "email"
           ? Boolean(config.messaging.enabled && config.messaging.brevoApiKey)
           : channel === "sms"
-            ? Boolean(
-                config.messaging.smsEnabled &&
-                config.messaging.smsProvider === "twilio" &&
-                config.messaging.twilioAccountSid &&
-                config.messaging.twilioAuthToken &&
-                config.messaging.twilioFromNumber
-              )
+            ? config.messaging.smsProvider === "mnotify"
+              ? Boolean(
+                  config.messaging.smsEnabled &&
+                  config.messaging.mnotifyApiKey &&
+                  config.messaging.mnotifySenderId
+                )
+              : Boolean(
+                  config.messaging.smsEnabled &&
+                  config.messaging.smsProvider === "twilio" &&
+                  config.messaging.twilioAccountSid &&
+                  config.messaging.twilioAuthToken &&
+                  config.messaging.twilioFromNumber
+                )
             : Boolean(
                 config.messaging.whatsAppEnabled &&
                 config.messaging.smsProvider === "twilio" &&

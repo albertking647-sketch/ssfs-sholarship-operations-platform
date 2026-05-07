@@ -135,11 +135,31 @@ export function createApplicationRoutes({ config, services }) {
         });
       }
     },
-      {
-        method: "GET",
-        path: "/api/applications/export",
-        auth: "required",
-        roles: ["admin"],
+    {
+      method: "DELETE",
+      path: "/api/applications/messages/history",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, res, url }) {
+        const result = await services.applications.clearMessageHistory(
+          {
+            schemeId: url.searchParams.get("schemeId") || "",
+            cycleId: url.searchParams.get("cycleId") || ""
+          },
+          actor
+        );
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "GET",
+      path: "/api/applications/export",
+      auth: "required",
+      roles: ["admin"],
       async handler({ actor, res, url }) {
         const result = await services.applications.exportList(
           {

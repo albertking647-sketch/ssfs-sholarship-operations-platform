@@ -103,6 +103,18 @@ function createRepositories({ applications = [], batches = [] } = {}) {
       async listMessageBatches() {
         return batches;
       },
+      async clearMessageBatches(filters = {}) {
+        const beforeCount = batches.length;
+        for (let index = batches.length - 1; index >= 0; index -= 1) {
+          const batch = batches[index];
+          if (filters.schemeId && String(batch.schemeId) !== String(filters.schemeId)) continue;
+          if (filters.cycleId && String(batch.cycleId) !== String(filters.cycleId)) continue;
+          batches.splice(index, 1);
+        }
+        return {
+          deletedBatches: beforeCount - batches.length
+        };
+      },
       async updateMessageBatchDelivery(batchId, payload) {
         deliveryUpdates.push({ batchId, payload });
         const batch = batches.find((item) => String(item.id) === String(batchId));
@@ -193,6 +205,46 @@ async function recordMessageBatchLogsAllRecipientsBeyondPreviewLimit() {
 
   assert.equal(logged.batch.recipientCount, 525);
   assert.equal(createdBatches[0].items.length, 525);
+}
+
+async function clearMessageHistoryRemovesBatchesForActiveScope() {
+  applyMessagingConfig({
+    smsProvider: "mnotify",
+    mnotifyApiKey: "mnotify-key",
+    mnotifySenderId: "DoSA SSFS"
+  });
+
+  const { repositories } = createRepositories({
+    batches: [
+      {
+        id: "batch-1",
+        schemeId: "scheme-1",
+        cycleId: "cycle-1",
+        channel: "sms",
+        items: []
+      },
+      {
+        id: "batch-2",
+        schemeId: "scheme-2",
+        cycleId: "cycle-1",
+        channel: "sms",
+        items: []
+      }
+    ]
+  });
+  const service = createApplicationService({ repositories });
+
+  const result = await service.clearMessageHistory(
+    {
+      schemeId: "scheme-1",
+      cycleId: "cycle-1"
+    },
+    { userId: "admin-1", fullName: "Admin User", roleCode: "admin" }
+  );
+  const remaining = await repositories.applications.listMessageBatches({});
+
+  assert.equal(result.deletedBatches, 1);
+  assert.deepEqual(remaining.map((batch) => batch.id), ["batch-2"]);
 }
 
 async function smsPreviewUsesImportedApplicantPhoneWhenRegistryPhoneIsMissing() {
@@ -341,6 +393,7 @@ async function run() {
   try {
     await mnotifySettingsAndBatchUseSenderId();
     await recordMessageBatchLogsAllRecipientsBeyondPreviewLimit();
+    await clearMessageHistoryRemovesBatchesForActiveScope();
     await smsPreviewUsesImportedApplicantPhoneWhenRegistryPhoneIsMissing();
     await sendMessageBatchUsesMNotifyWhenConfigured();
     await missingMNotifyCredentialsLeaveBatchLogged();

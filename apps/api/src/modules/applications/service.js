@@ -1097,6 +1097,35 @@ export function createApplicationService({ repositories }) {
         }))
       };
     },
+    async clearMessageHistory(filters, actor) {
+      if (!actor || actor.roleCode !== "admin") {
+        throw new ValidationError("Only admins can clear application messaging history.");
+      }
+      const { scheme, cycle } = await validateContext(filters);
+      const result = await repositories.applications.clearMessageBatches({
+        schemeId: String(filters.schemeId || "").trim(),
+        cycleId: String(filters.cycleId || "").trim()
+      });
+
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "application.messages_cleared",
+        entityType: "application_message_batch",
+        entityId: `${String(filters.schemeId || "").trim()}:${String(filters.cycleId || "").trim()}`,
+        summary: "Application messaging history was cleared.",
+        metadata: {
+          schemeId: String(filters.schemeId || "").trim(),
+          schemeName: scheme.name,
+          cycleId: String(filters.cycleId || "").trim(),
+          cycleLabel: cycle.label || cycle.academicYearLabel || null,
+          deletedBatches: result.deletedBatches || 0
+        }
+      });
+
+      return {
+        deletedBatches: result.deletedBatches || 0
+      };
+    },
     async getApplicationHistory(id) {
       const application = await enrichApplication(await repositories.applications.getById(id));
       if (!application) {

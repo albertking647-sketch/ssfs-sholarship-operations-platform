@@ -627,6 +627,38 @@ function createSampleRepository() {
           items: messageBatchItems.filter((item) => item.batchId === batch.id)
         }));
     },
+    async clearMessageBatches(filters = {}) {
+      const batchIds = new Set(
+        messageBatches
+          .filter((batch) => {
+            if (filters.schemeId && String(batch.schemeId) !== String(filters.schemeId)) return false;
+            if (filters.cycleId && String(batch.cycleId) !== String(filters.cycleId)) return false;
+            return true;
+          })
+          .map((batch) => batch.id)
+      );
+
+      if (!batchIds.size) {
+        return {
+          deletedBatches: 0
+        };
+      }
+
+      for (let index = messageBatches.length - 1; index >= 0; index -= 1) {
+        if (batchIds.has(messageBatches[index].id)) {
+          messageBatches.splice(index, 1);
+        }
+      }
+      for (let index = messageBatchItems.length - 1; index >= 0; index -= 1) {
+        if (batchIds.has(messageBatchItems[index].batchId)) {
+          messageBatchItems.splice(index, 1);
+        }
+      }
+
+      return {
+        deletedBatches: batchIds.size
+      };
+    },
     async createMessageBatch(input) {
       const createdAt = new Date().toISOString();
       const batch = {
@@ -1950,6 +1982,33 @@ function createPostgresRepository(database) {
         createdByUserId: row.created_by_user_id || null,
         items: Array.isArray(row.items) ? row.items : []
       }));
+    },
+    async clearMessageBatches(filters = {}) {
+      await ensureMessagingSchema();
+
+      const params = [];
+      const conditions = [];
+      if (filters.schemeId) {
+        params.push(filters.schemeId);
+        conditions.push(`scheme_id = NULLIF($${params.length}, '')::BIGINT`);
+      }
+      if (filters.cycleId) {
+        params.push(filters.cycleId);
+        conditions.push(`cycle_id = NULLIF($${params.length}, '')::BIGINT`);
+      }
+      const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+      const result = await database.query(
+        `
+          DELETE FROM application_message_batches
+          ${whereClause}
+          RETURNING id
+        `,
+        params
+      );
+
+      return {
+        deletedBatches: result.rowCount || 0
+      };
     },
     async createMessageBatch(input) {
       await ensureMessagingSchema();

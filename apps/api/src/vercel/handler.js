@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import { createApp } from "../app.js";
 import { createRuntime } from "../bootstrap/createRuntime.js";
 import { config } from "../config.js";

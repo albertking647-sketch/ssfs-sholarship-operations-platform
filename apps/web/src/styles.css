@@ -1677,19 +1677,19 @@ body[data-theme="dark"] .decision-pill--disqualified {
 
 .session-summary {
   padding: 0.6rem 0.9rem;
-  border: 1px solid rgba(201, 168, 76, 0.45);
+  border: 1px solid rgba(45, 122, 95, 0.45);
   border-radius: 999px;
-  background: linear-gradient(135deg, rgba(201, 168, 76, 0.18), rgba(201, 168, 76, 0.05));
-  color: var(--navy);
+  background: linear-gradient(135deg, rgba(45, 122, 95, 0.22), rgba(45, 122, 95, 0.07));
+  color: #17553f;
   font-size: 0.95rem;
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px rgba(201, 168, 76, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(45, 122, 95, 0.1);
 }
 
 body[data-theme="dark"] .session-summary {
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.28), rgba(212, 175, 55, 0.08));
-  color: var(--gold-light);
-  border-color: rgba(212, 175, 55, 0.45);
+  background: linear-gradient(135deg, rgba(45, 122, 95, 0.42), rgba(45, 122, 95, 0.16));
+  color: #8ee0bd;
+  border-color: rgba(105, 196, 157, 0.42);
 }
 
 #logoutButton {

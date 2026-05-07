@@ -634,6 +634,7 @@ const elements = {
   applicationMessagingTemplatePreview: document.querySelector("#applicationMessagingTemplatePreview"),
   applicationMessagingRecipientList: document.querySelector("#applicationMessagingRecipientList"),
   applicationMessagingHistoryList: document.querySelector("#applicationMessagingHistoryList"),
+  applicationMessagingHistoryClearButton: document.querySelector("#applicationMessagingHistoryClearButton"),
   applicationOutcomeForm: document.querySelector("#applicationOutcomeForm"),
   applicationOutcomeSourceStatus: document.querySelector("#applicationOutcomeSourceStatus"),
   applicationOutcomeDecision: document.querySelector("#applicationOutcomeDecision"),
@@ -6112,6 +6113,19 @@ function canManageApplicationMessaging() {
   return getCurrentActorRole() === "admin";
 }
 
+function syncApplicationMessagingHistoryControls() {
+  if (!elements.applicationMessagingHistoryClearButton) {
+    return;
+  }
+
+  const context = getActiveApplicationContext();
+  elements.applicationMessagingHistoryClearButton.disabled =
+    !canManageApplicationMessaging() ||
+    !context.schemeId ||
+    !context.cycleId ||
+    !state.applicationMessagingHistory.length;
+}
+
 function canManageBeneficiaryImports() {
   return getCurrentActorRole() === "admin";
 }
@@ -6828,6 +6842,7 @@ function syncApplicationReviewControls() {
     !hasActiveContext ||
     !state.applicationMessagingPreview ||
     messagingReadyRecipients === 0;
+  syncApplicationMessagingHistoryControls();
   elements.applicationOutcomeSourceStatus.disabled = !canManageOutcomes || !hasActiveContext;
   elements.applicationOutcomeDecision.disabled = !canManageOutcomes || !hasActiveContext;
   elements.applicationOutcomeNotes.disabled = !canManageOutcomes || !hasActiveContext;
@@ -7442,6 +7457,7 @@ function renderApplicationMessagingHistory(items = state.applicationMessagingHis
   if (!items.length) {
     elements.applicationMessagingHistoryList.innerHTML =
       `<p class="empty-state">Logged message batches will appear here once created.</p>`;
+    syncApplicationMessagingHistoryControls();
     return;
   }
 
@@ -7534,6 +7550,7 @@ function renderApplicationMessagingHistory(items = state.applicationMessagingHis
       }
     )
     .join("");
+  syncApplicationMessagingHistoryControls();
 }
 
 function renderApplicationCwaCoverage(coverage) {
@@ -9912,6 +9929,66 @@ async function loadApplicationMessagingHistory() {
       return;
     }
     setApplicationMessagingMessage(error.message, "error");
+  }
+}
+
+async function clearApplicationMessagingHistory() {
+  const apiBaseUrl = getApiBaseUrl();
+  const context = getActiveApplicationContext();
+  if (!apiBaseUrl) {
+    setApplicationMessagingMessage("The app is not connected to the API right now.", "error");
+    return;
+  }
+  if (!canManageApplicationMessaging()) {
+    setApplicationMessagingMessage("Only admins can clear messaging history.", "error");
+    return;
+  }
+  if (!context.schemeId || !context.cycleId) {
+    setApplicationMessagingMessage(
+      "Choose the active scheme and academic year before clearing messaging history.",
+      "error"
+    );
+    return;
+  }
+  if (!state.applicationMessagingHistory.length) {
+    setApplicationMessagingMessage("There is no messaging history to clear for this application context.", "warning");
+    return;
+  }
+  if (!window.confirm("Clear messaging history for the active scheme and academic year? This cannot be undone.")) {
+    return;
+  }
+
+  elements.applicationMessagingHistoryClearButton.disabled = true;
+  setApplicationMessagingMessage("Clearing messaging history...", "warning");
+
+  try {
+    const url = new URL(`${apiBaseUrl}/api/applications/messages/history`);
+    url.searchParams.set("schemeId", context.schemeId);
+    url.searchParams.set("cycleId", context.cycleId);
+    const response = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        ...getAuthHeaders()
+      }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to clear messaging history.");
+    }
+
+    state.applicationMessagingHistory = [];
+    renderApplicationMessagingHistory([]);
+    setApplicationMessagingMessage(
+      `Cleared ${payload.deletedBatches || 0} messaging batch(es) from the active context.`,
+      "success"
+    );
+  } catch (error) {
+    if (await recoverExpiredSession(error)) {
+      return;
+    }
+    setApplicationMessagingMessage(error.message, "error");
+  } finally {
+    syncApplicationMessagingHistoryControls();
   }
 }
 
@@ -13009,6 +13086,9 @@ function bindEvents() {
     });
     elements.applicationMessagingLogButton.addEventListener("click", (event) => {
       void logApplicationMessagingBatch(event);
+    });
+    elements.applicationMessagingHistoryClearButton.addEventListener("click", () => {
+      void clearApplicationMessagingHistory();
     });
     elements.applicationMessagingTemplateResetButton.addEventListener("click", () => {
       resetApplicationMessagingDraft();

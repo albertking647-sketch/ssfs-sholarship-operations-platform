@@ -37,11 +37,37 @@ function includesPasswordRequirementGuidance() {
   );
 }
 
+function includesAppIconLink() {
+  assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="\/src\/assets\/app-icon\.svg" \/>/u);
+}
+
+function includesInlineSidebarBrandIcon() {
+  assert.match(html, /class="brand-badge"[\s\S]*<svg/u);
+  assert.doesNotMatch(html, /<img src="\/src\/assets\/app-icon\.svg"/u);
+}
+
+function includesClearMessagingHistoryAction() {
+  assert.match(html, /id="applicationMessagingHistoryClearButton"/u);
+  assert.match(html, /Clear history/u);
+}
+
+function usesOnlyApplicationImportsInVisibleForm() {
+  assert.match(html, /<input id="applicationImportMode" type="hidden" value="applications" \/>/u);
+  assert.doesNotMatch(html, /<select id="applicationImportMode"/u);
+  assert.doesNotMatch(html, /Selected Applicants/u);
+  assert.doesNotMatch(html, /Award List/u);
+  assert.doesNotMatch(html, /value="waitlist_candidates"/u);
+}
+
 usesPostForNativeLoginSubmission();
 doesNotIncludeBrowserManagedAuthTokenFields();
 includesRestoreGateMarkup();
 includesEarlyAuthBootScript();
 includesPasswordVisibilityButtons();
 includesPasswordRequirementGuidance();
+includesAppIconLink();
+includesInlineSidebarBrandIcon();
+includesClearMessagingHistoryAction();
+usesOnlyApplicationImportsInVisibleForm();
 
 console.log("login-shell-markup-tests: ok");

@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SSFS Scholarship Operations Hub</title>
+  <link rel="icon" type="image/svg+xml" href="/src/assets/app-icon.svg" />
   <script>
     (function () {
       var authTokenKey = "ssfs-auth-session-active";
@@ -109,7 +110,7 @@
       <!-- Brand -->
       <div class="sidebar-brand">
         <div class="brand-badge">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#0D1B2A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#0D1B2A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 2L2 7l10 5 10-5-10-5z"/>
             <path d="M2 17l10 5 10-5"/>
             <path d="M2 12l10 5 10-5"/>
@@ -1247,24 +1248,16 @@
             <div class="panel-heading">
               <div>
                 <p class="panel-eyebrow">Applications Import</p>
-                <h3>Import application or selected-applicant sheets</h3>
+                <h3>Import application sheets</h3>
               </div>
             </div>
 
             <form id="applicationsImportForm" class="import-form">
-              <label class="field">
-                <span>Import type</span>
-                <select id="applicationImportMode" class="select-field">
-                  <option value="applications">Applications</option>
-                  <option value="selected_applicants">Selected Applicants</option>
-                  <option value="award_list">Award List</option>
-                  <option value="waitlist_candidates">Recommended Students</option>
-                </select>
-              </label>
+              <input id="applicationImportMode" type="hidden" value="applications" />
               <label class="upload-zone" for="applicationFile">
                 <input id="applicationFile" name="applicationFile" type="file" accept=".csv,.xlsx" multiple />
                 <span class="upload-title">Choose application workbooks</span>
-                <span class="upload-subtitle">Upload one or more application, selection, or award sheets in .xlsx or .csv format</span>
+                <span class="upload-subtitle">Upload one or more application sheets in .xlsx or .csv format</span>
                 <span class="upload-file-name" id="selectedApplicationFileName">No file selected yet</span>
               </label>
               <div class="action-row">
@@ -2303,6 +2296,14 @@
                   <p class="panel-eyebrow">Messaging History</p>
                   <h3>Previously logged batches</h3>
                 </div>
+                <button
+                  id="applicationMessagingHistoryClearButton"
+                  class="action-button danger"
+                  type="button"
+                  disabled
+                >
+                  Clear history
+                </button>
               </div>
               <div id="applicationMessagingHistoryList" class="result-list">
                 <p class="empty-state">Logged message batches will appear here once created.</p>

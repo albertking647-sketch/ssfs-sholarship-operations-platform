@@ -457,6 +457,34 @@ function createSampleRepository() {
       application.reviewerNotes = serializeReviewerMetadata(input.reviewerMetadata);
       return mapApplicationRecord(application);
     },
+    async remove(id) {
+      const index = applications.findIndex((item) => String(item.id) === String(id));
+      if (index < 0) {
+        return null;
+      }
+
+      const [removed] = applications.splice(index, 1);
+      for (let itemIndex = recommendations.length - 1; itemIndex >= 0; itemIndex -= 1) {
+        if (String(recommendations[itemIndex].applicationId) === String(id)) {
+          recommendations.splice(itemIndex, 1);
+        }
+      }
+      for (const item of messageBatchItems) {
+        if (String(item.applicationId || "") === String(id)) {
+          item.applicationId = null;
+        }
+      }
+      for (const item of importIssues) {
+        if (String(item.linkedApplicationId || "") === String(id)) {
+          item.linkedApplicationId = null;
+        }
+      }
+
+      return {
+        id: String(removed.id),
+        removed: true
+      };
+    },
     async bulkUpdateInterview(input) {
       const matchingApplications = applications.filter(
         (item) => String(item.schemeId) === String(input.schemeId) && String(item.cycleId) === String(input.cycleId)
@@ -1510,6 +1538,27 @@ function createPostgresRepository(database) {
 
       const updated = await list({ id: updatedId });
       return updated[0] || null;
+    },
+    async remove(id) {
+      const removedId = await database.withTransaction(async (transaction) => {
+        const result = await transaction.query(
+          `
+            DELETE FROM applications
+            WHERE id::text = $1
+            RETURNING id::text AS id
+          `,
+          [id]
+        );
+
+        return result.rows[0]?.id || null;
+      });
+
+      return removedId
+        ? {
+            id: removedId,
+            removed: true
+          }
+        : null;
     },
     async bulkUpdateInterview(input) {
       const matchingApplications = await list({

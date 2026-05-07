@@ -36,6 +36,7 @@ import {
   beginApplicationReviewPostSaveTransition,
   focusApplicationReviewSearch
 } from "./applicationReviewNavigation.js";
+import { buildApplicationRemovalState } from "./applicationRemovalState.js";
 import {
   renderAcademicHistoryImportHistoryMarkup,
   renderAcademicHistoryResultsMarkup
@@ -7674,7 +7675,10 @@ function renderApplicationReviewResults(items) {
               <strong>${escapeHtml(item.studentName || "Unknown student")}</strong>
               <p class="detail-subcopy">${escapeHtml(item.schemeName || "No scheme")} | ${escapeHtml(item.cycleLabel || "No academic year")}</p>
             </div>
-            <button class="result-select-button" type="button" data-review-application-id="${escapeHtml(item.id)}">Open review</button>
+            <div class="action-row">
+              <button class="result-select-button" type="button" data-review-application-id="${escapeHtml(item.id)}">Open review</button>
+              <button class="action-button danger" type="button" data-remove-review-application-id="${escapeHtml(item.id)}">Remove</button>
+            </div>
           </div>
           <div class="search-meta">
             <span class="meta-pill">Ref ID: ${escapeHtml(item.studentReferenceId || "N/A")}</span>
@@ -7699,6 +7703,14 @@ function renderApplicationReviewResults(items) {
   )) {
     button.addEventListener("click", () => {
       void selectApplicationForReview(button.dataset.reviewApplicationId);
+    });
+  }
+
+  for (const button of elements.applicationReviewResultsList.querySelectorAll(
+    "[data-remove-review-application-id]"
+  )) {
+    button.addEventListener("click", () => {
+      void removeApplicationFromReviewSearch(button.dataset.removeReviewApplicationId);
     });
   }
 
@@ -10616,6 +10628,97 @@ async function handleApplicationReviewSearch(event) {
 function resetApplicationReviewSearch() {
   elements.applicationReviewSearchReference.value = "";
   void refreshApplicationReviewWorkspace();
+}
+
+function getApplicationReviewSearchFilters() {
+  const referenceId = elements.applicationReviewSearchReference.value.trim();
+  return referenceId ? { studentReferenceId: referenceId } : {};
+}
+
+async function removeApplicationFromReviewSearch(applicationId) {
+  const apiBaseUrl = getApiBaseUrl();
+  const normalizedApplicationId = String(applicationId || "").trim();
+  const application =
+    state.applicationReviewResults.find((item) => String(item.id) === normalizedApplicationId) ||
+    state.applicationsList.find((item) => String(item.id) === normalizedApplicationId) ||
+    null;
+  const applicantLabel =
+    application?.studentName ||
+    application?.uploadedFullName ||
+    application?.studentReferenceId ||
+    "this application";
+
+  if (!apiBaseUrl) {
+    setApplicationReviewMessage("The app is not connected to the API right now.", "error");
+    return;
+  }
+  if (!canReviewApplications()) {
+    setApplicationReviewMessage("You do not have permission to remove applications.", "error");
+    return;
+  }
+  if (!normalizedApplicationId) {
+    setApplicationReviewMessage("Choose an application to remove first.", "error");
+    return;
+  }
+  if (
+    !window.confirm(
+      `Remove ${applicantLabel} from the imported or added applications? This cannot be undone.`
+    )
+  ) {
+    return;
+  }
+
+  const removeButtons = Array.from(
+    elements.applicationReviewResultsList.querySelectorAll("[data-remove-review-application-id]")
+  );
+  removeButtons.forEach((button) => {
+    button.disabled = true;
+  });
+  setApplicationReviewMessage(`Removing ${applicantLabel} from applications...`, "warning");
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/api/applications/${encodeURIComponent(normalizedApplicationId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          ...getAuthHeaders()
+        }
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to remove the application.");
+    }
+
+    const nextState = buildApplicationRemovalState(state, normalizedApplicationId);
+    state.applicationsList = nextState.applicationsList;
+    state.applicationReviewResults = nextState.applicationReviewResults;
+    state.selectedApplicationId = nextState.selectedApplicationId;
+
+    renderApplicationReviewResults(state.applicationReviewResults);
+    if (!state.selectedApplicationId) {
+      renderSelectedApplicationReview();
+      renderApplicationAuditHistory([]);
+    }
+
+    await Promise.all([
+      loadApplicationsList(),
+      refreshApplicationReviewWorkspace(getApplicationReviewSearchFilters()),
+      loadDashboard()
+    ]);
+    setApplicationReviewMessage(`${applicantLabel} was removed from applications.`, "success");
+  } catch (error) {
+    if (await recoverExpiredSession(error)) {
+      return;
+    }
+    setApplicationReviewMessage(error.message, "error");
+  } finally {
+    removeButtons.forEach((button) => {
+      button.disabled = false;
+    });
+    syncApplicationReviewControls();
+  }
 }
 
 async function handleSingleApplicationLookup() {

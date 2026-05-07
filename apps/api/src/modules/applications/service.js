@@ -628,28 +628,41 @@ export function createApplicationService({ repositories }) {
       throw new ValidationError("MNOTIFY_SENDER_ID is not configured. Add it before sending SMS messages.");
     }
 
-    const response = await fetch("https://api.mnotify.com/api/sms/quick", {
+    const params = new URLSearchParams({
+      key: config.messaging.mnotifyApiKey
+    });
+    const response = await fetch(`https://api.mnotify.com/api/sms/quick?${params.toString()}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        key: config.messaging.mnotifyApiKey,
-        to: toPhone,
-        from: config.messaging.mnotifySenderId,
-        text: bodyText
+        recipient: [toPhone],
+        sender: config.messaging.mnotifySenderId,
+        message: bodyText,
+        is_schedule: false,
+        schedule_date: ""
       })
     });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.status !== "success") {
+    const rawPayload = await response.text().catch(() => "");
+    let payload = {};
+    try {
+      payload = rawPayload ? JSON.parse(rawPayload) : {};
+    } catch {
+      payload = {};
+    }
+    const responseCode = String(payload.code || payload.status || payload.message || rawPayload || "").trim();
+    const acceptedCodes = new Set(["success", "successful", "1000", "2000"]);
+    if (!response.ok || !acceptedCodes.has(responseCode.toLowerCase())) {
       throw new ValidationError(
-        payload.message || payload.error || "MNotify rejected the SMS send request."
+        payload.message ||
+          payload.error ||
+          (responseCode ? `MNotify rejected the SMS send request (${responseCode}).` : "MNotify rejected the SMS send request.")
       );
     }
 
     return {
-      providerMessageId: payload.message_id || null
+      providerMessageId: payload.summary?._id || payload.message_id || payload.messageId || responseCode || null
     };
   }
 
@@ -995,10 +1008,6 @@ export function createApplicationService({ repositories }) {
       };
     },
     async getMessagingSettings() {
-      const senderPhone = config.messaging.smsProvider === "mnotify"
-        ? config.messaging.mnotifySenderId || ""
-        : config.messaging.twilioFromNumber || "";
-
       return {
         senderEmail: APPLICATION_MESSAGE_SENDER,
         senderName: APPLICATION_MESSAGE_SENDER_NAME,
@@ -1006,9 +1015,9 @@ export function createApplicationService({ repositories }) {
         sendingEnabled: Boolean(config.messaging.enabled && config.messaging.brevoApiKey),
         smsProvider: config.messaging.smsProvider,
         smsEnabled: Boolean(config.messaging.smsEnabled),
-        senderPhone: senderPhone,
+        senderPhone: getSmsSenderForChannel("sms"),
         whatsAppEnabled: Boolean(config.messaging.whatsAppEnabled),
-        senderWhatsApp: config.messaging.twilioWhatsAppFromNumber || ""
+        senderWhatsApp: getSmsSenderForChannel("whatsapp")
       };
     },
     async listImportIssues(filters) {
@@ -1272,8 +1281,14 @@ export function createApplicationService({ repositories }) {
         applicationId: item.id,
         studentId: item.studentId,
         studentName: item.studentName || null,
+        studentReferenceId: item.studentReferenceId || null,
         email: item.email || null,
         phone: item.phoneNumber || item.studentPhoneNumber || null,
+        qualificationStatus: item.qualificationStatus || null,
+        outcomeDecision: item.outcomeDecision || null,
+        reviewReason: item.reviewReason || null,
+        outcomeAmount: item.outcomeAmount ?? null,
+        recommendedAmount: item.recommendedAmount ?? null,
         issue:
           channel === "email"
             ? item.email
@@ -1285,8 +1300,7 @@ export function createApplicationService({ repositories }) {
       }));
 
       return { recipients, channel };
-    }
-
+    },
     async recordMessageBatch(payload, actor) {
       const preview = await this.messagingPreview(payload);
       const recipientEdits = normalizeRecipientEdits(payload.recipientEdits);

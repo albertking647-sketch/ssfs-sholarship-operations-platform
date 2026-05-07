@@ -151,6 +151,10 @@ export const config = {
     twilioFromNumber: process.env.TWILIO_FROM_NUMBER || "",
     smsEnabled: parseBoolean(process.env.APPLICATION_SMS_ENABLED, false),
     twilioWhatsAppFromNumber: process.env.TWILIO_WHATSAPP_FROM_NUMBER || "",
-    whatsAppEnabled: parseBoolean(process.env.APPLICATION_WHATSAPP_ENABLED, false)
+    whatsAppEnabled: parseBoolean(process.env.APPLICATION_WHATSAPP_ENABLED, false),
+    mnotifyApiKey: process.env.MNOTIFY_API_KEY || "",
+    mnotifySenderId: process.env.MNOTIFY_SENDER_ID || "",
+    smsMaxRetries: parsePositiveNumber(process.env.SMS_MAX_RETRIES, 3),
+    smsRetryDelayMs: parsePositiveNumber(process.env.SMS_RETRY_DELAY_MS, 2000)
   }
 };

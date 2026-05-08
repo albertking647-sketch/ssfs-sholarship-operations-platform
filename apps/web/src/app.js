@@ -1415,7 +1415,10 @@ async function handleLogout() {
 }
 
 function sanitizeWorkspaceState() {
-  state.activeModule = resolveModuleForRole(getCurrentActorRole(), state.activeModule);
+  const actorRole = getCurrentActorRole();
+  if (actorRole) {
+    state.activeModule = resolveModuleForRole(actorRole, state.activeModule);
+  }
   if (!MODULE_META[state.activeModule]) {
     state.activeModule = "dashboard";
   }
@@ -5604,13 +5607,18 @@ function renderDashboard(data = state.dashboard) {
 }
 
 function renderModuleShell() {
-  state.activeModule = resolveModuleForRole(getCurrentActorRole(), state.activeModule);
+  const actorRole = getCurrentActorRole();
+  if (actorRole) {
+    state.activeModule = resolveModuleForRole(actorRole, state.activeModule);
+  } else if (!MODULE_META[state.activeModule]) {
+    state.activeModule = "dashboard";
+  }
   const meta = MODULE_META[state.activeModule];
   elements.moduleTitle.textContent = meta.title;
   elements.moduleDescription.textContent = meta.description;
   persistWorkspaceState();
 
-  const visibleModules = new Set(getVisibleModulesForRole(getCurrentActorRole()));
+  const visibleModules = new Set(getVisibleModulesForRole(actorRole));
   for (const item of elements.navItems) {
     item.hidden = !visibleModules.has(item.dataset.module);
     item.classList.toggle("is-active", item.dataset.module === state.activeModule);

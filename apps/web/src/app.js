@@ -6611,6 +6611,38 @@ function renderApplicationSelectors() {
   elements.schemeAcademicYearSelect.innerHTML = schemeCycleOptions;
 }
 
+function syncApplicationCycleToSelectedScheme() {
+  const selectedSchemeId = elements.applicationSchemeSelect?.value;
+  if (!selectedSchemeId) {
+    return;
+  }
+
+  const selectedScheme = state.schemes.find((item) => item.id === selectedSchemeId);
+  const schemeCycleId = selectedScheme?.cycleId;
+  if (!schemeCycleId) {
+    return;
+  }
+
+  const cycleExists = state.cycles.some((item) => item.id === schemeCycleId);
+  if (!cycleExists) {
+    const selectedSchemeAcademicYearMode = elements.schemeAcademicYearSelect.value;
+    const cycleLabel = selectedScheme.academicYearLabel || selectedScheme.label || selectedScheme.code || "";
+    state.cycles = [
+      ...state.cycles,
+      {
+        id: schemeCycleId,
+        academicYearLabel: cycleLabel
+      }
+    ];
+    renderApplicationSelectors();
+    elements.applicationSchemeSelect.value = selectedSchemeId;
+    elements.schemeAcademicYearSelect.value = selectedSchemeAcademicYearMode;
+    renderSupportFoodBankAcademicYearOptions();
+  }
+
+  elements.applicationCycleSelect.value = schemeCycleId;
+}
+
 function syncSchemeAcademicYearMode() {
   if (!elements.schemeAcademicYearSelect || !elements.schemeAcademicYearManualField || !elements.schemeAcademicYearManualInput) {
     return;
@@ -9692,9 +9724,10 @@ async function loadApplicationOptions() {
     if (selectedSchemeId && state.schemes.some((item) => item.id === selectedSchemeId)) {
       elements.applicationSchemeSelect.value = selectedSchemeId;
     }
-    if (selectedCycleId && state.cycles.some((item) => item.id === selectedCycleId)) {
+    if (!elements.applicationSchemeSelect.value && selectedCycleId && state.cycles.some((item) => item.id === selectedCycleId)) {
       elements.applicationCycleSelect.value = selectedCycleId;
     }
+    syncApplicationCycleToSelectedScheme();
     if (
       state.editingSchemeId &&
       state.schemes.some((item) => item.id === state.editingSchemeId)
@@ -13206,6 +13239,7 @@ function bindEvents() {
     void saveApplicationIssueCorrection(event);
   });
   elements.applicationSchemeSelect.addEventListener("change", () => {
+    syncApplicationCycleToSelectedScheme();
     state.selectedApplicationId = null;
     renderSelectedApplicationReview();
     state.applicationMessagingPreview = null;

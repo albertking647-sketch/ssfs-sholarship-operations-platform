@@ -6,6 +6,38 @@ function normalizeYearLabel(value) {
   return /^\d{4}\/\d{4}$/.test(text) ? `${text} Academic Year` : text;
 }
 
+function normalizeSchemeName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizePage(value, fallback = 1) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) return fallback;
+  return parsed;
+}
+
+function normalizePageSize(value, fallback = 50) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, 200);
+}
+
+function paginateItems(items = [], filters = {}) {
+  const pageSize = normalizePageSize(filters.pageSize, 50);
+  const requestedPage = normalizePage(filters.page, 1);
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const start = (page - 1) * pageSize;
+  return {
+    total,
+    page,
+    pageSize,
+    totalPages,
+    items: items.slice(start, start + pageSize)
+  };
+}
+
 function parseAcademicYearRange(value) {
   const match = normalizeYearLabel(value).match(/(\d{4})\/(\d{4})/);
   if (!match) return null;
@@ -42,6 +74,17 @@ function normalizeBeneficiaryCohort(value) {
   if (text.includes("current")) return "current";
   if (text.includes("new")) return "new";
   return null;
+}
+
+function normalizeBeneficiaryCohortFilter(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return "";
+  if (text === "current") return "current";
+  if (text === "new") return "new";
+  if (["not_tagged", "not tagged", "untagged", "none", "null"].includes(text)) {
+    return "not_tagged";
+  }
+  return "";
 }
 
 function formatBeneficiaryCohort(value) {
@@ -220,7 +263,7 @@ function mapStoredRecord(record) {
   return {
     id: String(record.id),
     academicYearLabel: normalizeYearLabel(record.academicYearLabel),
-    schemeName: record.schemeName || null,
+    schemeName: normalizeSchemeName(record.schemeName) || null,
     sponsorName: record.sponsorName || null,
     fullName: record.fullName || null,
     studentReferenceId: record.studentReferenceId || null,
@@ -244,9 +287,10 @@ function mapStoredRecord(record) {
 
 function filterRecords(records, filters = {}) {
   const academicYearLabel = normalizeYearLabel(filters.academicYearLabel);
-  const schemeName = String(filters.schemeName || "").trim().toLowerCase();
+  const schemeName = normalizeSchemeName(filters.schemeName).toLowerCase();
   const college = String(filters.college || "").trim().toLowerCase();
   const supportType = String(filters.supportType || "").trim().toLowerCase();
+  const beneficiaryCohort = normalizeBeneficiaryCohortFilter(filters.beneficiaryCohort);
   const importMode = String(filters.importMode || "").trim().toLowerCase();
   const query = String(filters.q || "").trim().toLowerCase();
 
@@ -254,7 +298,7 @@ function filterRecords(records, filters = {}) {
     if (academicYearLabel && normalizeYearLabel(record.academicYearLabel) !== academicYearLabel) {
       return false;
     }
-    if (schemeName && !String(record.schemeName || "").toLowerCase().includes(schemeName)) {
+    if (schemeName && !normalizeSchemeName(record.schemeName).toLowerCase().includes(schemeName)) {
       return false;
     }
     if (college && !String(record.college || "").toLowerCase().includes(college)) {
@@ -262,6 +306,18 @@ function filterRecords(records, filters = {}) {
     }
     if (supportType && normalizeSupportType(record.supportType) !== supportType) {
       return false;
+    }
+    if (beneficiaryCohort) {
+      const normalizedCohort = normalizeBeneficiaryCohort(record.beneficiaryCohort);
+      if (beneficiaryCohort === "not_tagged" && normalizedCohort) {
+        return false;
+      }
+      if (
+        beneficiaryCohort !== "not_tagged" &&
+        normalizeBeneficiaryCohort(record.beneficiaryCohort) !== beneficiaryCohort
+      ) {
+        return false;
+      }
     }
     if (importMode && String(record.importMode || "").trim().toLowerCase() !== importMode) {
       return false;
@@ -296,7 +352,7 @@ function buildFilterOptions(records) {
 
   const schemeNames = [...new Set(
     (records || [])
-      .map((record) => String(record.schemeName || "").trim())
+      .map((record) => normalizeSchemeName(record.schemeName))
       .filter(Boolean)
   )].sort((left, right) => left.localeCompare(right));
 
@@ -306,7 +362,13 @@ function buildFilterOptions(records) {
       .filter(Boolean)
   )].sort((left, right) => left.localeCompare(right));
 
-  return { academicYears, schemeNames, colleges };
+  const cohorts = [...new Set(
+    (records || [])
+      .map((record) => normalizeBeneficiaryCohort(record.beneficiaryCohort) || "not_tagged")
+      .filter(Boolean)
+  )];
+
+  return { academicYears, schemeNames, colleges, cohorts };
 }
 
 function buildBeneficiaryDuplicateKey(record) {
@@ -339,7 +401,7 @@ function buildBatchHistory(items = []) {
         batchReference,
         fileName: item.sourceFileName || "Unknown source",
         academicYearLabel: item.academicYearLabel || "",
-        schemeName: item.schemeName || "",
+        schemeName: normalizeSchemeName(item.schemeName),
         importMode: item.importMode || "historical_archive",
         createdAt: item.createdAt || null,
         rowCount: 0
@@ -457,7 +519,7 @@ function buildSchemeReport(records, academicYearLabel, schemeName) {
   const scopedItems = (records || []).filter(
     (item) =>
       normalizeYearLabel(item.academicYearLabel) === normalizedYear &&
-      String(item.schemeName || "").trim().toLowerCase() === normalizedScheme
+      normalizeSchemeName(item.schemeName).toLowerCase() === normalizedScheme
   );
 
   const cohortCounts = formatCohortCounts(scopedItems);
@@ -521,9 +583,10 @@ function createSampleRepository() {
 
   return {
     async list(filters = {}) {
-      return filterRecords(records, filters)
+      const items = filterRecords(records, filters)
         .map(mapStoredRecord)
         .sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0));
+      return paginateItems(items, filters);
     },
     async importRows({ items, importMode, sourceFileName, actor, duplicateStrategy }) {
       const batchReference = createId("beneficiary-batch");
@@ -558,7 +621,7 @@ function createSampleRepository() {
         const stored = {
           id: createId("beneficiary"),
           academicYearLabel: normalizeYearLabel(item.academicYearLabel),
-          schemeName: item.schemeName,
+          schemeName: normalizeSchemeName(item.schemeName),
           sponsorName: item.sponsorName,
           fullName: item.fullName,
           studentReferenceId: item.studentReferenceId,
@@ -813,16 +876,56 @@ function createSampleRepository() {
           .filter(Boolean)
       );
     },
+    async findCrossScopeDuplicateMatches(items = []) {
+      const candidateIds = new Set(
+        (items || []).map((item) => buildStudentReferenceKey(item)).filter(Boolean)
+      );
+      if (!candidateIds.size) {
+        return {};
+      }
+
+      const exactKeys = new Set((items || []).map((item) => buildBeneficiaryDuplicateKey(item)).filter(Boolean));
+      const lookup = {};
+
+      for (const record of records) {
+        const studentReferenceKey = buildStudentReferenceKey(record);
+        if (!studentReferenceKey || !candidateIds.has(studentReferenceKey)) {
+          continue;
+        }
+        const duplicateKey = buildBeneficiaryDuplicateKey(record);
+        if (!duplicateKey || exactKeys.has(duplicateKey)) {
+          continue;
+        }
+        if (!lookup[studentReferenceKey]) {
+          lookup[studentReferenceKey] = [];
+        }
+        const normalizedYear = normalizeYearLabel(record.academicYearLabel);
+        const normalizedScheme = String(record.schemeName || "").trim();
+        if (
+          lookup[studentReferenceKey].some(
+            (item) => item.academicYearLabel === normalizedYear && item.schemeName === normalizedScheme
+          )
+        ) {
+          continue;
+        }
+        lookup[studentReferenceKey].push({
+          academicYearLabel: normalizedYear,
+          schemeName: normalizedScheme
+        });
+      }
+
+      return lookup;
+    },
     async getImportHistory(filters = {}) {
       const academicYearLabel = normalizeYearLabel(filters.academicYearLabel);
-      const normalizedScheme = String(filters.schemeName || "").trim().toLowerCase();
+      const normalizedScheme = normalizeSchemeName(filters.schemeName).toLowerCase();
       const items = batchLogs.filter((item) => {
         if (academicYearLabel && normalizeYearLabel(item.academicYearLabel) !== academicYearLabel) {
           return false;
         }
         if (
           normalizedScheme &&
-          String(item.schemeName || "").trim().toLowerCase() !== normalizedScheme
+          normalizeSchemeName(item.schemeName).toLowerCase() !== normalizedScheme
         ) {
           return false;
         }
@@ -850,7 +953,7 @@ function createSampleRepository() {
     },
     async getAuditFeed(filters = {}) {
       const academicYearLabel = normalizeYearLabel(filters.academicYearLabel);
-      const normalizedScheme = String(filters.schemeName || "").trim().toLowerCase();
+      const normalizedScheme = normalizeSchemeName(filters.schemeName).toLowerCase();
       const normalizedEventType = String(filters.eventType || "").trim().toLowerCase();
       const items = auditEvents.filter((item) => {
         if (academicYearLabel && normalizeYearLabel(item.academicYearLabel) !== academicYearLabel) {
@@ -858,7 +961,7 @@ function createSampleRepository() {
         }
         if (
           normalizedScheme &&
-          String(item.schemeName || "").trim().toLowerCase() !== normalizedScheme
+          normalizeSchemeName(item.schemeName).toLowerCase() !== normalizedScheme
         ) {
           return false;
         }
@@ -868,10 +971,7 @@ function createSampleRepository() {
         return true;
       });
 
-      return {
-        total: items.length,
-        items
-      };
+      return paginateItems(items, filters);
     },
     async rollbackBatch({ batchReference, actor, reason }) {
       const beforeCount = records.length;
@@ -928,7 +1028,7 @@ function mapBeneficiaryRow(row) {
   return {
     id: row.id,
     academicYearLabel: normalizeYearLabel(row.academic_year_label),
-    schemeName: row.scheme_name,
+    schemeName: normalizeSchemeName(row.scheme_name),
     sponsorName: row.sponsor_name,
     fullName: row.full_name,
     studentReferenceId: row.student_reference_id,
@@ -955,7 +1055,7 @@ function mapBeneficiaryBatchRow(row) {
     batchReference: row.batch_reference,
     fileName: row.source_file_name || "Unknown source",
     academicYearLabel: normalizeYearLabel(row.academic_year_label),
-    schemeName: row.scheme_name,
+    schemeName: normalizeSchemeName(row.scheme_name),
     importMode: row.import_mode,
     duplicateStrategy: row.duplicate_strategy || "skip",
     status: row.status || "active",
@@ -1133,9 +1233,10 @@ function createPostgresRepository(database) {
       const conditions = [];
       const params = [];
       const academicYearLabel = normalizeYearLabel(filters.academicYearLabel);
-      const schemeName = String(filters.schemeName || "").trim();
+      const schemeName = normalizeSchemeName(filters.schemeName);
       const college = String(filters.college || "").trim();
       const supportType = String(filters.supportType || "").trim().toLowerCase();
+      const beneficiaryCohort = normalizeBeneficiaryCohortFilter(filters.beneficiaryCohort);
       const importMode = String(filters.importMode || "").trim().toLowerCase();
       const query = String(filters.q || "").trim();
 
@@ -1155,6 +1256,14 @@ function createPostgresRepository(database) {
         params.push(supportType);
         conditions.push(`LOWER(beneficiaries.support_type) = $${params.length}`);
       }
+      if (beneficiaryCohort === "not_tagged") {
+        conditions.push(
+          "(beneficiaries.beneficiary_cohort IS NULL OR TRIM(beneficiaries.beneficiary_cohort) = '')"
+        );
+      } else if (beneficiaryCohort) {
+        params.push(beneficiaryCohort);
+        conditions.push(`LOWER(TRIM(COALESCE(beneficiaries.beneficiary_cohort, ''))) = $${params.length}`);
+      }
       if (importMode) {
         params.push(importMode);
         conditions.push(`LOWER(beneficiaries.import_mode) = $${params.length}`);
@@ -1173,6 +1282,21 @@ function createPostgresRepository(database) {
       }
 
       const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+      const totalResult = await database.query(
+        `
+          SELECT COUNT(*)::int AS total_count
+          FROM beneficiaries
+          ${whereClause}
+        `,
+        params
+      );
+      const pageSize = normalizePageSize(filters.pageSize, 50);
+      const requestedPage = normalizePage(filters.page, 1);
+      const total = Number(totalResult.rows?.[0]?.total_count || 0);
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const page = Math.min(requestedPage, totalPages);
+      const offset = (page - 1) * pageSize;
+
       const result = await database.query(
         `
           SELECT
@@ -1200,11 +1324,19 @@ function createPostgresRepository(database) {
           FROM beneficiaries
           ${whereClause}
           ORDER BY beneficiaries.created_at DESC, beneficiaries.id DESC
+          LIMIT $${params.length + 1}
+          OFFSET $${params.length + 2}
         `,
-        params
+        [...params, pageSize, offset]
       );
 
-      return result.rows.map(mapBeneficiaryRow);
+      return {
+        total,
+        page,
+        pageSize,
+        totalPages,
+        items: result.rows.map(mapBeneficiaryRow)
+      };
     },
     async importRows({
       items,
@@ -1256,7 +1388,7 @@ function createPostgresRepository(database) {
               `,
               [
                 normalizeYearLabel(item.academicYearLabel),
-                String(item.schemeName || "").trim(),
+                normalizeSchemeName(item.schemeName),
                 String(item.studentReferenceId || "").trim()
               ]
             );
@@ -1269,7 +1401,7 @@ function createPostgresRepository(database) {
               `,
               [
                 normalizeYearLabel(item.academicYearLabel),
-                String(item.schemeName || "").trim(),
+                normalizeSchemeName(item.schemeName),
                 String(item.studentReferenceId || "").trim()
               ]
             );
@@ -1360,7 +1492,7 @@ function createPostgresRepository(database) {
             `,
             [
               normalizeYearLabel(item.academicYearLabel),
-              item.schemeName,
+              normalizeSchemeName(item.schemeName),
               item.sponsorName || null,
               item.fullName,
               item.studentReferenceId || null,
@@ -1777,7 +1909,7 @@ function createPostgresRepository(database) {
             return [
               currentKey,
               normalizeYearLabel(previousAcademicYearLabel),
-              String(item.schemeName || "").trim(),
+              normalizeSchemeName(item.schemeName),
               String(item.studentReferenceId || "").trim()
             ].join("||");
           })
@@ -1871,7 +2003,7 @@ function createPostgresRepository(database) {
       for (const item of normalizedItems) {
         params.push(normalizeYearLabel(item.academicYearLabel));
         const yearParam = `$${params.length}`;
-        params.push(String(item.schemeName || "").trim());
+        params.push(normalizeSchemeName(item.schemeName));
         const schemeParam = `$${params.length}`;
         params.push(String(item.studentReferenceId || "").trim());
         const referenceParam = `$${params.length}`;
@@ -1940,6 +2072,67 @@ function createPostgresRepository(database) {
           .map((row) => buildStudentReferenceKey({ studentReferenceId: row.student_reference_id }))
           .filter(Boolean)
       );
+    },
+    async findCrossScopeDuplicateMatches(items = []) {
+      await ensureTable();
+
+      const studentReferenceIds = [...new Set(
+        (items || [])
+          .map((item) => buildStudentReferenceKey(item))
+          .filter(Boolean)
+      )];
+
+      if (!studentReferenceIds.length) {
+        return {};
+      }
+
+      const exactKeys = new Set(
+        (items || []).map((item) => buildBeneficiaryDuplicateKey(item)).filter(Boolean)
+      );
+      const result = await database.query(
+        `
+          SELECT academic_year_label, scheme_name, student_reference_id
+          FROM beneficiaries
+          WHERE LOWER(TRIM(COALESCE(student_reference_id, ''))) = ANY($1)
+        `,
+        [studentReferenceIds]
+      );
+
+      const lookup = {};
+      for (const row of result.rows) {
+        const exactKey = buildBeneficiaryDuplicateKey({
+          academicYearLabel: row.academic_year_label,
+          schemeName: row.scheme_name,
+          studentReferenceId: row.student_reference_id
+        });
+        if (!exactKey || exactKeys.has(exactKey)) {
+          continue;
+        }
+
+        const studentReferenceKey = buildStudentReferenceKey({ studentReferenceId: row.student_reference_id });
+        if (!studentReferenceKey) {
+          continue;
+        }
+        if (!lookup[studentReferenceKey]) {
+          lookup[studentReferenceKey] = [];
+        }
+
+        const normalizedYear = normalizeYearLabel(row.academic_year_label);
+        const normalizedScheme = String(row.scheme_name || "").trim();
+        if (
+          lookup[studentReferenceKey].some(
+            (item) => item.academicYearLabel === normalizedYear && item.schemeName === normalizedScheme
+          )
+        ) {
+          continue;
+        }
+        lookup[studentReferenceKey].push({
+          academicYearLabel: normalizedYear,
+          schemeName: normalizedScheme
+        });
+      }
+
+      return lookup;
     },
     async getImportHistory(filters = {}) {
       await ensureTable();
@@ -2064,7 +2257,7 @@ function createPostgresRepository(database) {
         conditions.push(`academic_year_label = $${params.length}`);
       }
       if (filters.schemeName) {
-        params.push(String(filters.schemeName || "").trim());
+        params.push(normalizeSchemeName(filters.schemeName));
         conditions.push(`LOWER(TRIM(scheme_name)) = LOWER(TRIM($${params.length}))`);
       }
       if (filters.eventType) {
@@ -2073,6 +2266,21 @@ function createPostgresRepository(database) {
       }
 
       const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+      const totalResult = await database.query(
+        `
+          SELECT COUNT(*)::int AS total_count
+          FROM beneficiary_audit_events
+          ${whereClause}
+        `,
+        params
+      );
+      const pageSize = normalizePageSize(filters.pageSize, 50);
+      const requestedPage = normalizePage(filters.page, 1);
+      const total = Number(totalResult.rows?.[0]?.total_count || 0);
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const page = Math.min(requestedPage, totalPages);
+      const offset = (page - 1) * pageSize;
+
       const result = await database.query(
         `
           SELECT
@@ -2091,13 +2299,17 @@ function createPostgresRepository(database) {
           FROM beneficiary_audit_events
           ${whereClause}
           ORDER BY created_at DESC, id DESC
-          LIMIT 120
+          LIMIT $${params.length + 1}
+          OFFSET $${params.length + 2}
         `,
-        params
+        [...params, pageSize, offset]
       );
 
       return {
-        total: result.rows.length,
+        total,
+        page,
+        pageSize,
+        totalPages,
         items: result.rows.map(mapBeneficiaryAuditEventRow)
       };
     },

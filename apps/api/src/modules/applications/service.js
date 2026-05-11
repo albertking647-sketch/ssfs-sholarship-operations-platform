@@ -556,10 +556,6 @@ export function createApplicationService({ repositories }) {
   }
 
   function buildMessageTemplate(messageType, context, channel = "email") {
-    if (channel === "sms" || channel === "whatsapp") {
-      return buildPhoneMessageTemplate(messageType, context, channel);
-    }
-
     const schemeName = context.scheme?.name || "the selected scheme";
     const academicYear = context.cycle?.label || "the selected academic year";
 
@@ -809,6 +805,8 @@ export function createApplicationService({ repositories }) {
       .replaceAll("{{studentReferenceId}}", application.studentReferenceId || "N/A")
       .replaceAll("{{schemeName}}", application.schemeName || "Selected scheme")
       .replaceAll("{{academicYear}}", application.cycleLabel || "Selected academic year")
+      .replaceAll("{{interviewDate}}", application.interviewDate || "To be announced")
+      .replaceAll("{{interviewVenue}}", application.interviewVenue || "To be announced")
       .replaceAll("{{reviewReason}}", application.reviewReason || "Not recorded")
       .replaceAll("{{outcomeAmount}}", application.outcomeAmount ?? application.recommendedAmount ?? "N/A");
   }
@@ -1355,6 +1353,10 @@ export function createApplicationService({ repositories }) {
         studentId: item.studentId,
         studentName: item.studentName || null,
         studentReferenceId: item.studentReferenceId || null,
+        schemeName: item.schemeName || scheme.name || null,
+        cycleLabel: item.cycleLabel || cycle.label || null,
+        interviewDate: item.interviewDate || null,
+        interviewVenue: item.interviewVenue || item.interviewLocation || item.interviewNotes || null,
         email: item.email || null,
         phone: item.phoneNumber || item.applicantPhone || item.studentPhoneNumber || null,
         qualificationStatus: item.qualificationStatus || null,
@@ -1430,6 +1432,11 @@ export function createApplicationService({ repositories }) {
         items: readyRecipients.map((item) => ({
           applicationId: item.applicationId,
           studentId: item.studentId,
+          studentReferenceId: item.studentReferenceId || null,
+          schemeName: item.schemeName || null,
+          cycleLabel: item.cycleLabel || null,
+          interviewDate: item.interviewDate || null,
+          interviewVenue: item.interviewVenue || null,
           recipientEmail: item.email,
           recipientPhone: item.phone,
           recipientName: item.studentName,
@@ -1482,6 +1489,16 @@ export function createApplicationService({ repositories }) {
       let failedCount = 0;
       let loggedCount = 0;
       const channel = normalizeMessagingChannel(batch.channel || "email");
+      const applicationsById = new Map(
+        (
+          await enrichApplications(
+            await repositories.applications.list({
+              schemeId: String(batch.schemeId || "").trim(),
+              cycleId: String(batch.cycleId || "").trim()
+            })
+          )
+        ).map((item) => [String(item.id), item])
+      );
       const sendingEnabled =
         channel === "email"
           ? Boolean(config.messaging.enabled && config.messaging.brevoApiKey)
@@ -1540,16 +1557,32 @@ export function createApplicationService({ repositories }) {
         }
 
         try {
-          const bodyText = String(batch.bodyTemplate || "").replaceAll(
-            "{{applicantName}}",
-            item.recipientName || "Applicant"
-          );
+          const liveApplication = applicationsById.get(String(item.applicationId || ""));
+          const templateData = {
+            ...liveApplication,
+            studentName: item.recipientName || liveApplication?.studentName || "Applicant",
+            studentReferenceId: item.studentReferenceId || liveApplication?.studentReferenceId || null,
+            schemeName: item.schemeName || liveApplication?.schemeName || null,
+            cycleLabel: item.cycleLabel || liveApplication?.cycleLabel || null,
+            interviewDate: item.interviewDate || liveApplication?.interviewDate || null,
+            interviewVenue:
+              item.interviewVenue ||
+              liveApplication?.interviewVenue ||
+              liveApplication?.interviewLocation ||
+              liveApplication?.interviewNotes ||
+              null,
+            reviewReason: liveApplication?.reviewReason || null,
+            outcomeAmount: liveApplication?.outcomeAmount ?? null,
+            recommendedAmount: liveApplication?.recommendedAmount ?? null
+          };
+          const bodyText = renderMessageTemplate(batch.bodyTemplate || "", templateData);
+          const subjectLine = renderMessageTemplate(batch.subjectLine || "", templateData);
           const delivery =
             channel === "email"
               ? await sendBrevoMessage({
                   toEmail: item.recipientEmail,
                   toName: item.recipientName,
-                  subjectLine: batch.subjectLine,
+                  subjectLine,
                   bodyText
                 })
               : config.messaging.smsProvider === "mnotify"

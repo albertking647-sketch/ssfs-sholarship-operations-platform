@@ -61,18 +61,26 @@ function trimString(value) {
 }
 
 function normalizeAcademicYearLabel(value) {
-  const text = trimString(value);
+  const text = String(value ?? "").trim();
   if (!text) return null;
-  if (/^\d{4}\/\d{4}$/.test(text)) {
-    return `${text} Academic Year`;
-  }
-  return text;
+  const match = text.match(/\b\d{4}\/\d{4}\b/);
+  const normalized = match ? match[0] : text;
+  return /^\d{4}\/\d{4}$/.test(normalized) ? `${normalized} Academic Year` : normalized;
 }
 
-function normalizeCurrency(value, fallbackValue = "GHS") {
+function normalizeSchemeName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim() || null;
+}
+
+function normalizeCurrency(value, fallbackValue = "GHS", issues = []) {
+  const allowedCurrencies = new Set(["GHS", "USD", "EUR", "GBP"]);
   const text = trimString(value);
   if (text) {
-    return text.toUpperCase();
+    const normalized = text.toUpperCase();
+    if (!allowedCurrencies.has(normalized)) {
+      issues.push(`Currency "${text}" is not supported. Use GHS, USD, EUR, or GBP.`);
+    }
+    return normalized;
   }
   const fallback = trimString(fallbackValue);
   return fallback ? fallback.toUpperCase() : "GHS";
@@ -105,7 +113,7 @@ function buildDuplicateKey(payload) {
   }
   return [
     String(payload.academicYearLabel || "").trim().toLowerCase(),
-    String(payload.schemeName || "").trim().toLowerCase(),
+    String(normalizeSchemeName(payload.schemeName) || "").toLowerCase(),
     String(payload.studentReferenceId || "").trim().toLowerCase()
   ].join("::");
 }
@@ -117,6 +125,24 @@ function buildStudentReferenceKey(payload) {
   return String(payload.studentReferenceId || "").trim().toLowerCase();
 }
 
+function formatCrossScopeMatches(matches = []) {
+  const uniqueMatches = [];
+  for (const match of matches || []) {
+    const academicYearLabel = String(match?.academicYearLabel || "").trim();
+    const schemeName = String(match?.schemeName || "").trim();
+    if (!academicYearLabel || !schemeName) continue;
+    if (
+      uniqueMatches.some(
+        (item) => item.academicYearLabel === academicYearLabel && item.schemeName === schemeName
+      )
+    ) {
+      continue;
+    }
+    uniqueMatches.push({ academicYearLabel, schemeName });
+  }
+  return uniqueMatches.slice(0, 3);
+}
+
 function normalizeNumeric(value, label, issues) {
   if (value === undefined || value === null || String(value).trim() === "") {
     return null;
@@ -126,6 +152,10 @@ function normalizeNumeric(value, label, issues) {
   const parsed = Number(normalized);
   if (Number.isNaN(parsed)) {
     issues.push(`${label} must be a valid number.`);
+    return null;
+  }
+  if (parsed <= 0) {
+    issues.push(`${label} must be greater than zero.`);
     return null;
   }
 
@@ -166,14 +196,14 @@ export function buildBeneficiaryImportPreview(rows, context) {
     );
     const payload = {
       academicYearLabel: normalizeAcademicYearLabel(normalized.academicYearLabel),
-      schemeName: trimString(normalized.schemeName),
+      schemeName: normalizeSchemeName(normalized.schemeName),
       sponsorName: trimString(normalized.sponsorName),
       fullName: trimString(normalized.fullName),
       studentReferenceId: trimString(normalized.studentReferenceId),
       indexNumber: trimString(normalized.indexNumber),
       college: trimString(normalized.college),
       amountPaid: normalizeNumeric(normalized.amountPaid, "Amount paid", issues),
-      currency: normalizeCurrency(normalized.currency, context.defaultCurrency),
+      currency: normalizeCurrency(normalized.currency, context.defaultCurrency, issues),
       supportType: supportType.value,
       beneficiaryCohort: explicitBeneficiaryCohort,
       carriedForwardFromPriorYear: false,
@@ -200,8 +230,8 @@ export function buildBeneficiaryImportPreview(rows, context) {
     if (payload.amountPaid === null) {
       issues.push("Amount paid is required.");
     }
-    if (!supportType.provided) {
-      warnings.push("Support type is blank and will default to Unknown / other.");
+    if (!supportType.provided || supportType.value === "unknown") {
+      issues.push("Support type must be either Internal or External.");
     }
 
     const duplicateKey = buildDuplicateKey(payload);
@@ -228,6 +258,9 @@ export function buildBeneficiaryImportPreview(rows, context) {
       Boolean(duplicateKey) && context.uploadDuplicateKeys?.has?.(duplicateKey);
     const hasCrossScopeDuplicate =
       Boolean(studentReferenceKey) && context.crossScopeDuplicateStudentIds?.has?.(studentReferenceKey);
+    const crossScopeMatches = formatCrossScopeMatches(
+      context.crossScopeDuplicateMatches?.[studentReferenceKey] || []
+    );
 
     if (isExistingDuplicate) {
       const message =
@@ -249,8 +282,13 @@ export function buildBeneficiaryImportPreview(rows, context) {
       }
     }
     if (hasCrossScopeDuplicate) {
+      const locationNote = crossScopeMatches.length
+        ? ` Existing records: ${crossScopeMatches
+            .map((match) => `${match.schemeName} (${match.academicYearLabel})`)
+            .join(", ")}.`
+        : "";
       warnings.push(
-        "This student reference ID already appears in other support records across different schemes or academic years. Review carefully before importing."
+        `This student reference ID already appears in other support records across different schemes or academic years. Review carefully before importing.${locationNote}`
       );
     }
 
@@ -259,6 +297,7 @@ export function buildBeneficiaryImportPreview(rows, context) {
       status: issues.length ? "invalid" : "valid",
       payload,
       duplicateStrategy: rowDuplicateStrategy,
+      crossScopeMatches,
       issues,
       warnings
     };
@@ -270,7 +309,9 @@ export function buildBeneficiaryImportPreview(rows, context) {
       validRows: previewRows.filter((row) => row.status === "valid").length,
       invalidRows: previewRows.filter((row) => row.status === "invalid").length,
       unknownSupportTypeRows: previewRows.filter((row) =>
-        (row.warnings || []).some((warning) => warning.includes("Support type is blank"))
+        [...(row.issues || []), ...(row.warnings || [])].some((message) =>
+          message.includes("Support type must be either Internal or External.")
+        )
       ).length,
       rolledForwardRows: previewRows.filter((row) =>
         (row.warnings || []).some((warning) => warning.includes("previous academic year"))

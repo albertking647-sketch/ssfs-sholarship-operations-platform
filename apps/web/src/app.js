@@ -36,6 +36,14 @@ import {
   beginApplicationReviewPostSaveTransition,
   focusApplicationReviewSearch
 } from "./applicationReviewNavigation.js";
+import {
+  VALID_APPLICATION_SECTIONS,
+  VALID_BENEFICIARY_SECTIONS,
+  VALID_REGISTRY_SECTIONS,
+  buildHashFromRoute,
+  parseRouteFromHash,
+  routeFromWorkspaceState
+} from "./workspaceRouter.js";
 import { buildApplicationRemovalState } from "./applicationRemovalState.js";
 import {
   renderAcademicHistoryImportHistoryMarkup,
@@ -55,6 +63,7 @@ const ACTIVE_MODULE_KEY = "ssfs-active-module";
 const ACTIVE_REGISTRY_SECTION_KEY = "ssfs-active-registry-section";
 const ACTIVE_APPLICATIONS_SECTION_KEY = "ssfs-active-applications-section";
 const ACTIVE_BENEFICIARY_SECTION_KEY = "ssfs-active-beneficiary-section";
+const SPA_ROUTER_FLAG_KEY = "ssfs-spa-router-enabled";
 const DASHBOARD_ACTIVITY_HIDDEN_KEY = "ssfs-dashboard-activity-hidden";
 const DASHBOARD_BENEFICIARY_HISTORICAL_HIDDEN_KEY =
   "ssfs-dashboard-beneficiary-historical-hidden";
@@ -64,6 +73,7 @@ const APPLICATION_REVIEW_RESULTS_HIDDEN_KEY = "ssfs-application-review-results-h
 const API_URL_KEY = "ssfs-api-url";
 const AUTH_USERNAME_KEY = "ssfs-auth-username";
 const DEFAULT_API_URL = deriveDefaultApiUrl(globalThis.location, "http://127.0.0.1:4400");
+const ENABLE_SPA_ROUTER = safeLocalStorageGet(SPA_ROUTER_FLAG_KEY, "true") !== "false";
 
 const MODULE_META = {
   dashboard: {
@@ -184,9 +194,21 @@ const state = {
     colleges: []
   },
   beneficiaryRecords: [],
+  beneficiaryListPagination: {
+    page: 1,
+    pageSize: 50,
+    total: 0,
+    totalPages: 1
+  },
   beneficiaryEditingRecordId: null,
   beneficiaryRecordHistory: null,
   beneficiaryAuditFeed: [],
+  beneficiaryAuditPagination: {
+    page: 1,
+    pageSize: 50,
+    total: 0,
+    totalPages: 1
+  },
   recommendedPreview: null,
   lastRecommendedImport: null,
   recommendedRecords: [],
@@ -274,16 +296,16 @@ const state = {
   applicationCriteria: null,
   applicationReviewCriteria: null,
   editingSchemeId: null,
-  schemePanelHidden: false,
-  criteriaPanelHidden: false,
-  applicationsRegistryHidden: false,
+  schemePanelHidden: true,
+  criteriaPanelHidden: true,
+  applicationsRegistryHidden: true,
   applicationReviewHidden: false,
   applicationReviewResultsHidden:
-    safeLocalStorageGet(APPLICATION_REVIEW_RESULTS_HIDDEN_KEY, "false") === "true",
+    safeLocalStorageGet(APPLICATION_REVIEW_RESULTS_HIDDEN_KEY, "true") === "true",
   applicationBulkInterviewHidden:
-    safeLocalStorageGet(APPLICATION_BULK_INTERVIEW_HIDDEN_KEY, "false") === "true",
+    safeLocalStorageGet(APPLICATION_BULK_INTERVIEW_HIDDEN_KEY, "true") === "true",
   applicationCwaCoverageHidden:
-    safeLocalStorageGet(APPLICATION_CWA_COVERAGE_HIDDEN_KEY, "false") === "true",
+    safeLocalStorageGet(APPLICATION_CWA_COVERAGE_HIDDEN_KEY, "true") === "true",
   dashboardActivityHidden:
     safeLocalStorageGet(DASHBOARD_ACTIVITY_HIDDEN_KEY, "false") === "true",
   dashboardBeneficiaryHistoricalHidden:
@@ -319,6 +341,9 @@ const sessionRequestTracker = createSessionRequestTracker();
 
 let recommendedPreviewLookupTimer = null;
 let supportFoodBankPreviewLookupTimer = null;
+let applyingRouteFromHash = false;
+const loadedRouteKeys = new Set();
+let initialRouteSynced = false;
 
 const elements = {
   loginGate: document.querySelector("#loginGate"),
@@ -392,14 +417,22 @@ const elements = {
   beneficiarySearchQuery: document.querySelector("#beneficiarySearchQuery"),
   beneficiaryAcademicYearFilter: document.querySelector("#beneficiaryAcademicYearFilter"),
   beneficiarySchemeFilter: document.querySelector("#beneficiarySchemeFilter"),
-    beneficiaryCollegeFilter: document.querySelector("#beneficiaryCollegeFilter"),
-    beneficiarySupportTypeFilter: document.querySelector("#beneficiarySupportTypeFilter"),
-    beneficiaryReloadButton: document.querySelector("#beneficiaryReloadButton"),
+  beneficiaryCollegeFilter: document.querySelector("#beneficiaryCollegeFilter"),
+  beneficiarySupportTypeFilter: document.querySelector("#beneficiarySupportTypeFilter"),
+  beneficiaryCohortFilter: document.querySelector("#beneficiaryCohortFilter"),
+  beneficiaryReloadButton: document.querySelector("#beneficiaryReloadButton"),
   beneficiaryClearScopedButton: document.querySelector("#beneficiaryClearScopedButton"),
+  beneficiaryClearConfirmation: document.querySelector("#beneficiaryClearConfirmation"),
+  beneficiaryClearReason: document.querySelector("#beneficiaryClearReason"),
   beneficiaryListMessage: document.querySelector("#beneficiaryListMessage"),
   beneficiaryHistoryMessage: document.querySelector("#beneficiaryHistoryMessage"),
   beneficiaryImportHistoryList: document.querySelector("#beneficiaryImportHistoryList"),
+  beneficiaryRollbackConfirmation: document.querySelector("#beneficiaryRollbackConfirmation"),
+  beneficiaryRollbackReason: document.querySelector("#beneficiaryRollbackReason"),
   beneficiaryList: document.querySelector("#beneficiaryList"),
+  beneficiaryListPrevPageButton: document.querySelector("#beneficiaryListPrevPageButton"),
+  beneficiaryListNextPageButton: document.querySelector("#beneficiaryListNextPageButton"),
+  beneficiaryListPageSummary: document.querySelector("#beneficiaryListPageSummary"),
   beneficiaryEditorForm: document.querySelector("#beneficiaryEditorForm"),
   beneficiaryEditorAcademicYear: document.querySelector("#beneficiaryEditorAcademicYear"),
   beneficiaryEditorSchemeName: document.querySelector("#beneficiaryEditorSchemeName"),
@@ -416,6 +449,7 @@ const elements = {
   beneficiaryEditorReplaceExisting: document.querySelector("#beneficiaryEditorReplaceExisting"),
   beneficiaryEditorChangeReason: document.querySelector("#beneficiaryEditorChangeReason"),
   beneficiaryEditorRemovalReason: document.querySelector("#beneficiaryEditorRemovalReason"),
+  beneficiaryEditorDeleteConfirmation: document.querySelector("#beneficiaryEditorDeleteConfirmation"),
   beneficiaryEditorSaveButton: document.querySelector("#beneficiaryEditorSaveButton"),
   beneficiaryEditorDeleteButton: document.querySelector("#beneficiaryEditorDeleteButton"),
   beneficiaryEditorCancelButton: document.querySelector("#beneficiaryEditorCancelButton"),
@@ -427,6 +461,9 @@ const elements = {
   beneficiaryAuditReloadButton: document.querySelector("#beneficiaryAuditReloadButton"),
   beneficiaryAuditMessage: document.querySelector("#beneficiaryAuditMessage"),
   beneficiaryAuditList: document.querySelector("#beneficiaryAuditList"),
+  beneficiaryAuditPrevPageButton: document.querySelector("#beneficiaryAuditPrevPageButton"),
+  beneficiaryAuditNextPageButton: document.querySelector("#beneficiaryAuditNextPageButton"),
+  beneficiaryAuditPageSummary: document.querySelector("#beneficiaryAuditPageSummary"),
   recommendedSummaryCards: document.querySelector("#recommendedSummaryCards"),
   recommendedMessage: document.querySelector("#recommendedMessage"),
   recommendedFormTitle: document.querySelector("#recommendedFormTitle"),
@@ -666,6 +703,7 @@ const elements = {
   applicationReviewInterviewDate: document.querySelector("#applicationReviewInterviewDate"),
   applicationReviewInterviewNotes: document.querySelector("#applicationReviewInterviewNotes"),
   applicationReviewComment: document.querySelector("#applicationReviewComment"),
+  applicationReviewBackToSearchButton: document.querySelector("#applicationReviewBackToSearchButton"),
   applicationReviewSaveButton: document.querySelector("#applicationReviewSaveButton"),
   studentFile: document.querySelector("#studentFile"),
   selectedFileName: document.querySelector("#selectedFileName"),
@@ -802,6 +840,87 @@ function persistWorkspaceState() {
     ACTIVE_BENEFICIARY_SECTION_KEY,
     state.activeBeneficiarySection || "imports"
   );
+}
+
+function applyRouteToWorkspaceState(routeInput = {}) {
+  const route = parseRouteFromHash(buildHashFromRoute(routeInput));
+  state.activeModule = route.module;
+  state.activeSection = route.registrySection;
+  state.activeApplicationsSection = route.applicationsSection;
+  state.activeBeneficiarySection = route.beneficiarySection;
+}
+
+function syncRouteFromWorkspaceState(options = {}) {
+  if (!ENABLE_SPA_ROUTER || applyingRouteFromHash) {
+    return;
+  }
+  const nextHash = buildHashFromRoute(routeFromWorkspaceState(state));
+  const currentHash = String(globalThis.location.hash || "");
+  if (nextHash === currentHash) {
+    return;
+  }
+  if (options.replace || !initialRouteSynced) {
+    globalThis.history.replaceState(null, "", nextHash);
+  } else {
+    globalThis.history.pushState(null, "", nextHash);
+  }
+  initialRouteSynced = true;
+}
+
+async function loadCurrentRouteData(options = {}) {
+  if (!isAuthenticated()) {
+    return;
+  }
+  const route = routeFromWorkspaceState(state);
+  const routeKey = `${route.module}:${route.registrySection}:${route.applicationsSection}:${route.beneficiarySection}`;
+  if (!options.force && loadedRouteKeys.has(routeKey)) {
+    return;
+  }
+
+  const tasks = [];
+  if (route.module === "dashboard") {
+    tasks.push(() => loadDashboard());
+  }
+  if (route.module === "registry") {
+    tasks.push(() => loadRegistryStats());
+    if (route.registrySection === "history") {
+      tasks.push(() => loadAcademicHistoryImportScopeOptions());
+    }
+  }
+  if (route.module === "applications") {
+    tasks.push(() => loadApplicationOptions());
+    tasks.push(() => loadApplicationCriteria());
+    if (route.applicationsSection === "import") {
+      tasks.push(() => loadApplicationsList());
+      tasks.push(() => loadApplicationIssueQueue());
+    }
+    if (route.applicationsSection === "registry") {
+      tasks.push(() => loadApplicationsList());
+    }
+    if (route.applicationsSection === "review") {
+      tasks.push(() => refreshApplicationReviewWorkspace());
+    }
+    if (route.applicationsSection === "messaging") {
+      tasks.push(() => loadApplicationMessagingSettings());
+      tasks.push(() => loadApplicationMessagingHistory());
+    }
+  }
+  if (route.module === "waitlist") {
+    tasks.push(() => loadApplicationOptions());
+    tasks.push(() => loadRecommendedRecords());
+  }
+  if (route.module === "awards") {
+    tasks.push(() => loadBeneficiaryRecords());
+  }
+  if (route.module === "support") {
+    tasks.push(() => loadSupportFoodBankRecords());
+  }
+  if (route.module === "reports") {
+    tasks.push(() => loadReportsOverview());
+  }
+
+  await Promise.allSettled(tasks.map((task) => task()));
+  loadedRouteKeys.add(routeKey);
 }
 
 function persistPanelState() {
@@ -1087,29 +1206,8 @@ async function refreshRoleScopedWorkspace() {
   if (!isAuthenticated()) {
     return;
   }
-
-  const sharedLoaders = [
-    () => loadDashboard(),
-    () => loadApplicationOptions(),
-    () => loadApplicationsList(),
-    () => refreshApplicationReviewWorkspace(),
-    () => loadApplicationCriteria(),
-    () => loadApplicationMessagingSettings(),
-    () => loadApplicationIssueQueue(),
-    () => loadApplicationMessagingHistory(),
-    () => loadSupportFoodBankRecords()
-  ];
-
-  const adminOnlyLoaders = [
-    () => loadRegistryStats(),
-    () => loadAcademicHistoryImportScopeOptions(),
-    () => loadBeneficiaryRecords(),
-    () => loadRecommendedRecords(),
-    () => loadReportsOverview()
-  ];
-
-  const loaders = getCurrentActorRole() === "admin" ? [...sharedLoaders, ...adminOnlyLoaders] : sharedLoaders;
-  await Promise.allSettled(loaders.map((loader) => loader()));
+  loadedRouteKeys.clear();
+  await loadCurrentRouteData({ force: true });
 }
 
 async function handleAccessManagementSubmit(event) {
@@ -1423,28 +1521,15 @@ function sanitizeWorkspaceState() {
     state.activeModule = "dashboard";
   }
 
-  const validRegistrySections = new Set(["import", "search", "duplicates", "history"]);
-  if (!validRegistrySections.has(state.activeSection)) {
+  if (!VALID_REGISTRY_SECTIONS.has(state.activeSection)) {
     state.activeSection = "import";
   }
 
-  const validApplicationSections = new Set([
-    "import",
-    "registry",
-    "review",
-    "exports",
-    "outcomes",
-    "messaging"
-  ]);
-  if (!validApplicationSections.has(state.activeApplicationsSection)) {
+  if (!VALID_APPLICATION_SECTIONS.has(state.activeApplicationsSection)) {
     state.activeApplicationsSection = "import";
   }
 
-  const validBeneficiarySections = new Set([
-    "imports",
-    "beneficiaries"
-  ]);
-  if (!validBeneficiarySections.has(state.activeBeneficiarySection)) {
+  if (!VALID_BENEFICIARY_SECTIONS.has(state.activeBeneficiarySection)) {
     state.activeBeneficiarySection = "imports";
   }
 }
@@ -1568,15 +1653,37 @@ function renderApplicationDocumentChecklist(criteria, application, canReview) {
               />
               <span class="document-checklist-label">
                 <strong>${escapeHtml(item.label)}</strong>
-                <span>${item.received ? "Present or requirement met" : "Still missing or requirement not yet met"}</span>
+                <span>${item.received ? "Requirement has been met" : "Still missing or requirement not yet met"}</span>
               </span>
-              <span class="dashboard-mini-pill">${item.received ? "Submitted" : "Pending"}</span>
+              <span class="dashboard-mini-pill">${item.received ? "Met" : "Pending"}</span>
             </label>
           `
         )
         .join("")}
     </div>
   `;
+}
+
+function syncDocumentChecklistItemVisualState(input) {
+  const checklistItem = input?.closest(".document-checklist-item");
+  if (!checklistItem) {
+    return;
+  }
+  const isReceived = Boolean(input.checked);
+  checklistItem.classList.toggle("is-received", isReceived);
+  checklistItem.classList.toggle("is-missing", !isReceived);
+
+  const description = checklistItem.querySelector(".document-checklist-label span");
+  if (description) {
+    description.textContent = isReceived
+      ? "Requirement has been met"
+      : "Still missing or requirement not yet met";
+  }
+
+  const statusPill = checklistItem.querySelector(".dashboard-mini-pill");
+  if (statusPill) {
+    statusPill.textContent = isReceived ? "Met" : "Pending";
+  }
 }
 
 function collectApplicationDocumentChecklist() {
@@ -2882,7 +2989,18 @@ function renderBeneficiaryDuplicateReview(rows = state.beneficiaryPreview?.rows 
                     <option value="replace_existing" ${selectedAction === "replace_existing" ? "selected" : ""}>Replace existing</option>
                   </select>
                 </label>`
-              : `<p class="detail-subcopy">Cross-scheme/year duplicate warning only. This row is still importable unless another issue blocks it.</p>`
+              : `<p class="detail-subcopy">Cross-scheme/year duplicate warning only. This row is still importable unless another issue blocks it.</p>${
+                  row.crossScopeMatches?.length
+                    ? `<p class="detail-subcopy">Also found in: ${escapeHtml(
+                        row.crossScopeMatches
+                          .map(
+                            (item) =>
+                              `${item.schemeName || "Unknown support"} (${item.academicYearLabel || "No year"})`
+                          )
+                          .join(", ")
+                      )}</p>`
+                    : ""
+                }`
           }
         </article>
       `;
@@ -3079,8 +3197,9 @@ function renderBeneficiaryEditor(recordId = state.beneficiaryEditingRecordId) {
     elements.beneficiaryEditorRemarks.value = target?.remarks || "";
     elements.beneficiaryEditorReplaceExisting.checked = false;
     elements.beneficiaryEditorChangeReason.value = "";
-    if (!target) {
-      elements.beneficiaryEditorRemovalReason.value = "";
+    elements.beneficiaryEditorRemovalReason.value = "";
+    if (elements.beneficiaryEditorDeleteConfirmation) {
+      elements.beneficiaryEditorDeleteConfirmation.value = "";
     }
   }
 
@@ -3088,6 +3207,7 @@ function renderBeneficiaryEditor(recordId = state.beneficiaryEditingRecordId) {
   if (elements.beneficiaryEditorSaveButton) elements.beneficiaryEditorSaveButton.disabled = disabled;
   if (elements.beneficiaryEditorDeleteButton) elements.beneficiaryEditorDeleteButton.disabled = disabled;
   if (elements.beneficiaryEditorCancelButton) elements.beneficiaryEditorCancelButton.disabled = !target;
+  syncBeneficiaryControls();
 
   if (!target) {
     setBeneficiaryEditorMessage(
@@ -3186,6 +3306,56 @@ function renderBeneficiaryAuditFeed(items = state.beneficiaryAuditFeed) {
     .join("");
 }
 
+function renderBeneficiaryListPagination() {
+  const pagination = state.beneficiaryListPagination || {};
+  const page = Number(pagination.page || 1);
+  const totalPages = Number(pagination.totalPages || 1);
+  const total = Number(pagination.total || 0);
+  if (elements.beneficiaryListPrevPageButton) {
+    elements.beneficiaryListPrevPageButton.disabled = page <= 1;
+  }
+  if (elements.beneficiaryListNextPageButton) {
+    elements.beneficiaryListNextPageButton.disabled = page >= totalPages;
+  }
+  if (elements.beneficiaryListPageSummary) {
+    elements.beneficiaryListPageSummary.textContent = `Page ${page} of ${totalPages} • ${total} beneficiary record(s) total.`;
+  }
+}
+
+function renderBeneficiaryAuditPagination() {
+  const pagination = state.beneficiaryAuditPagination || {};
+  const page = Number(pagination.page || 1);
+  const totalPages = Number(pagination.totalPages || 1);
+  const total = Number(pagination.total || 0);
+  if (elements.beneficiaryAuditPrevPageButton) {
+    elements.beneficiaryAuditPrevPageButton.disabled = page <= 1;
+  }
+  if (elements.beneficiaryAuditNextPageButton) {
+    elements.beneficiaryAuditNextPageButton.disabled = page >= totalPages;
+  }
+  if (elements.beneficiaryAuditPageSummary) {
+    elements.beneficiaryAuditPageSummary.textContent = `Page ${page} of ${totalPages} • ${total} lifecycle event(s) total.`;
+  }
+}
+
+async function goToBeneficiaryListPage(delta) {
+  const currentPage = Number(state.beneficiaryListPagination?.page || 1);
+  const totalPages = Number(state.beneficiaryListPagination?.totalPages || 1);
+  const nextPage = Math.max(1, Math.min(totalPages, currentPage + Number(delta || 0)));
+  if (nextPage === currentPage) return;
+  state.beneficiaryListPagination.page = nextPage;
+  await loadBeneficiaryRecords();
+}
+
+async function goToBeneficiaryAuditPage(delta) {
+  const currentPage = Number(state.beneficiaryAuditPagination?.page || 1);
+  const totalPages = Number(state.beneficiaryAuditPagination?.totalPages || 1);
+  const nextPage = Math.max(1, Math.min(totalPages, currentPage + Number(delta || 0)));
+  if (nextPage === currentPage) return;
+  state.beneficiaryAuditPagination.page = nextPage;
+  await loadBeneficiaryAuditFeed();
+}
+
 function renderBeneficiaryImportHistory(history = state.beneficiaryImportHistory) {
   if (!elements.beneficiaryImportHistoryList) return;
   const items = history?.items || [];
@@ -3264,6 +3434,7 @@ function populateBeneficiaryFilterSelect(selectElement, values, emptyLabel, prev
 
 function renderBeneficiaryFilterOptions(filterOptions = state.beneficiaryFilterOptions) {
   const safeOptions = filterOptions || { academicYears: [], schemeNames: [], colleges: [] };
+  const previousCohortFilter = elements.beneficiaryCohortFilter?.value || "";
   populateBeneficiaryFilterSelect(
     elements.beneficiaryAcademicYearFilter,
     safeOptions.academicYears,
@@ -3282,6 +3453,9 @@ function renderBeneficiaryFilterOptions(filterOptions = state.beneficiaryFilterO
     "All colleges",
     elements.beneficiaryCollegeFilter?.value || ""
   );
+  if (elements.beneficiaryCohortFilter) {
+    elements.beneficiaryCohortFilter.value = previousCohortFilter;
+  }
   populateBeneficiaryFilterSelect(
     elements.reportsBeneficiaryAcademicYear,
     safeOptions.academicYears,
@@ -3382,12 +3556,16 @@ function buildBeneficiaryListUrl() {
   const schemeName = elements.beneficiarySchemeFilter?.value.trim();
   const college = elements.beneficiaryCollegeFilter?.value.trim();
   const supportType = elements.beneficiarySupportTypeFilter?.value || "";
+  const beneficiaryCohort = elements.beneficiaryCohortFilter?.value || "";
 
   if (query) url.searchParams.set("q", query);
   if (academicYearLabel) url.searchParams.set("academicYearLabel", academicYearLabel);
   if (schemeName) url.searchParams.set("schemeName", schemeName);
   if (college) url.searchParams.set("college", college);
   if (supportType) url.searchParams.set("supportType", supportType);
+  if (beneficiaryCohort) url.searchParams.set("beneficiaryCohort", beneficiaryCohort);
+  url.searchParams.set("page", String(state.beneficiaryListPagination?.page || 1));
+  url.searchParams.set("pageSize", String(state.beneficiaryListPagination?.pageSize || 50));
 
   return url.toString();
 }
@@ -3478,7 +3656,7 @@ async function handleBeneficiaryPreview(event) {
       renderBeneficiaryImportResults(null);
       const supportTypeNote =
         Number(payload.summary?.unknownSupportTypeRows || 0) > 0
-          ? ` ${payload.summary?.unknownSupportTypeRows || 0} row(s) have blank support type and will default to Unknown / other.`
+          ? ` ${payload.summary?.unknownSupportTypeRows || 0} row(s) are missing a valid support type (Internal/External) and must be fixed before import.`
           : "";
       const rolledForwardNote =
         Number(payload.summary?.rolledForwardRows || 0) > 0
@@ -3539,7 +3717,7 @@ async function handleBeneficiaryImport() {
     renderBeneficiaryImportResults(payload);
       const supportTypeNote =
         Number(payload.preview?.summary?.unknownSupportTypeRows || 0) > 0
-          ? ` ${payload.preview?.summary?.unknownSupportTypeRows || 0} imported row(s) defaulted blank support type to Unknown / other.`
+          ? ` ${payload.preview?.summary?.unknownSupportTypeRows || 0} row(s) were rejected because support type must be Internal or External.`
           : "";
       const rolledForwardNote =
         Number(payload.preview?.summary?.rolledForwardRows || 0) > 0
@@ -3601,6 +3779,12 @@ async function loadBeneficiaryRecords() {
       }
 
       state.beneficiaryRecords = payload.items || [];
+      state.beneficiaryListPagination = {
+        page: Number(payload.page || 1),
+        pageSize: Number(payload.pageSize || 50),
+        total: Number(payload.total || 0),
+        totalPages: Number(payload.totalPages || 1)
+      };
       state.beneficiaryFilterOptions = payload.filterOptions || {
         academicYears: [],
         schemeNames: [],
@@ -3608,6 +3792,7 @@ async function loadBeneficiaryRecords() {
       };
       renderBeneficiaryFilterOptions(state.beneficiaryFilterOptions);
       renderBeneficiaryRecords(state.beneficiaryRecords);
+      renderBeneficiaryListPagination();
       if (
         state.beneficiaryEditingRecordId &&
         !state.beneficiaryRecords.some(
@@ -3620,19 +3805,26 @@ async function loadBeneficiaryRecords() {
     renderBeneficiaryEditor();
     renderBeneficiaryRecordHistory();
     setBeneficiaryListMessage(
-      `Loaded ${payload.total || 0} beneficiary record(s).`,
+      `Loaded page ${state.beneficiaryListPagination.page} of ${state.beneficiaryListPagination.totalPages} (${payload.total || 0} beneficiary record(s) total).`,
       payload.total ? "success" : "warning"
     );
     await loadBeneficiaryImportHistory();
     await loadBeneficiaryAuditFeed();
   } catch (error) {
       state.beneficiaryRecords = [];
+      state.beneficiaryListPagination = {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 1
+      };
       state.beneficiaryFilterOptions = state.beneficiaryFilterOptions || {
         academicYears: [],
         schemeNames: [],
         colleges: []
       };
       renderBeneficiaryRecords([]);
+      renderBeneficiaryListPagination();
       state.beneficiaryEditingRecordId = null;
       state.beneficiaryRecordHistory = null;
       renderBeneficiaryEditor();
@@ -4638,7 +4830,14 @@ async function loadBeneficiaryAuditFeed() {
   const { academicYearLabel, schemeName } = getScopedBeneficiaryClearSelection();
   if (!academicYearLabel || !schemeName) {
     state.beneficiaryAuditFeed = [];
+    state.beneficiaryAuditPagination = {
+      page: 1,
+      pageSize: 50,
+      total: 0,
+      totalPages: 1
+    };
     renderBeneficiaryAuditFeed([]);
+    renderBeneficiaryAuditPagination();
     setBeneficiaryAuditMessage(
       "Choose an academic year and support name to review beneficiary lifecycle activity.",
       "warning"
@@ -4651,6 +4850,8 @@ async function loadBeneficiaryAuditFeed() {
     const url = new URL(`${apiBaseUrl}/api/beneficiaries/audit`);
     url.searchParams.set("academicYearLabel", academicYearLabel);
     url.searchParams.set("schemeName", schemeName);
+    url.searchParams.set("page", String(state.beneficiaryAuditPagination?.page || 1));
+    url.searchParams.set("pageSize", String(state.beneficiaryAuditPagination?.pageSize || 50));
     const eventType = elements.beneficiaryAuditEventTypeFilter?.value || "";
     if (eventType) {
       url.searchParams.set("eventType", eventType);
@@ -4667,14 +4868,28 @@ async function loadBeneficiaryAuditFeed() {
     }
 
     state.beneficiaryAuditFeed = payload.items || [];
+    state.beneficiaryAuditPagination = {
+      page: Number(payload.page || 1),
+      pageSize: Number(payload.pageSize || 50),
+      total: Number(payload.total || 0),
+      totalPages: Number(payload.totalPages || 1)
+    };
     renderBeneficiaryAuditFeed(state.beneficiaryAuditFeed);
+    renderBeneficiaryAuditPagination();
     setBeneficiaryAuditMessage(
-      `Loaded ${payload.total || 0} lifecycle event(s) for ${schemeName} in ${academicYearLabel}.`,
+      `Loaded page ${state.beneficiaryAuditPagination.page} of ${state.beneficiaryAuditPagination.totalPages} (${payload.total || 0} lifecycle event(s)) for ${schemeName} in ${academicYearLabel}.`,
       payload.total ? "success" : "warning"
     );
   } catch (error) {
     state.beneficiaryAuditFeed = [];
+    state.beneficiaryAuditPagination = {
+      page: 1,
+      pageSize: 50,
+      total: 0,
+      totalPages: 1
+    };
     renderBeneficiaryAuditFeed([]);
+    renderBeneficiaryAuditPagination();
     setBeneficiaryAuditMessage(error.message, "error");
   }
 }
@@ -4809,12 +5024,16 @@ async function handleBeneficiaryRowDelete(recordId) {
   const targetId = recordId || state.beneficiaryEditingRecordId;
   if (!apiBaseUrl || !targetId) return;
   const reason = elements.beneficiaryEditorRemovalReason?.value.trim() || "";
+  const confirmationText = elements.beneficiaryEditorDeleteConfirmation?.value.trim().toUpperCase() || "";
   if (!reason) {
     setBeneficiaryEditorMessage("Enter a removal reason before deleting the selected beneficiary row.", "error");
     return;
   }
-  if (!window.confirm("Remove this beneficiary row? The row will be deleted, but the audit trail will be kept.")) {
-    setBeneficiaryEditorMessage("Beneficiary row removal cancelled.", "warning");
+  if (confirmationText !== "REMOVE BENEFICIARY ROW") {
+    setBeneficiaryEditorMessage(
+      "Type REMOVE BENEFICIARY ROW in Delete confirmation before removing this row.",
+      "error"
+    );
     return;
   }
 
@@ -4850,18 +5069,19 @@ async function handleBeneficiaryRowDelete(recordId) {
 async function handleBeneficiaryBatchRollback(batchReference) {
   const apiBaseUrl = getApiBaseUrl();
   if (!apiBaseUrl) return;
-  if (
-    !window.confirm(
-      "Roll back the latest imported beneficiary batch for this scheme and academic year? This will remove every row created by that file."
-    )
-  ) {
+  const rollbackConfirmation = elements.beneficiaryRollbackConfirmation?.value.trim().toUpperCase() || "";
+  const reason = elements.beneficiaryRollbackReason?.value.trim() || "";
+  if (rollbackConfirmation !== "ROLLBACK LATEST BATCH") {
+    setBeneficiaryHistoryMessage(
+      "Type ROLLBACK LATEST BATCH in Rollback confirmation before rolling back.",
+      "error"
+    );
     return;
   }
-  const reason =
-    window.prompt(
-      "Enter a short rollback reason for the audit trail.",
-      "Imported beneficiary file was incorrect"
-    ) || "";
+  if (!reason) {
+    setBeneficiaryHistoryMessage("Enter a rollback reason before rolling back this batch.", "error");
+    return;
+  }
 
   setBeneficiaryHistoryMessage("Rolling back beneficiary batch...", "warning");
   try {
@@ -4873,7 +5093,7 @@ async function handleBeneficiaryBatchRollback(batchReference) {
       },
       body: JSON.stringify({
         batchReference,
-        reason: reason.trim()
+        reason
       })
     });
     const payload = await response.json().catch(() => ({}));
@@ -4885,6 +5105,12 @@ async function handleBeneficiaryBatchRollback(batchReference) {
       `Rolled back ${payload.deletedRows || 0} beneficiary row(s) from the selected batch.`,
       "success"
     );
+    if (elements.beneficiaryRollbackConfirmation) {
+      elements.beneficiaryRollbackConfirmation.value = "";
+    }
+    if (elements.beneficiaryRollbackReason) {
+      elements.beneficiaryRollbackReason.value = "";
+    }
     await loadBeneficiaryRecords();
     await loadBeneficiaryImportHistory();
     await loadBeneficiaryAuditFeed();
@@ -5617,11 +5843,13 @@ function renderModuleShell() {
   elements.moduleTitle.textContent = meta.title;
   elements.moduleDescription.textContent = meta.description;
   persistWorkspaceState();
+  syncRouteFromWorkspaceState();
 
   const visibleModules = new Set(getVisibleModulesForRole(actorRole));
   for (const item of elements.navItems) {
     item.hidden = !visibleModules.has(item.dataset.module);
     item.classList.toggle("is-active", item.dataset.module === state.activeModule);
+    item.setAttribute("aria-current", item.dataset.module === state.activeModule ? "page" : "false");
   }
 
   for (const label of document.querySelectorAll(".sidebar-nav .nav-section-label")) {
@@ -5638,13 +5866,17 @@ function renderModuleShell() {
   }
 
   for (const view of elements.moduleViews) {
-    view.classList.toggle("is-active", view.dataset.moduleView === state.activeModule);
+    const isActiveView = view.dataset.moduleView === state.activeModule;
+    view.classList.toggle("is-active", isActiveView);
+    view.setAttribute("aria-hidden", isActiveView ? "false" : "true");
+    view.inert = !isActiveView;
   }
 
   const registryVisible = state.activeModule === "registry";
   for (const tab of elements.moduleTabs) {
     tab.hidden = !registryVisible;
     tab.classList.toggle("is-active", registryVisible && tab.dataset.section === state.activeSection);
+    tab.setAttribute("aria-selected", registryVisible && tab.dataset.section === state.activeSection ? "true" : "false");
   }
 
   for (const view of elements.sectionViews) {
@@ -5660,6 +5892,12 @@ function renderModuleShell() {
     tab.classList.toggle(
       "is-active",
       applicationsVisible && tab.dataset.applicationSection === state.activeApplicationsSection
+    );
+    tab.setAttribute(
+      "aria-selected",
+      applicationsVisible && tab.dataset.applicationSection === state.activeApplicationsSection
+        ? "true"
+        : "false"
     );
   }
 
@@ -5677,6 +5915,12 @@ function renderModuleShell() {
     tab.classList.toggle(
       "is-active",
       beneficiariesVisible && tab.dataset.beneficiarySection === state.activeBeneficiarySection
+    );
+    tab.setAttribute(
+      "aria-selected",
+      beneficiariesVisible && tab.dataset.beneficiarySection === state.activeBeneficiarySection
+        ? "true"
+        : "false"
     );
   }
 
@@ -5713,25 +5957,19 @@ async function handleClearBeneficiaryScope() {
     return;
   }
 
-  const confirmation = window.prompt(
-    `Type CLEAR BENEFICIARY DATA to remove beneficiary records for ${schemeName} in ${academicYearLabel}.`
-  );
-  if (confirmation === null) {
-    setBeneficiaryListMessage("Scoped beneficiary clear cancelled.", "warning");
-    return;
-  }
-  if (confirmation.trim().toUpperCase() !== "CLEAR BENEFICIARY DATA") {
+  const confirmation = elements.beneficiaryClearConfirmation?.value.trim().toUpperCase() || "";
+  if (confirmation !== "CLEAR BENEFICIARY DATA") {
     setBeneficiaryListMessage(
       "Scoped beneficiary clear cancelled because the confirmation text did not match.",
       "error"
     );
     return;
   }
-  const reason =
-    window.prompt(
-      "Enter a short reason for clearing these beneficiary records.",
-      `Clearing incorrect beneficiary rows for ${schemeName}`
-    ) || "";
+  const reason = elements.beneficiaryClearReason?.value.trim() || "";
+  if (!reason) {
+    setBeneficiaryListMessage("Enter a clear reason before removing scoped beneficiary records.", "error");
+    return;
+  }
 
   if (elements.beneficiaryClearScopedButton) {
     elements.beneficiaryClearScopedButton.disabled = true;
@@ -5752,7 +5990,7 @@ async function handleClearBeneficiaryScope() {
         academicYearLabel,
         schemeName,
         confirmation: "CLEAR BENEFICIARY DATA",
-        reason: reason.trim()
+        reason
       })
     });
     const payload = await response.json().catch(() => ({}));
@@ -5765,6 +6003,12 @@ async function handleClearBeneficiaryScope() {
     await loadBeneficiaryAuditFeed();
     await loadDashboard();
     await loadReportsOverview();
+    if (elements.beneficiaryClearConfirmation) {
+      elements.beneficiaryClearConfirmation.value = "";
+    }
+    if (elements.beneficiaryClearReason) {
+      elements.beneficiaryClearReason.value = "";
+    }
     setBeneficiaryListMessage(payload.message || "Beneficiary records cleared.", "success");
   } catch (error) {
     setBeneficiaryListMessage(error.message, "error");
@@ -6401,6 +6645,9 @@ async function requestSession(options = {}) {
 
     elements.authSessionHint.value = "active";
     persistConnectionState();
+    if (ENABLE_SPA_ROUTER) {
+      applyRouteToWorkspaceState(parseRouteFromHash(globalThis.location.hash || ""));
+    }
     sanitizeWorkspaceState();
     syncRegistryAdminControls();
     syncApplicationCriteriaControls();
@@ -6413,6 +6660,7 @@ async function requestSession(options = {}) {
     syncAcademicHistoryControls();
     renderAccessShell();
     renderModuleShell();
+    syncRouteFromWorkspaceState({ replace: true });
     if (getCurrentActorRole() === "admin") {
       void loadAccessUsers();
     } else {
@@ -6766,6 +7014,17 @@ function renderApplicationReviewVisibility() {
 }
 
 function renderApplicationBulkInterviewVisibility() {
+  const isAdmin = state.session?.actor?.roleCode === "admin";
+  const bulkInterviewPanel = elements.applicationBulkInterviewBody?.closest(".panel-mini");
+  if (bulkInterviewPanel) {
+    bulkInterviewPanel.hidden = !isAdmin;
+    bulkInterviewPanel.setAttribute("aria-hidden", !isAdmin ? "true" : "false");
+  }
+  elements.applicationBulkInterviewToggleButton.hidden = !isAdmin;
+  if (!isAdmin) {
+    elements.applicationBulkInterviewBody.hidden = true;
+    return;
+  }
   elements.applicationBulkInterviewBody.hidden = state.applicationBulkInterviewHidden;
   elements.applicationBulkInterviewToggleButton.textContent = state.applicationBulkInterviewHidden
     ? "Show bulk update"
@@ -6774,6 +7033,17 @@ function renderApplicationBulkInterviewVisibility() {
 }
 
 function renderApplicationCwaCoverageVisibility() {
+  const isAdmin = state.session?.actor?.roleCode === "admin";
+  const coveragePanel = elements.applicationCwaCoverageBody?.closest(".panel");
+  if (coveragePanel) {
+    coveragePanel.hidden = !isAdmin;
+    coveragePanel.setAttribute("aria-hidden", !isAdmin ? "true" : "false");
+  }
+  elements.applicationCwaCoverageToggleButton.hidden = !isAdmin;
+  if (!isAdmin) {
+    elements.applicationCwaCoverageBody.hidden = true;
+    return;
+  }
   elements.applicationCwaCoverageBody.hidden = state.applicationCwaCoverageHidden;
   elements.applicationCwaCoverageToggleButton.textContent = state.applicationCwaCoverageHidden
     ? "Show coverage"
@@ -6846,14 +7116,16 @@ function syncApplicationReviewControls() {
   elements.applicationReviewInterviewDate.disabled = !canReview || !hasSelection;
   elements.applicationReviewInterviewNotes.disabled = !canReview || !hasSelection;
   elements.applicationReviewComment.disabled = !canReview || !hasSelection;
+  elements.applicationReviewBackToSearchButton.disabled = !canReview;
   elements.applicationReviewSaveButton.disabled = !canReview || !hasSelection;
   elements.applicationAcademicEntryCwa.disabled = !canReview || !hasSelection;
   elements.applicationAcademicEntryWassce.disabled = !canReview || !hasSelection;
   elements.applicationAcademicEntrySaveButton.disabled = !canReview || !hasSelection;
-  elements.applicationBulkInterviewStatus.disabled = !canReview || !hasActiveContext;
-  elements.applicationBulkInterviewDate.disabled = !canReview || !hasActiveContext;
-  elements.applicationBulkInterviewNotes.disabled = !canReview || !hasActiveContext;
-  elements.applicationBulkInterviewApplyButton.disabled = !canReview || !hasActiveContext;
+  const canManageBulkInterview = canManageApplicationImportsExports();
+  elements.applicationBulkInterviewStatus.disabled = !canManageBulkInterview || !hasActiveContext;
+  elements.applicationBulkInterviewDate.disabled = !canManageBulkInterview || !hasActiveContext;
+  elements.applicationBulkInterviewNotes.disabled = !canManageBulkInterview || !hasActiveContext;
+  elements.applicationBulkInterviewApplyButton.disabled = !canManageBulkInterview || !hasActiveContext;
   elements.applicationFile.disabled = !canManageImportsExports;
   elements.applicationPreviewButton.disabled =
     !canManageImportsExports || !hasActiveContext;
@@ -6942,7 +7214,16 @@ function syncBeneficiaryControls() {
   const canManageImports = canManageBeneficiaryImports();
   const validPreviewRows = Number(state.beneficiaryPreview?.summary?.validRows || 0);
   const { academicYearLabel, schemeName } = getScopedBeneficiaryClearSelection();
-  const canClearScoped = canManageImports && Boolean(academicYearLabel) && Boolean(schemeName);
+  const clearConfirmationValid =
+    String(elements.beneficiaryClearConfirmation?.value || "").trim().toUpperCase() ===
+    "CLEAR BENEFICIARY DATA";
+  const clearReasonValid = Boolean(String(elements.beneficiaryClearReason?.value || "").trim());
+  const canClearScoped =
+    canManageImports &&
+    Boolean(academicYearLabel) &&
+    Boolean(schemeName) &&
+    clearConfirmationValid &&
+    clearReasonValid;
   const hasSelectedRecord = Boolean(
     state.beneficiaryEditingRecordId &&
       state.beneficiaryRecords.some(
@@ -6981,7 +7262,11 @@ function syncBeneficiaryControls() {
     elements.beneficiaryEditorSaveButton.disabled = !canManageImports || !hasSelectedRecord;
   }
   if (elements.beneficiaryEditorDeleteButton) {
-    elements.beneficiaryEditorDeleteButton.disabled = !canManageImports || !hasSelectedRecord;
+    const deleteConfirmationValid =
+      String(elements.beneficiaryEditorDeleteConfirmation?.value || "").trim().toUpperCase() ===
+      "REMOVE BENEFICIARY ROW";
+    elements.beneficiaryEditorDeleteButton.disabled =
+      !canManageImports || !hasSelectedRecord || !deleteConfirmationValid;
   }
   if (elements.beneficiaryEditorCancelButton) {
     elements.beneficiaryEditorCancelButton.disabled = !hasSelectedRecord;
@@ -11132,7 +11417,8 @@ async function loadApplicationCriteriaForReview(application) {
   }
 }
 
-async function selectApplicationForReview(applicationId) {
+async function selectApplicationForReview(applicationId, options = {}) {
+  const shouldScrollIntoView = options.scrollIntoView !== false;
   state.selectedApplicationId = applicationId;
   state.activeModule = "applications";
   state.activeApplicationsSection = "review";
@@ -11143,13 +11429,15 @@ async function selectApplicationForReview(applicationId) {
     return;
   }
 
-  // Scroll the Application Review section into view smoothly
-  requestAnimationFrame(() => {
-    const reviewSection = document.getElementById("applicationReviewSection");
-    if (reviewSection) {
-      reviewSection.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  });
+  if (shouldScrollIntoView) {
+    // Scroll the Application Review section into view smoothly
+    requestAnimationFrame(() => {
+      const reviewSection = document.getElementById("applicationReviewSection");
+      if (reviewSection) {
+        reviewSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  }
 
   setApplicationReviewMessage("Loading application details for review...", "warning");
   await Promise.all([
@@ -11374,7 +11662,7 @@ async function saveApplicationAcademicEntry(event) {
     await refreshApplicationReviewWorkspace();
     await loadRegistryStats();
     if (state.selectedApplicationId) {
-      await selectApplicationForReview(state.selectedApplicationId);
+      await selectApplicationForReview(state.selectedApplicationId, { scrollIntoView: false });
     }
     await loadDashboard();
   } catch (error) {
@@ -12496,7 +12784,49 @@ async function handleClearRegistry() {
   }
 }
 
+async function navigateToWorkspace(routeInput = {}, options = {}) {
+  applyRouteToWorkspaceState(routeInput);
+  sanitizeWorkspaceState();
+  renderModuleShell();
+  if (ENABLE_SPA_ROUTER) {
+    syncRouteFromWorkspaceState({ replace: Boolean(options.replaceHistory) });
+  }
+  if (options.focusHeading && elements.moduleTitle) {
+    elements.moduleTitle.focus({ preventScroll: true });
+  }
+  await loadCurrentRouteData({
+    force: Boolean(options.forceLoad)
+  });
+}
+
+function handleWorkspaceHashChange() {
+  if (!ENABLE_SPA_ROUTER || applyingRouteFromHash) {
+    return;
+  }
+  applyingRouteFromHash = true;
+  void (async () => {
+    try {
+      await navigateToWorkspace(parseRouteFromHash(globalThis.location.hash || ""), {
+        replaceHistory: true,
+        focusHeading: true
+      });
+    } finally {
+      applyingRouteFromHash = false;
+    }
+  })();
+}
+
 function bindEvents() {
+  for (const tab of elements.moduleTabs) {
+    tab.setAttribute("role", "tab");
+  }
+  for (const tab of elements.applicationTabButtons) {
+    tab.setAttribute("role", "tab");
+  }
+  for (const tab of elements.beneficiaryTabButtons) {
+    tab.setAttribute("role", "tab");
+  }
+
   elements.loginForm?.addEventListener("submit", (event) => {
     void handleLoginSubmit(event);
   });
@@ -12535,69 +12865,41 @@ function bindEvents() {
     });
   }
 
-    for (const navItem of elements.navItems) {
-      navItem.addEventListener("click", () => {
-        state.activeModule = navItem.dataset.module;
-        if (state.activeModule !== "registry") {
-          state.activeSection = "import";
-        }
-        renderModuleShell();
-          if (state.activeModule === "dashboard") {
-            void loadDashboard();
-          }
-          if (state.activeModule === "applications") {
-              void loadApplicationOptions();
-              void loadApplicationsList();
-              void refreshApplicationReviewWorkspace();
-              void loadApplicationCriteria();
-              void loadApplicationMessagingSettings();
-              void loadApplicationMessagingHistory();
-              renderSchemePanelVisibility();
-              renderCriteriaPanelVisibility();
-              renderApplicationsRegistryVisibility();
-              renderApplicationReviewVisibility();
-          }
-        if (state.activeModule === "awards") {
-          void loadBeneficiaryRecords();
-        }
-        if (state.activeModule === "waitlist") {
-          void loadApplicationOptions();
-          void loadRecommendedRecords();
-        }
-        if (state.activeModule === "support") {
-          void loadSupportFoodBankRecords();
-        }
-        if (state.activeModule === "reports") {
-          void loadReportsOverview();
-        }
-      });
-    }
+  for (const navItem of elements.navItems) {
+    navItem.addEventListener("click", () => {
+      void navigateToWorkspace({ module: navItem.dataset.module }, { focusHeading: true });
+    });
+  }
 
   for (const tab of elements.moduleTabs) {
     tab.addEventListener("click", () => {
-      state.activeModule = "registry";
-      state.activeSection = tab.dataset.section;
-      renderModuleShell();
+      void navigateToWorkspace({
+        module: "registry",
+        registrySection: tab.dataset.section
+      });
     });
   }
 
   for (const tab of elements.applicationTabButtons) {
     tab.addEventListener("click", () => {
-      state.activeModule = "applications";
-      state.activeApplicationsSection = tab.dataset.applicationSection;
-      renderModuleShell();
+      void navigateToWorkspace({
+        module: "applications",
+        applicationsSection: tab.dataset.applicationSection
+      });
     });
   }
 
   for (const tab of elements.beneficiaryTabButtons) {
     tab.addEventListener("click", () => {
-      state.activeModule = "awards";
-      state.activeBeneficiarySection = tab.dataset.beneficiarySection;
-      renderModuleShell();
-      if (state.activeBeneficiarySection === "beneficiaries") {
-        void loadBeneficiaryRecords();
-      }
+      void navigateToWorkspace({
+        module: "awards",
+        beneficiarySection: tab.dataset.beneficiarySection
+      });
     });
+  }
+
+  if (ENABLE_SPA_ROUTER) {
+    globalThis.addEventListener("hashchange", handleWorkspaceHashChange);
   }
 
   elements.dashboardBeneficiaryHistoricalToggleButton?.addEventListener("click", () => {
@@ -12713,6 +13015,7 @@ function bindEvents() {
   });
   elements.beneficiaryFilterForm?.addEventListener("submit", (event) => {
     event.preventDefault();
+    state.beneficiaryListPagination.page = 1;
     void loadBeneficiaryRecords();
   });
   elements.beneficiaryClearScopedButton?.addEventListener("click", () => {
@@ -13000,18 +13303,47 @@ function bindEvents() {
       });
     elements.beneficiaryAcademicYearFilter?.addEventListener("change", () => {
       syncBeneficiaryControls();
+    state.beneficiaryListPagination.page = 1;
+    state.beneficiaryAuditPagination.page = 1;
       void loadBeneficiaryImportHistory();
       void loadBeneficiaryAuditFeed();
     });
     elements.beneficiarySchemeFilter?.addEventListener("change", () => {
       syncBeneficiaryControls();
+    state.beneficiaryListPagination.page = 1;
+    state.beneficiaryAuditPagination.page = 1;
       void loadBeneficiaryImportHistory();
       void loadBeneficiaryAuditFeed();
     });
+  elements.beneficiaryClearConfirmation?.addEventListener("input", () => {
+    syncBeneficiaryControls();
+  });
+  elements.beneficiaryClearReason?.addEventListener("input", () => {
+    syncBeneficiaryControls();
+  });
+  elements.beneficiarySupportTypeFilter?.addEventListener("change", () => {
+    state.beneficiaryListPagination.page = 1;
+  });
+  elements.beneficiaryCohortFilter?.addEventListener("change", () => {
+    state.beneficiaryListPagination.page = 1;
+  });
+  elements.beneficiaryListPrevPageButton?.addEventListener("click", () => {
+    void goToBeneficiaryListPage(-1);
+  });
+  elements.beneficiaryListNextPageButton?.addEventListener("click", () => {
+    void goToBeneficiaryListPage(1);
+  });
     elements.beneficiaryAuditFilterForm?.addEventListener("submit", (event) => {
       event.preventDefault();
+    state.beneficiaryAuditPagination.page = 1;
       void loadBeneficiaryAuditFeed();
     });
+  elements.beneficiaryAuditPrevPageButton?.addEventListener("click", () => {
+    void goToBeneficiaryAuditPage(-1);
+  });
+  elements.beneficiaryAuditNextPageButton?.addEventListener("click", () => {
+    void goToBeneficiaryAuditPage(1);
+  });
     elements.beneficiaryList?.addEventListener("click", (event) => {
       const editButton = event.target.closest("[data-beneficiary-edit]");
       if (editButton) {
@@ -13041,6 +13373,9 @@ function bindEvents() {
     elements.beneficiaryEditorDeleteButton?.addEventListener("click", () => {
       void handleBeneficiaryRowDelete(state.beneficiaryEditingRecordId);
     });
+  elements.beneficiaryEditorDeleteConfirmation?.addEventListener("input", () => {
+    syncBeneficiaryControls();
+  });
     elements.beneficiaryEditorCancelButton?.addEventListener("click", () => {
       state.beneficiaryEditingRecordId = null;
       state.beneficiaryRecordHistory = null;
@@ -13177,6 +13512,12 @@ function bindEvents() {
     elements.applicationReviewSaveButton.addEventListener("click", (event) => {
       void saveApplicationReview(event);
     });
+  elements.applicationReviewBackToSearchButton.addEventListener("click", () => {
+    focusApplicationReviewSearch({
+      searchForm: elements.applicationReviewSearchForm,
+      searchInput: elements.applicationReviewSearchReference
+    });
+  });
   elements.applicationAcademicEntrySaveButton.addEventListener("click", (event) => {
     void saveApplicationAcademicEntry(event);
   });
@@ -13333,6 +13674,16 @@ function bindEvents() {
   elements.flagReviewForm.addEventListener("submit", (event) => {
     void runFlagReview(event);
   });
+  elements.applicationReviewDocumentChecklist?.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    if (!target.matches("[data-document-check-item]")) {
+      return;
+    }
+    syncDocumentChecklistItemVisualState(target);
+  });
   elements.flagResetButton.addEventListener("click", resetFlagReview);
   elements.dashboardActivityToggleButton.addEventListener("click", () => {
     state.dashboardActivityHidden = !state.dashboardActivityHidden;
@@ -13353,12 +13704,44 @@ function bindEvents() {
     });
 }
 
+function setupProgressiveDisclosure() {
+  const collapseTargets = [
+    elements.applicationsSummaryCards,
+    elements.applicationsIssueList,
+    elements.applicationsValidRowsTable,
+    elements.applicationsImportedRowsList,
+    elements.applicationsRejectedRowsList,
+    elements.beneficiarySummaryCards,
+    elements.beneficiaryIssueList,
+    elements.beneficiaryValidRowsTable
+  ].filter(Boolean);
+
+  const refresh = () => {
+    for (const target of collapseTargets) {
+      const panel = target.closest(".panel");
+      if (!panel) continue;
+      const hasContent = target.children.length > 0 || target.textContent.trim().length > 0;
+      panel.classList.toggle("panel-auto-collapsed", !hasContent);
+    }
+  };
+
+  for (const target of collapseTargets) {
+    const observer = new MutationObserver(refresh);
+    observer.observe(target, { childList: true, subtree: true, characterData: true });
+  }
+
+  refresh();
+}
+
 function init() {
   const sanitizedLoginUrl = getSanitizedLoginUrl(globalThis.location);
   if (sanitizedLoginUrl && globalThis.history?.replaceState) {
     globalThis.history.replaceState(null, "", sanitizedLoginUrl);
   }
   restoreConnectionState();
+  if (ENABLE_SPA_ROUTER) {
+    applyRouteToWorkspaceState(parseRouteFromHash(globalThis.location.hash || ""));
+  }
   sanitizeWorkspaceState();
   syncTokenPresetButtons();
   renderTheme();
@@ -13433,7 +13816,10 @@ function init() {
   renderBeneficiaryImportResults(null);
   renderBeneficiaryFilterOptions();
   renderBeneficiaryRecords([]);
+  renderBeneficiaryListPagination();
   renderBeneficiaryImportHistory([]);
+  renderBeneficiaryAuditFeed([]);
+  renderBeneficiaryAuditPagination();
   renderRecommendedSummary(state.recommendedSummary);
   renderRecommendedPreviewSummary({});
   renderRecommendedPreview([]);
@@ -13584,6 +13970,7 @@ function init() {
   renderApplicationReviewVisibility();
   renderDashboardActivityVisibility();
   bindEvents();
+  setupProgressiveDisclosure();
   resetSchemeForm();
   void requestSession({ reloadData: true });
 }

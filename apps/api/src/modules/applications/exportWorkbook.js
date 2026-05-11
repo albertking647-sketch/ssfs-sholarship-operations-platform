@@ -1,23 +1,4 @@
-import ExcelJS from "exceljs";
-
-function createThinBorder() {
-  return {
-    top: { style: "thin", color: { argb: "FF233046" } },
-    left: { style: "thin", color: { argb: "FF233046" } },
-    bottom: { style: "thin", color: { argb: "FF233046" } },
-    right: { style: "thin", color: { argb: "FF233046" } }
-  };
-}
-
-function computeColumnWidth(header, rows, key) {
-  let maxLen = String(header ?? "").length;
-  for (const row of rows) {
-    const value = row?.[key] ?? "";
-    maxLen = Math.max(maxLen, String(value).length);
-  }
-
-  return Math.min(Math.max(maxLen + 4, 14), 34);
-}
+import { utils, write } from "xlsx";
 
 function formatDecisionLabel(value) {
   const normalized = String(value || "").trim();
@@ -32,19 +13,6 @@ function formatDecisionLabel(value) {
     .join(" ");
 }
 
-function formatNumber(value, digits = 2) {
-  if (value === null || value === undefined || value === "") {
-    return "";
-  }
-
-  const numeric = Number(value);
-  if (Number.isNaN(numeric)) {
-    return "";
-  }
-
-  return numeric.toFixed(digits);
-}
-
 function formatDate(value) {
   if (!value) {
     return "";
@@ -56,6 +24,15 @@ function formatDate(value) {
   }
 
   return date.toISOString().slice(0, 10);
+}
+
+function normalizeNumberCell(value) {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+
+  const numeric = Number(value);
+  return Number.isNaN(numeric) ? "" : numeric;
 }
 
 function safeSheetName(value) {
@@ -74,68 +51,13 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "");
 }
 
-function styleWorksheet(worksheet, columns, rows, options = {}) {
-  const fontName = options.fontName || "Constantia";
-  const headerRowNumber = options.headerRowNumber || 5;
-  const totalRowNumber = options.totalRowNumber || null;
-  const currencyKeys = new Set(options.currencyKeys || []);
-  const decimalKeys = new Set(options.decimalKeys || []);
+function normalizeCollege(value) {
+  return String(value || "").trim() || "Unknown / not captured";
+}
 
-  columns.forEach((column, index) => {
-    worksheet.getColumn(index + 1).width = computeColumnWidth(column.header, rows, column.key);
-  });
-
-  worksheet.eachRow((row, rowNumber) => {
-    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-      const column = columns[colNumber - 1];
-      const key = column?.key || "";
-      const isHeaderRow = rowNumber === headerRowNumber;
-      const isTotalRow = totalRowNumber && rowNumber === totalRowNumber;
-
-      cell.border = createThinBorder();
-      cell.alignment = {
-        vertical: "middle",
-        horizontal: isHeaderRow ? "center" : "left",
-        wrapText: true
-      };
-      cell.font = {
-        name: fontName,
-        size: isHeaderRow ? 11 : 10.5,
-        bold: isHeaderRow || isTotalRow,
-        color: isHeaderRow ? { argb: "FFF8FAFC" } : { argb: "FF1E293B" }
-      };
-
-      if (isHeaderRow) {
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FF0F172A" }
-        };
-      } else if (isTotalRow) {
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFE2E8F0" }
-        };
-      }
-
-      if (!isHeaderRow && !isTotalRow) {
-        if (currencyKeys.has(key)) {
-          cell.numFmt = "#,##0.00";
-          cell.alignment.horizontal = "right";
-        } else if (decimalKeys.has(key)) {
-          cell.numFmt = "0.00";
-          cell.alignment.horizontal = "right";
-        }
-      }
-    });
-  });
-
-  worksheet.views = [{ state: "frozen", ySplit: headerRowNumber, activeCell: "A1" }];
-  worksheet.autoFilter = {
-    from: { row: headerRowNumber, column: 1 },
-    to: { row: headerRowNumber, column: columns.length }
-  };
+function normalizeInterviewStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["scheduled", "completed", "waived"].includes(normalized) ? normalized : "pending";
 }
 
 function buildExportRows(items) {
@@ -149,21 +71,14 @@ function buildExportRows(items) {
     college: item.college || "",
     program: item.program || item.uploadedProgram || "",
     year: item.year || "",
-    cwa: item.cwa === null || item.cwa === undefined ? "" : Number(item.cwa),
-    wassceAggregate:
-      item.wassceAggregate === null || item.wassceAggregate === undefined
-        ? ""
-        : Number(item.wassceAggregate),
-    finalScore:
-      item.finalScore === null || item.finalScore === undefined ? "" : Number(item.finalScore),
+    cwa: normalizeNumberCell(item.cwa),
+    wassceAggregate: normalizeNumberCell(item.wassceAggregate),
+    finalScore: normalizeNumberCell(item.finalScore),
     schemeName: item.schemeName || "",
     academicYear: item.cycleLabel || "",
     qualificationStatus: formatDecisionLabel(item.qualificationStatus),
-    interviewStatus: item.interviewStatus || "",
-    interviewScore:
-      item.interviewScore === null || item.interviewScore === undefined
-        ? ""
-        : Number(item.interviewScore),
+    interviewStatus: formatDecisionLabel(item.interviewStatus || "pending"),
+    interviewScore: normalizeNumberCell(item.interviewScore),
     interviewDate: formatDate(item.interviewDate),
     interviewNotes: item.interviewNotes || "",
     reviewReason: item.reviewReason || "",
@@ -175,6 +90,66 @@ function buildExportRows(items) {
   }));
 }
 
+function buildCollegeBreakdown(items) {
+  const groups = new Map();
+
+  for (const item of items || []) {
+    const college = normalizeCollege(item.college);
+    const qualificationStatus = String(item.qualificationStatus || "not_reviewed").trim().toLowerCase();
+    const interviewStatus = normalizeInterviewStatus(item.interviewStatus);
+    const current =
+      groups.get(college) ||
+      {
+        college,
+        totalApplications: 0,
+        reviewedCount: 0,
+        qualifiedCount: 0,
+        pendingCount: 0,
+        disqualifiedCount: 0,
+        notReviewedCount: 0,
+        interviewPendingCount: 0,
+        interviewScheduledCount: 0,
+        interviewCompletedCount: 0,
+        interviewWaivedCount: 0
+      };
+
+    current.totalApplications += 1;
+    if (qualificationStatus !== "not_reviewed") current.reviewedCount += 1;
+    if (qualificationStatus === "qualified") current.qualifiedCount += 1;
+    if (qualificationStatus === "pending") current.pendingCount += 1;
+    if (qualificationStatus === "disqualified") current.disqualifiedCount += 1;
+    if (qualificationStatus === "not_reviewed") current.notReviewedCount += 1;
+    if (interviewStatus === "pending") current.interviewPendingCount += 1;
+    if (interviewStatus === "scheduled") current.interviewScheduledCount += 1;
+    if (interviewStatus === "completed") current.interviewCompletedCount += 1;
+    if (interviewStatus === "waived") current.interviewWaivedCount += 1;
+
+    groups.set(college, current);
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    if (b.totalApplications !== a.totalApplications) {
+      return b.totalApplications - a.totalApplications;
+    }
+    return a.college.localeCompare(b.college);
+  });
+}
+
+function appendSheet(workbook, name, rows) {
+  const worksheet = utils.aoa_to_sheet(rows);
+  const columnWidths = rows[0]?.map((_, columnIndex) => ({
+    wch: Math.min(
+      Math.max(
+        ...rows.map((row) => String(row[columnIndex] ?? "").length),
+        12
+      ) + 2,
+      36
+    )
+  }));
+  worksheet["!cols"] = columnWidths;
+  utils.book_append_sheet(workbook, worksheet, safeSheetName(name));
+}
+
 export async function buildApplicationsExportWorkbook({
   items,
   schemeName,
@@ -183,90 +158,87 @@ export async function buildApplicationsExportWorkbook({
   fontName,
   generatedBy
 }) {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "SSFS Scholarship Operations Hub";
-  workbook.company = "SSFS Scholarship Operations Hub";
-  workbook.created = new Date();
-  workbook.modified = new Date();
-  workbook.lastModifiedBy = generatedBy || "System";
+  const workbook = utils.book_new();
+  workbook.Props = {
+    Author: "SSFS Scholarship Operations Hub",
+    Company: "SSFS Scholarship Operations Hub",
+    LastAuthor: generatedBy || "System",
+    CreatedDate: new Date(),
+    Subject: `Application export using ${fontName || "default"} workbook font preference`
+  };
 
   const decisionLabel = formatDecisionLabel(qualificationStatus);
-  const worksheet = workbook.addWorksheet(
-    safeSheetName(`${decisionLabel} Applications`)
-  );
   const rows = buildExportRows(items);
-
   const columns = [
-    { header: "Student Reference ID", key: "studentReferenceId" },
-    { header: "Registry Name", key: "registryName" },
-    { header: "Uploaded Name", key: "uploadedName" },
-    { header: "Uploaded Reference ID", key: "uploadedReferenceId" },
-    { header: "Index Number", key: "indexNumber" },
-    { header: "Phone Number", key: "phoneNumber" },
-    { header: "College", key: "college" },
-    { header: "Programme", key: "program" },
-    { header: "Year", key: "year" },
-    { header: "CWA", key: "cwa" },
-    { header: "WASSCE Aggregate", key: "wassceAggregate" },
-    { header: "Final Score", key: "finalScore" },
-    { header: "Scheme", key: "schemeName" },
-    { header: "Academic Year", key: "academicYear" },
-    { header: "Qualification Status", key: "qualificationStatus" },
-    { header: "Interview Status", key: "interviewStatus" },
-    { header: "Interview Score", key: "interviewScore" },
-    { header: "Interview Date", key: "interviewDate" },
-    { header: "Interview Notes", key: "interviewNotes" },
-    { header: "Review Reason", key: "reviewReason" },
-    { header: "Reviewer Notes", key: "reviewComment" },
-    { header: "Screening Suggestion", key: "screeningDecision" },
-    { header: "Name Mismatch", key: "nameMismatch" },
-    { header: "Submitted At", key: "submittedAt" },
-    { header: "Review Updated At", key: "reviewUpdatedAt" }
+    ["Student Reference ID", "studentReferenceId"],
+    ["Registry Name", "registryName"],
+    ["Uploaded Name", "uploadedName"],
+    ["Uploaded Reference ID", "uploadedReferenceId"],
+    ["Index Number", "indexNumber"],
+    ["Phone Number", "phoneNumber"],
+    ["College", "college"],
+    ["Programme", "program"],
+    ["Year", "year"],
+    ["CWA", "cwa"],
+    ["WASSCE Aggregate", "wassceAggregate"],
+    ["Final Score", "finalScore"],
+    ["Scheme", "schemeName"],
+    ["Academic Year", "academicYear"],
+    ["Qualification Status", "qualificationStatus"],
+    ["Interview Status", "interviewStatus"],
+    ["Interview Score", "interviewScore"],
+    ["Interview Date", "interviewDate"],
+    ["Interview Notes", "interviewNotes"],
+    ["Review Reason", "reviewReason"],
+    ["Reviewer Notes", "reviewComment"],
+    ["Screening Suggestion", "screeningDecision"],
+    ["Name Mismatch", "nameMismatch"],
+    ["Submitted At", "submittedAt"],
+    ["Review Updated At", "reviewUpdatedAt"]
   ];
 
-  worksheet.mergeCells("A1:H1");
-  worksheet.getCell("A1").value = "SSFS Scholarship Operations Hub";
-  worksheet.getCell("A1").font = { name: fontName, size: 16, bold: true, color: { argb: "FF0F172A" } };
+  appendSheet(workbook, `${decisionLabel} Applications`, [
+    columns.map(([header]) => header),
+    ...rows.map((row) => columns.map(([, key]) => row[key]))
+  ]);
 
-  worksheet.mergeCells("A2:H2");
-  worksheet.getCell("A2").value = `${decisionLabel} Applications Export`;
-  worksheet.getCell("A2").font = { name: fontName, size: 13, bold: true, color: { argb: "FF1E293B" } };
+  appendSheet(workbook, "College Summary", [
+    [
+      "College",
+      "Applications",
+      "Reviewed",
+      "Qualified",
+      "Pending",
+      "Disqualified",
+      "Yet to Review",
+      "Interview Pending",
+      "Interview Scheduled",
+      "Interview Completed",
+      "Interview Waived"
+    ],
+    ...buildCollegeBreakdown(items).map((item) => [
+      item.college,
+      item.totalApplications,
+      item.reviewedCount,
+      item.qualifiedCount,
+      item.pendingCount,
+      item.disqualifiedCount,
+      item.notReviewedCount,
+      item.interviewPendingCount,
+      item.interviewScheduledCount,
+      item.interviewCompletedCount,
+      item.interviewWaivedCount
+    ])
+  ]);
 
-  worksheet.getCell("A3").value = "Scheme";
-  worksheet.getCell("B3").value = schemeName || "Not selected";
-  worksheet.getCell("C3").value = "Academic Year";
-  worksheet.getCell("D3").value = academicYearLabel || "Not selected";
-  worksheet.getCell("E3").value = "Exported Rows";
-  worksheet.getCell("F3").value = rows.length;
-  worksheet.getCell("G3").value = "Generated";
-  worksheet.getCell("H3").value = new Date().toISOString().slice(0, 10);
-
-  for (const cellRef of ["A3", "C3", "E3", "G3"]) {
-    worksheet.getCell(cellRef).font = { name: fontName, size: 10.5, bold: true, color: { argb: "FF0F172A" } };
-  }
-  for (const cellRef of ["B3", "D3", "F3", "H3"]) {
-    worksheet.getCell(cellRef).font = { name: fontName, size: 10.5, color: { argb: "FF334155" } };
-  }
-
-  worksheet.addRow(columns.map((column) => column.header));
-  rows.forEach((row) => {
-    worksheet.addRow(columns.map((column) => row[column.key]));
-  });
-
-  const totalRowValues = columns.map((column) => {
-    if (column.key === "registryName") {
-      return "Totals";
-    }
-    return "";
-  });
-  worksheet.addRow(totalRowValues);
-
-  styleWorksheet(worksheet, columns, rows, {
-    fontName,
-    headerRowNumber: 4,
-    totalRowNumber: rows.length + 5,
-    decimalKeys: ["cwa", "wassceAggregate", "finalScore", "interviewScore"]
-  });
+  appendSheet(workbook, "Export Summary", [
+    ["Scheme", schemeName || "Not selected"],
+    ["Academic Year", academicYearLabel || "Not selected"],
+    ["Decision List", decisionLabel],
+    ["Exported Rows", rows.length],
+    ["Generated", new Date().toISOString().slice(0, 10)],
+    ["Generated By", generatedBy || "System"]
+  ]);
 
   const fileName = [
     slugify(decisionLabel) || "applications",
@@ -278,7 +250,7 @@ export async function buildApplicationsExportWorkbook({
     .join("-")
     .concat(".xlsx");
 
-  const buffer = await workbook.xlsx.writeBuffer();
+  const buffer = write(workbook, { type: "buffer", bookType: "xlsx" });
   return {
     buffer: Buffer.from(buffer),
     fileName

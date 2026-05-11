@@ -986,17 +986,17 @@ export function createApplicationService({ repositories }) {
         .toLowerCase();
 
       if (
-        !["qualified", "pending", "disqualified", "not_reviewed"].includes(qualificationStatus)
+        !["all", "qualified", "pending", "disqualified", "not_reviewed"].includes(qualificationStatus)
       ) {
         throw new ValidationError(
-          "Export status must be qualified, pending, disqualified, or not_reviewed."
+          "Export status must be all, qualified, pending, disqualified, or not_reviewed."
         );
       }
 
       const items = await repositories.applications.list({
         schemeId: String(filters.schemeId || "").trim(),
         cycleId: String(filters.cycleId || "").trim(),
-        qualificationStatus
+        qualificationStatus: qualificationStatus === "all" ? "" : qualificationStatus
       });
       const enrichedItems = await enrichApplications(items);
 

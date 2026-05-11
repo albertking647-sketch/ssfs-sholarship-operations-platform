@@ -292,8 +292,54 @@ function buildApplicationSummary(records) {
     qualifiedCount,
     pendingCount,
     disqualifiedCount,
-    notReviewedCount
+    notReviewedCount,
+    collegeBreakdown: buildCollegeBreakdown(records)
   };
+}
+
+function buildCollegeBreakdown(records) {
+  const groups = new Map();
+
+  for (const item of records || []) {
+    const college = String(item.college || "").trim() || "Unknown / not captured";
+    const qualificationStatus = String(item.qualificationStatus || "not_reviewed").trim();
+    const interviewStatus = String(item.interviewStatus || "pending").trim().toLowerCase();
+    const current =
+      groups.get(college) ||
+      {
+        college,
+        totalApplications: 0,
+        reviewedCount: 0,
+        qualifiedCount: 0,
+        pendingCount: 0,
+        disqualifiedCount: 0,
+        notReviewedCount: 0,
+        interviewPendingCount: 0,
+        interviewScheduledCount: 0,
+        interviewCompletedCount: 0,
+        interviewWaivedCount: 0
+      };
+
+    current.totalApplications += 1;
+    if (qualificationStatus !== "not_reviewed") current.reviewedCount += 1;
+    if (qualificationStatus === "qualified") current.qualifiedCount += 1;
+    if (qualificationStatus === "pending") current.pendingCount += 1;
+    if (qualificationStatus === "disqualified") current.disqualifiedCount += 1;
+    if (qualificationStatus === "not_reviewed") current.notReviewedCount += 1;
+    if (!interviewStatus || interviewStatus === "pending") current.interviewPendingCount += 1;
+    if (interviewStatus === "scheduled") current.interviewScheduledCount += 1;
+    if (interviewStatus === "completed") current.interviewCompletedCount += 1;
+    if (interviewStatus === "waived") current.interviewWaivedCount += 1;
+
+    groups.set(college, current);
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    if (b.totalApplications !== a.totalApplications) {
+      return b.totalApplications - a.totalApplications;
+    }
+    return a.college.localeCompare(b.college);
+  });
 }
 
 function buildApplicationCwaCoverage(records) {
@@ -1028,6 +1074,17 @@ function createPostgresRepository(database) {
     `;
   }
 
+  function buildInterviewStatusExpression(alias = "a") {
+    return `
+      CASE
+        WHEN ${alias}.reviewer_notes IS NOT NULL
+          AND ${alias}.reviewer_notes ~ '^\\s*\\{'
+        THEN NULLIF(${alias}.reviewer_notes::jsonb ->> 'interviewStatus', '')
+        ELSE NULL
+      END
+    `;
+  }
+
   function buildQualificationStatusExpression(alias = "a") {
     const reviewDecisionExpression = buildReviewDecisionExpression(alias);
     return `
@@ -1231,9 +1288,11 @@ function createPostgresRepository(database) {
   }
 
   async function summary(filters = {}) {
+    const profileMapping = await getAcademicProfileMapping();
     const params = [];
     const whereClause = buildListWhereClause(filters, params);
     const qualificationStatusExpression = buildQualificationStatusExpression("a");
+    const interviewStatusExpression = buildInterviewStatusExpression("a");
     const result = await database.query(
       `
         SELECT
@@ -1250,6 +1309,37 @@ function createPostgresRepository(database) {
       `,
       params
     );
+    const collegeResult = await database.query(
+      `
+        SELECT
+          COALESCE(NULLIF(profile.college, ''), 'Unknown / not captured') AS college,
+          COUNT(*)::int AS total_applications,
+          COUNT(*) FILTER (WHERE ${qualificationStatusExpression} <> 'not_reviewed')::int AS reviewed_count,
+          COUNT(*) FILTER (WHERE ${qualificationStatusExpression} = 'qualified')::int AS qualified_count,
+          COUNT(*) FILTER (WHERE ${qualificationStatusExpression} = 'pending')::int AS pending_count,
+          COUNT(*) FILTER (WHERE ${qualificationStatusExpression} = 'disqualified')::int AS disqualified_count,
+          COUNT(*) FILTER (WHERE ${qualificationStatusExpression} = 'not_reviewed')::int AS not_reviewed_count,
+          COUNT(*) FILTER (WHERE COALESCE(${interviewStatusExpression}, 'pending') = 'pending')::int AS interview_pending_count,
+          COUNT(*) FILTER (WHERE ${interviewStatusExpression} = 'scheduled')::int AS interview_scheduled_count,
+          COUNT(*) FILTER (WHERE ${interviewStatusExpression} = 'completed')::int AS interview_completed_count,
+          COUNT(*) FILTER (WHERE ${interviewStatusExpression} = 'waived')::int AS interview_waived_count
+        FROM applications a
+        INNER JOIN students student ON student.id = a.student_id
+        LEFT JOIN LATERAL (
+          SELECT
+            college
+          FROM academic_profiles
+          WHERE student_id = student.id
+          ORDER BY ${buildAcademicProfileOrderClause("academic_profiles", profileMapping)}
+          LIMIT 1
+        ) profile ON TRUE
+        INNER JOIN schemes scheme ON scheme.id = a.scheme_id
+        ${whereClause}
+        GROUP BY COALESCE(NULLIF(profile.college, ''), 'Unknown / not captured')
+        ORDER BY COUNT(*) DESC, COALESCE(NULLIF(profile.college, ''), 'Unknown / not captured') ASC
+      `,
+      params
+    );
 
     const row = result.rows[0] || {};
     return {
@@ -1258,7 +1348,20 @@ function createPostgresRepository(database) {
       qualifiedCount: Number(row.qualified_count || 0),
       pendingCount: Number(row.pending_count || 0),
       disqualifiedCount: Number(row.disqualified_count || 0),
-      notReviewedCount: Number(row.not_reviewed_count || 0)
+      notReviewedCount: Number(row.not_reviewed_count || 0),
+      collegeBreakdown: collegeResult.rows.map((collegeRow) => ({
+        college: collegeRow.college,
+        totalApplications: Number(collegeRow.total_applications || 0),
+        reviewedCount: Number(collegeRow.reviewed_count || 0),
+        qualifiedCount: Number(collegeRow.qualified_count || 0),
+        pendingCount: Number(collegeRow.pending_count || 0),
+        disqualifiedCount: Number(collegeRow.disqualified_count || 0),
+        notReviewedCount: Number(collegeRow.not_reviewed_count || 0),
+        interviewPendingCount: Number(collegeRow.interview_pending_count || 0),
+        interviewScheduledCount: Number(collegeRow.interview_scheduled_count || 0),
+        interviewCompletedCount: Number(collegeRow.interview_completed_count || 0),
+        interviewWaivedCount: Number(collegeRow.interview_waived_count || 0)
+      }))
     };
   }
 

@@ -490,6 +490,7 @@ const elements = {
   recommendedSchemeFilter: document.querySelector("#recommendedSchemeFilter"),
   recommendedStatusFilter: document.querySelector("#recommendedStatusFilter"),
   recommendedReloadButton: document.querySelector("#recommendedReloadButton"),
+  recommendedExportButton: document.querySelector("#recommendedExportButton"),
   recommendedListMessage: document.querySelector("#recommendedListMessage"),
   recommendedList: document.querySelector("#recommendedList"),
   recommendedSelectedSummary: document.querySelector("#recommendedSelectedSummary"),
@@ -2786,6 +2787,9 @@ function syncRecommendedControls() {
   if (elements.recommendedImportButton) {
     elements.recommendedImportButton.disabled = !canImport || !hasPreviewRows;
   }
+  if (elements.recommendedExportButton) {
+    elements.recommendedExportButton.disabled = !canManage;
+  }
   if (elements.recommendedApplicationButton) {
     elements.recommendedApplicationButton.disabled =
       !canManage || !hasSelectedRecord || Boolean(selectedRecord?.linkedApplicationId);
@@ -2807,6 +2811,14 @@ function setReportsBeneficiarySchemeMessage(text, tone = "warning") {
   elements.reportsBeneficiarySchemeMessage.className = `inline-note ${tone ? `tone-${tone}` : ""}`;
 }
 
+function getBeneficiaryPreviewProgrammeLabel(payload = {}) {
+  const p = payload || {};
+  const text = [p.program, p.programme, p.course, p.courseOfStudy]
+    .map((value) => String(value ?? "").trim())
+    .find(Boolean);
+  return text || "";
+}
+
 function getBeneficiaryCohortTotals(summary = {}) {
   return {
     current: Number(summary?.cohortTotals?.current || 0),
@@ -2814,6 +2826,17 @@ function getBeneficiaryCohortTotals(summary = {}) {
     untagged: Number(summary?.cohortTotals?.untagged || 0),
     carriedForward: Number(summary?.cohortTotals?.carriedForward || 0)
   };
+}
+
+function beneficiaryPreviewTextHasDuplicateSignals(text = "") {
+  const t = String(text || "").toLowerCase();
+  return (
+    t.includes("duplicate") ||
+    t.includes("already exists") ||
+    t.includes("other support records") ||
+    t.includes("repeated within the uploaded") ||
+    t.includes("same support name and academic year")
+  );
 }
 
 function getBeneficiaryPreviewCategory(row = {}) {
@@ -2826,7 +2849,7 @@ function getBeneficiaryPreviewCategory(row = {}) {
   ) {
     return "carried_forward";
   }
-  if (warningsAndIssues.includes("duplicate") || warningsAndIssues.includes("already exists")) {
+  if (beneficiaryPreviewTextHasDuplicateSignals(warningsAndIssues)) {
     return "duplicate";
   }
   if (row?.payload?.beneficiaryCohort === "new") {
@@ -2852,7 +2875,24 @@ function getFilteredBeneficiaryPreviewRows(rows = state.beneficiaryPreview?.rows
 function getDuplicateReviewRows(rows = state.beneficiaryPreview?.rows || []) {
   return (Array.isArray(rows) ? rows : []).filter((row) => {
     const combined = [...(row.issues || []), ...(row.warnings || [])].join(" ").toLowerCase();
-    return combined.includes("already exists") || combined.includes("duplicate") || combined.includes("other support records");
+    return beneficiaryPreviewTextHasDuplicateSignals(combined);
+  });
+}
+
+/** Rows for the preview "issues" list: invalid rows always; when a cohort/duplicate filter is active, include valid rows that still have issues or warnings in that slice. */
+function getBeneficiaryPreviewIssueRows(rows = state.beneficiaryPreview?.rows || []) {
+  const filtered = getFilteredBeneficiaryPreviewRows(rows);
+  const selectedFilter = state.beneficiaryPreviewFilter || "all";
+  if (selectedFilter === "all") {
+    return filtered.filter((row) => row.status !== "valid");
+  }
+  return filtered.filter((row) => {
+    if (row.status !== "valid") {
+      return true;
+    }
+    const hasIssues = Array.isArray(row.issues) && row.issues.length > 0;
+    const hasWarnings = Array.isArray(row.warnings) && row.warnings.length > 0;
+    return hasIssues || hasWarnings;
   });
 }
 
@@ -2910,10 +2950,14 @@ function renderBeneficiarySummary(summary = {}) {
 
 function renderBeneficiaryIssues(rows = []) {
   if (!elements.beneficiaryIssueList) return;
-  const issues = getFilteredBeneficiaryPreviewRows(rows).filter((row) => row.status !== "valid");
+  const issues = getBeneficiaryPreviewIssueRows(rows);
   if (!issues.length) {
-    elements.beneficiaryIssueList.innerHTML =
-      `<p class="empty-state">No beneficiary import issues match the current preview filter.</p>`;
+    const filter = state.beneficiaryPreviewFilter || "all";
+    const hint =
+      filter === "all"
+        ? "No beneficiary import issues match the current preview filter."
+        : "No rows in this filter have blocking issues or warnings. Valid-only rows appear under Valid Preview Rows.";
+    elements.beneficiaryIssueList.innerHTML = `<p class="empty-state">${hint}</p>`;
     return;
   }
 
@@ -2928,10 +2972,13 @@ function renderBeneficiaryIssues(rows = []) {
               <p class="detail-subcopy">${escapeHtml(row.payload?.fullName || "Unnamed beneficiary")} | ${escapeHtml(
                 row.payload?.academicYearLabel || "No academic year"
               )}</p>
+              <p class="detail-subcopy">Ref: ${escapeHtml(
+                row.payload?.studentReferenceId || "—"
+              )} | Programme: ${escapeHtml(getBeneficiaryPreviewProgrammeLabel(row.payload)) || "—"}</p>
             </div>
           </div>
           <ul class="issue-list">
-            ${row.issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}
+            ${(row.issues || []).map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}
           </ul>
           ${
             row.warnings?.length
@@ -3884,13 +3931,13 @@ async function loadBeneficiaryImportHistory() {
   }
 }
 
-function buildRecommendedListUrl() {
+function buildRecommendedWaitlistUrl(pathname) {
   const apiBaseUrl = getApiBaseUrl();
   if (!apiBaseUrl) {
     throw new Error("Enter the API URL first.");
   }
 
-  const url = new URL(`${apiBaseUrl}/api/waitlist`);
+  const url = new URL(`${apiBaseUrl}${pathname}`);
   const q = elements.recommendedSearchQuery?.value.trim();
   const cycleLabel = elements.recommendedCycleFilter?.value.trim();
   const schemeName = elements.recommendedSchemeFilter?.value.trim();
@@ -3922,6 +3969,60 @@ function buildRecommendedListUrl() {
   }
 
   return url.toString();
+}
+
+function buildRecommendedListUrl() {
+  return buildRecommendedWaitlistUrl("/api/waitlist");
+}
+
+async function exportRecommendedRecords() {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    setRecommendedListMessage("Enter the API URL first.", "error");
+    return;
+  }
+  if (!canManageRecommendedStudents()) {
+    setRecommendedListMessage("Only admins can export recommended student lists.", "error");
+    return;
+  }
+
+  if (elements.recommendedExportButton) {
+    elements.recommendedExportButton.disabled = true;
+  }
+  setRecommendedListMessage("Preparing Excel export with the current filters...", "warning");
+
+  try {
+    const response = await fetch(buildRecommendedWaitlistUrl("/api/waitlist/export"), {
+      headers: {
+        ...getAuthHeaders()
+      }
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.message || "Unable to export recommended students.");
+    }
+
+    const blob = await response.blob();
+    const downloadUrl = URL.createObjectURL(blob);
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const matchedFileName = disposition.match(/filename=\"?([^\";]+)\"?/i);
+    const fileName = matchedFileName?.[1] || "recommended-students.xlsx";
+
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = fileName;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(downloadUrl);
+
+    setRecommendedListMessage("Recommended students export downloaded.", "success");
+  } catch (error) {
+    setRecommendedListMessage(error.message, "error");
+  } finally {
+    syncRecommendedControls();
+  }
 }
 
 async function postRecommendedImport(endpoint) {
@@ -13111,6 +13212,9 @@ function bindEvents() {
   });
   elements.recommendedReloadButton?.addEventListener("click", () => {
     void loadRecommendedRecords();
+  });
+  elements.recommendedExportButton?.addEventListener("click", () => {
+    void exportRecommendedRecords();
   });
   elements.recommendedFilterForm?.addEventListener("submit", (event) => {
     event.preventDefault();

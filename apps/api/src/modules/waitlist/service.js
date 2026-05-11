@@ -1,6 +1,10 @@
 import { ConflictError, NotFoundError, ValidationError } from "../../lib/errors.js";
 import { recordAuditEvent } from "../../lib/audit.js";
 import { buildRecommendedImportPreview } from "./import.js";
+import {
+  buildRecommendedStudentsExportBuffer,
+  buildRecommendedStudentsExportFileName
+} from "./exportWorkbook.js";
 
 function assertRequiredString(value, label) {
   if (!String(value || "").trim()) {
@@ -367,10 +371,11 @@ async function buildImportAssessment(repositories, payload) {
 export function createWaitlistService({ repositories, services }) {
   return {
     async list(filters = {}) {
+      const statusInput = String(filters.status || "").trim();
       const rawItems = await repositories.waitlist.list({
         schemeId: String(filters.schemeId || "").trim(),
         cycleId: String(filters.cycleId || "").trim(),
-        status: normalizeRecommendedStatus(filters.status),
+        status: statusInput ? normalizeRecommendedStatus(filters.status) : "",
         q: String(filters.q || "").trim()
       });
       const items = await Promise.all(
@@ -383,6 +388,15 @@ export function createWaitlistService({ repositories, services }) {
         items,
         summary: summarizeRecords(items),
         filterOptions
+      };
+    },
+
+    async exportList(filters = {}) {
+      const { items } = await this.list(filters);
+      const buffer = buildRecommendedStudentsExportBuffer(items);
+      return {
+        buffer,
+        fileName: buildRecommendedStudentsExportFileName()
       };
     },
 

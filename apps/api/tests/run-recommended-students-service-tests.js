@@ -458,6 +458,27 @@ async function postgresListUsesAvailableAcademicProfileYearColumn() {
   assert.equal(seenSelectStatements.length, 1);
 }
 
+async function exportListProducesWorkbookBytes() {
+  const repositories = createRepositories();
+  const { services } = createServices(repositories);
+  const service = createWaitlistService({ repositories, services });
+
+  await service.create(
+    {
+      studentReferenceId: "20260001",
+      schemeId: "scheme-1",
+      cycleId: "cycle-1",
+      recommendationReason: "Export test"
+    },
+    { userId: "user-admin", fullName: "Admin User" }
+  );
+
+  const { buffer, fileName } = await service.exportList({});
+  assert.ok(buffer instanceof Uint8Array || Buffer.isBuffer(buffer));
+  assert.ok(buffer.length > 64);
+  assert.match(fileName, /^recommended-students-\d{4}-\d{2}-\d{2}\.xlsx$/u);
+}
+
 async function main() {
   await manualCreateStoresAwaitingSupportRecommendation();
   await listFallsBackToRegistryProgramAndYear();
@@ -468,6 +489,7 @@ async function main() {
   await removeRecommendationDeletesUnlinkedRecord();
   await beneficiaryHandoffMarksRecommendationAsSupported();
   await postgresListUsesAvailableAcademicProfileYearColumn();
+  await exportListProducesWorkbookBytes();
   console.log("recommended-students-service-tests: ok");
 }
 

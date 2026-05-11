@@ -44,7 +44,13 @@ const HEADER_ALIASES = new Map([
   ["group", "beneficiaryCohort"],
   ["remarks", "remarks"],
   ["comment", "remarks"],
-  ["notes", "remarks"]
+  ["notes", "remarks"],
+  ["programme", "program"],
+  ["program", "program"],
+  ["course", "program"],
+  ["course of study", "program"],
+  ["program offered", "program"],
+  ["field of study", "program"]
 ]);
 
 function normalizeHeader(header) {
@@ -200,6 +206,7 @@ export function buildBeneficiaryImportPreview(rows, context) {
       sponsorName: trimString(normalized.sponsorName),
       fullName: trimString(normalized.fullName),
       studentReferenceId: trimString(normalized.studentReferenceId),
+      program: trimString(normalized.program),
       indexNumber: trimString(normalized.indexNumber),
       college: trimString(normalized.college),
       amountPaid: normalizeNumeric(normalized.amountPaid, "Amount paid", issues),

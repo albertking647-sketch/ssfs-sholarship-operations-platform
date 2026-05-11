@@ -23,6 +23,27 @@ export function createWaitlistRoutes({ config, services }) {
       }
     },
     {
+      method: "GET",
+      path: "/api/waitlist/export",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ res, url }) {
+        const result = await services.waitlist.exportList({
+          schemeId: url.searchParams.get("schemeId") || "",
+          cycleId: url.searchParams.get("cycleId") || "",
+          status: url.searchParams.get("status") || "",
+          q: url.searchParams.get("q") || ""
+        });
+
+        res.writeHead(200, {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": `attachment; filename="${result.fileName}"`,
+          "Content-Length": String(result.buffer.length)
+        });
+        res.end(result.buffer);
+      }
+    },
+    {
       method: "POST",
       path: "/api/waitlist",
       auth: "required",

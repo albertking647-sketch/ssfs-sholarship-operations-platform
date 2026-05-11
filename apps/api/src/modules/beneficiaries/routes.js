@@ -14,7 +14,10 @@ export function createBeneficiaryRoutes({ config, services }) {
           schemeName: url.searchParams.get("schemeName") || "",
           college: url.searchParams.get("college") || "",
           supportType: url.searchParams.get("supportType") || "",
+          beneficiaryCohort: url.searchParams.get("beneficiaryCohort") || "",
           importMode: url.searchParams.get("importMode") || "",
+          page: url.searchParams.get("page") || "",
+          pageSize: url.searchParams.get("pageSize") || "",
           q: url.searchParams.get("q") || ""
         });
 
@@ -114,7 +117,9 @@ export function createBeneficiaryRoutes({ config, services }) {
         const result = await services.beneficiaries.getAuditFeed({
           academicYearLabel: url.searchParams.get("academicYearLabel") || "",
           schemeName: url.searchParams.get("schemeName") || "",
-          eventType: url.searchParams.get("eventType") || ""
+          eventType: url.searchParams.get("eventType") || "",
+          page: url.searchParams.get("page") || "",
+          pageSize: url.searchParams.get("pageSize") || ""
         });
 
         return sendJson(res, 200, {

@@ -86,6 +86,57 @@ function collapse(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
+const REQUIRED_HEADER_GROUPS = [
+  {
+    label: "Academic Year",
+    aliases: ["academic year", "academic year label", "year"]
+  },
+  {
+    label: "Support Name",
+    aliases: [
+      "scholarship support name",
+      "scholarship name or support name",
+      "support name",
+      "support",
+      "scheme",
+      "scheme name",
+      "scholarship",
+      "scholarship name"
+    ]
+  },
+  {
+    label: "Full Name",
+    aliases: ["full name", "beneficiary name", "student name", "name"]
+  },
+  {
+    label: "Student Reference ID",
+    aliases: [
+      "reference number",
+      "student id reference number",
+      "student id or reference number",
+      "reference no",
+      "ref no",
+      "student id"
+    ]
+  },
+  {
+    label: "Amount Paid",
+    aliases: ["amount paid", "amount", "paid amount"]
+  }
+];
+
+function detectMissingRequiredHeaders(headers = []) {
+  const normalizedHeaders = headers.map((header) => normalizeHeader(header));
+  const missing = [];
+  for (const group of REQUIRED_HEADER_GROUPS) {
+    const found = group.aliases.some((alias) => normalizedHeaders.includes(normalizeHeader(alias)));
+    if (!found) {
+      missing.push(group.label);
+    }
+  }
+  return missing;
+}
+
 function detectHeaderRowIndex(matrix) {
   const keywords = [
     "academic year",
@@ -138,6 +189,13 @@ function rowsFromSheet(sheet, fileName, sheetName) {
   if (headerRowIndex === -1) return [];
 
   const headers = (matrix[headerRowIndex] || []).map((value) => collapse(value));
+  const missingHeaders = detectMissingRequiredHeaders(headers);
+  if (missingHeaders.length) {
+    throw new AppError(
+      400,
+      `The sheet "${sheetName}" in ${fileName} is missing required beneficiary columns: ${missingHeaders.join(", ")}.`
+    );
+  }
   const rows = [];
 
   for (let rowIndex = headerRowIndex + 1; rowIndex < matrix.length; rowIndex += 1) {
@@ -159,15 +217,21 @@ function rowsFromSheet(sheet, fileName, sheetName) {
 function rowsFromWorkbook(buffer, fileName) {
   const workbook = read(buffer, { type: "buffer", raw: false });
   const rows = [];
+  const diagnostics = [];
 
   for (const sheetName of workbook.SheetNames) {
-    rows.push(...rowsFromSheet(workbook.Sheets[sheetName], fileName, sheetName));
+    try {
+      rows.push(...rowsFromSheet(workbook.Sheets[sheetName], fileName, sheetName));
+    } catch (error) {
+      diagnostics.push(error.message || `Unable to parse sheet "${sheetName}".`);
+    }
   }
 
   if (!rows.length) {
+    const diagnosticSuffix = diagnostics.length ? ` ${diagnostics.join(" ")}` : "";
     throw new AppError(
       400,
-      `The uploaded workbook ${fileName} does not contain recognizable beneficiary rows.`
+      `The uploaded workbook ${fileName} does not contain recognizable beneficiary rows.${diagnosticSuffix}`
     );
   }
 

@@ -343,6 +343,13 @@ body[data-theme="dark"] .module-tab.is-active {
 
 .module-view, .registry-section, .section-view { display: none; }
 .module-view.is-active, .registry-section.is-active, .section-view.is-active { display: block; }
+.panel-auto-collapsed { display: none; }
+
+#moduleTitle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
 
 .hero {
   display: grid;

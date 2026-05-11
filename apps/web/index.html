@@ -188,7 +188,7 @@
         <div>
           <span>SSFS Scholarship Operations Hub</span>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-          <h2 id="moduleTitle">Dashboard</h2>
+          <h2 id="moduleTitle" tabindex="-1">Dashboard</h2>
         </div>
         <p class="workspace-copy" id="moduleDescription"></p>
         <div class="topbar-actions">
@@ -1788,6 +1788,7 @@
                 <textarea id="applicationReviewComment" class="textarea-field" rows="4" placeholder="Add decision context, follow-up guidance, or review notes here."></textarea>
               </label>
               <div class="action-row">
+                  <button id="applicationReviewBackToSearchButton" class="action-button tertiary" type="button">Back to review search</button>
                   <button id="applicationReviewSaveButton" class="action-button primary" type="button">Save review decision</button>
                 </div>
               </form>
@@ -2735,14 +2736,33 @@
                       <option value="unknown">Unknown / other</option>
                     </select>
                   </label>
+                  <label class="field">
+                    <span>Cohort</span>
+                    <select id="beneficiaryCohortFilter">
+                      <option value="">All cohorts</option>
+                      <option value="current">Current Beneficiaries</option>
+                      <option value="new">New Beneficiaries</option>
+                      <option value="not_tagged">Not tagged</option>
+                    </select>
+                  </label>
                 </div>
                   <div class="action-row">
                     <button id="beneficiaryReloadButton" class="action-button secondary" type="submit">Load beneficiary records</button>
                     <button id="beneficiaryClearScopedButton" class="action-button danger" type="button" disabled>Clear selected scheme data</button>
                   </div>
+                <div class="form-grid application-review-grid">
+                  <label class="field field-span-2">
+                    <span>Clear confirmation</span>
+                    <input id="beneficiaryClearConfirmation" type="text" placeholder="Type CLEAR BENEFICIARY DATA to enable clear" />
+                  </label>
+                  <label class="field field-span-2">
+                    <span>Clear reason</span>
+                    <input id="beneficiaryClearReason" type="text" placeholder="Required reason for scoped clear action" />
+                  </label>
+                </div>
                 </form>
               <div id="beneficiaryListMessage" class="inline-note">
-                Imported beneficiary records will appear here and can be filtered by year, support name, and support type.
+                Imported beneficiary records will appear here and can be filtered by year, support name, support type, and cohort.
               </div>
             </section>
           </section>
@@ -2756,6 +2776,13 @@
             </div>
             <div id="beneficiaryList" class="result-list">
               <p class="empty-state">No beneficiary records loaded yet.</p>
+            </div>
+            <div class="action-row">
+              <button id="beneficiaryListPrevPageButton" class="action-button secondary" type="button">Previous page</button>
+              <button id="beneficiaryListNextPageButton" class="action-button secondary" type="button">Next page</button>
+            </div>
+            <div id="beneficiaryListPageSummary" class="inline-note">
+              Beneficiary list pagination summary will appear here after loading records.
             </div>
           </section>
 
@@ -2837,6 +2864,10 @@
                     <span>Removal reason</span>
                     <input id="beneficiaryEditorRemovalReason" type="text" placeholder="Required before removing the selected row" />
                   </label>
+                  <label class="field field-span-2">
+                    <span>Delete confirmation</span>
+                    <input id="beneficiaryEditorDeleteConfirmation" type="text" placeholder="Type REMOVE BENEFICIARY ROW to confirm delete" />
+                  </label>
                 </div>
                 <div class="action-row">
                   <button id="beneficiaryEditorSaveButton" class="action-button primary" type="submit" disabled>Save changes</button>
@@ -2878,6 +2909,16 @@
             <div id="beneficiaryImportHistoryList" class="result-list">
               <p class="empty-state">No beneficiary import history loaded yet.</p>
             </div>
+            <div class="form-grid application-review-grid">
+              <label class="field field-span-2">
+                <span>Rollback confirmation</span>
+                <input id="beneficiaryRollbackConfirmation" type="text" placeholder="Type ROLLBACK LATEST BATCH before rollback" />
+              </label>
+              <label class="field field-span-2">
+                <span>Rollback reason</span>
+                <input id="beneficiaryRollbackReason" type="text" placeholder="Required reason for rollback action" />
+              </label>
+            </div>
           </section>
 
           <section class="panel">
@@ -2911,6 +2952,13 @@
             </div>
             <div id="beneficiaryAuditList" class="result-list">
               <p class="empty-state">No beneficiary lifecycle audit loaded yet.</p>
+            </div>
+            <div class="action-row">
+              <button id="beneficiaryAuditPrevPageButton" class="action-button secondary" type="button">Previous page</button>
+              <button id="beneficiaryAuditNextPageButton" class="action-button secondary" type="button">Next page</button>
+            </div>
+            <div id="beneficiaryAuditPageSummary" class="inline-note">
+              Beneficiary lifecycle audit pagination summary will appear here after loading events.
             </div>
           </section>
         </section>

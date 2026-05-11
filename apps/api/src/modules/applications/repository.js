@@ -684,6 +684,11 @@ function createSampleRepository() {
             batchId: batch.id,
             applicationId: item.applicationId || null,
             studentId: item.studentId || null,
+            studentReferenceId: item.studentReferenceId || null,
+            schemeName: item.schemeName || null,
+            cycleLabel: item.cycleLabel || null,
+            interviewDate: item.interviewDate || null,
+            interviewVenue: item.interviewVenue || null,
             recipientEmail: item.recipientEmail || null,
             recipientPhone: item.recipientPhone || null,
             recipientName: item.recipientName || null,
@@ -880,6 +885,31 @@ function createPostgresRepository(database) {
       await database.query(`
         ALTER TABLE application_message_batch_items
         ADD COLUMN IF NOT EXISTS recipient_phone TEXT
+      `);
+
+      await database.query(`
+        ALTER TABLE application_message_batch_items
+        ADD COLUMN IF NOT EXISTS student_reference_id TEXT
+      `);
+
+      await database.query(`
+        ALTER TABLE application_message_batch_items
+        ADD COLUMN IF NOT EXISTS scheme_name TEXT
+      `);
+
+      await database.query(`
+        ALTER TABLE application_message_batch_items
+        ADD COLUMN IF NOT EXISTS cycle_label TEXT
+      `);
+
+      await database.query(`
+        ALTER TABLE application_message_batch_items
+        ADD COLUMN IF NOT EXISTS interview_date TEXT
+      `);
+
+      await database.query(`
+        ALTER TABLE application_message_batch_items
+        ADD COLUMN IF NOT EXISTS interview_venue TEXT
       `);
 
     messagingSchemaEnsured = true;
@@ -1924,6 +1954,11 @@ function createPostgresRepository(database) {
                   'id', item.id::text,
                   'applicationId', item.application_id::text,
                     'studentId', item.student_id::text,
+                    'studentReferenceId', item.student_reference_id,
+                    'schemeName', item.scheme_name,
+                    'cycleLabel', item.cycle_label,
+                    'interviewDate', item.interview_date,
+                    'interviewVenue', item.interview_venue,
                     'recipientEmail', item.recipient_email,
                     'recipientPhone', item.recipient_phone,
                     'recipientName', item.recipient_name,
@@ -2068,6 +2103,11 @@ function createPostgresRepository(database) {
                 batch_id,
                 application_id,
                 student_id,
+                student_reference_id,
+                scheme_name,
+                cycle_label,
+                interview_date,
+                interview_venue,
                 recipient_email,
                 recipient_phone,
                 recipient_name,
@@ -2084,13 +2124,23 @@ function createPostgresRepository(database) {
                 $6,
                 $7,
                 $8,
-                $9
+                $9,
+                $10,
+                $11,
+                $12,
+                $13,
+                $14
               )
             `,
             [
               batchId,
               item.applicationId || null,
               item.studentId || null,
+              item.studentReferenceId || null,
+              item.schemeName || null,
+              item.cycleLabel || null,
+              item.interviewDate || null,
+              item.interviewVenue || null,
               item.recipientEmail || null,
               item.recipientPhone || null,
               item.recipientName || null,

@@ -68,7 +68,13 @@ function buildCrossScopeStudentIdSet(rows = []) {
 function normalizeAcademicYearLabel(value) {
   const text = String(value || "").trim();
   if (!text) return "";
-  return /^\d{4}\/\d{4}$/.test(text) ? `${text} Academic Year` : text;
+  const match = text.match(/\b\d{4}\/\d{4}\b/);
+  const normalized = match ? match[0] : text;
+  return /^\d{4}\/\d{4}$/.test(normalized) ? `${normalized} Academic Year` : normalized;
+}
+
+function normalizeSchemeName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function getAcademicYearStart(value) {
@@ -178,21 +184,27 @@ async function buildPromotedWaitlistLookup(repositories, items = []) {
 export function createBeneficiaryService({ repositories }) {
   return {
     async list(filters = {}) {
-      const [items, filterOptions] = await Promise.all([
+      const [result, filterOptions] = await Promise.all([
         repositories.beneficiaries.list({
           academicYearLabel: String(filters.academicYearLabel || "").trim(),
-          schemeName: String(filters.schemeName || "").trim(),
+          schemeName: normalizeSchemeName(filters.schemeName),
           college: String(filters.college || "").trim(),
           supportType: String(filters.supportType || "").trim(),
+          beneficiaryCohort: String(filters.beneficiaryCohort || "").trim(),
           importMode: String(filters.importMode || "").trim(),
+          page: Number(filters.page || 1),
+          pageSize: Number(filters.pageSize || 50),
           q: String(filters.q || "").trim()
         }),
         repositories.beneficiaries.listFilterOptions()
       ]);
 
       return {
-        total: items.length,
-        items,
+        total: result.total ?? 0,
+        page: result.page ?? 1,
+        pageSize: result.pageSize ?? 50,
+        totalPages: result.totalPages ?? 1,
+        items: result.items || [],
         filterOptions
       };
     },
@@ -237,6 +249,10 @@ export function createBeneficiaryService({ repositories }) {
         ),
         ...buildCrossScopeStudentIdSet(previewSeed.rows)
       ]);
+      const crossScopeDuplicateMatches =
+        await repositories.beneficiaries.findCrossScopeDuplicateMatches(
+          previewSeed.rows.map((row) => row.payload)
+        );
       const uploadDuplicateKeys = buildDuplicateKeySet(previewSeed.rows);
       const priorYearNewBeneficiaryKeys =
         importMode === "current_cycle_linked"
@@ -254,6 +270,7 @@ export function createBeneficiaryService({ repositories }) {
         duplicateRowActions,
         existingDuplicateKeys,
         crossScopeDuplicateStudentIds,
+        crossScopeDuplicateMatches,
         uploadDuplicateKeys,
         priorYearNewBeneficiaryKeys
       });
@@ -394,7 +411,7 @@ export function createBeneficiaryService({ repositories }) {
         if (!schemeName) {
           throw new ValidationError("Support name cannot be blank.");
         }
-        updates.schemeName = schemeName;
+      updates.schemeName = normalizeSchemeName(schemeName);
       }
       if (payload.sponsorName !== undefined) {
         updates.sponsorName = String(payload.sponsorName || "").trim() || null;
@@ -413,7 +430,11 @@ export function createBeneficiaryService({ repositories }) {
         updates.currency = String(payload.currency || "").trim().toUpperCase() || "GHS";
       }
       if (payload.supportType !== undefined) {
-        updates.supportType = normalizeSupportType(payload.supportType);
+        const supportType = normalizeSupportType(payload.supportType);
+        if (supportType === "unknown") {
+          throw new ValidationError("Support type must be either Internal or External.");
+        }
+        updates.supportType = supportType;
       }
       if (payload.college !== undefined) {
         updates.college = String(payload.college || "").trim() || null;
@@ -494,7 +515,9 @@ export function createBeneficiaryService({ repositories }) {
       return repositories.beneficiaries.getAuditFeed({
         academicYearLabel: String(filters.academicYearLabel || "").trim(),
         schemeName: String(filters.schemeName || "").trim(),
-        eventType: String(filters.eventType || "").trim()
+        eventType: String(filters.eventType || "").trim(),
+        page: Number(filters.page || 1),
+        pageSize: Number(filters.pageSize || 50)
       });
     },
 
@@ -525,8 +548,8 @@ export function createBeneficiaryService({ repositories }) {
     },
 
     async clearBySchemeAndYear(payload = {}, actor) {
-      const academicYearLabel = String(payload.academicYearLabel || "").trim();
-      const schemeName = String(payload.schemeName || "").trim();
+      const academicYearLabel = normalizeAcademicYearLabel(payload.academicYearLabel);
+      const schemeName = normalizeSchemeName(payload.schemeName);
       const reason = String(payload.reason || "").trim() || "Scoped beneficiary clear";
 
       if (!academicYearLabel) {

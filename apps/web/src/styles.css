@@ -1576,6 +1576,32 @@ body[data-theme="dark"] .stepper-step.is-done .stepper-circle {
   font-size: 28px;
 }
 
+.statistics-breakdown {
+  margin-top: 14px;
+}
+
+.college-breakdown {
+  display: grid;
+  gap: 10px;
+}
+
+.college-breakdown-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.compact-table-wrap table {
+  min-width: 760px;
+}
+
+.compact-table-wrap th,
+.compact-table-wrap td {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .outcome-card-awarded {
   border-left: 4px solid #22c55e;
 }

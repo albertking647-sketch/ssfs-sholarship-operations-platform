@@ -49,6 +49,10 @@ import {
   renderAcademicHistoryImportHistoryMarkup,
   renderAcademicHistoryResultsMarkup
 } from "./academicHistoryLifecycle.js";
+import {
+  renderApplicationCollegeBreakdownMarkup,
+  shouldSaveAcademicHistoryFromKeydown
+} from "./applicationStatistics.js";
 import { showLoginGateMessage } from "./loginGateState.js";
 import {
   LOGIN_PASSWORD_GUIDANCE_MESSAGE,
@@ -279,7 +283,8 @@ const state = {
     qualifiedCount: 0,
     pendingCount: 0,
     disqualifiedCount: 0,
-    notReviewedCount: 0
+    notReviewedCount: 0,
+    collegeBreakdown: []
   },
   applicationCwaCoverage: {
     summary: {
@@ -587,6 +592,7 @@ const elements = {
   applicationsReloadButton: document.querySelector("#applicationsReloadButton"),
   applicationReviewSummaryCards: document.querySelector("#applicationReviewSummaryCards"),
   applicationReviewMetricsMessage: document.querySelector("#applicationReviewMetricsMessage"),
+  applicationReviewCollegeBreakdown: document.querySelector("#applicationReviewCollegeBreakdown"),
   applicationCwaCoverageBody: document.querySelector("#applicationCwaCoverageBody"),
   applicationCwaCoverageMessage: document.querySelector("#applicationCwaCoverageMessage"),
   applicationCwaCoverageCards: document.querySelector("#applicationCwaCoverageCards"),
@@ -650,6 +656,7 @@ const elements = {
   applicationBulkInterviewMessage: document.querySelector("#applicationBulkInterviewMessage"),
   applicationExportFont: document.querySelector("#applicationExportFont"),
   applicationExportMessage: document.querySelector("#applicationExportMessage"),
+  applicationExportSummary: document.querySelector("#applicationExportSummary"),
   applicationExportCards: document.querySelector("#applicationExportCards"),
   applicationMessagingForm: document.querySelector("#applicationMessagingForm"),
   applicationMessagingChannel: document.querySelector("#applicationMessagingChannel"),
@@ -7421,6 +7428,12 @@ function renderApplicationExportCards(summary = state.applicationReviewSummary) 
   const canExport = canExportApplications();
   const exportStates = [
     {
+      status: "all",
+      label: "Statistics",
+      count: Number(summary?.totalApplications || 0),
+      description: "All applications with the college decision summary and interview status breakdown."
+    },
+    {
       status: "qualified",
       label: "Qualified",
       count: Number(summary?.qualifiedCount || 0),
@@ -7485,7 +7498,8 @@ function renderApplicationReviewSummary(summary) {
     qualifiedCount: 0,
     pendingCount: 0,
     disqualifiedCount: 0,
-    notReviewedCount: 0
+    notReviewedCount: 0,
+    collegeBreakdown: []
   };
 
   elements.applicationReviewSummaryCards.innerHTML = `
@@ -7510,6 +7524,14 @@ function renderApplicationReviewSummary(summary) {
       <strong class="metric-value">${state.applicationReviewSummary.notReviewedCount}</strong>
     </article>
   `;
+  if (elements.applicationReviewCollegeBreakdown) {
+    elements.applicationReviewCollegeBreakdown.innerHTML =
+      renderApplicationCollegeBreakdownMarkup(state.applicationReviewSummary);
+  }
+  if (elements.applicationExportSummary) {
+    elements.applicationExportSummary.innerHTML =
+      renderApplicationCollegeBreakdownMarkup(state.applicationReviewSummary);
+  }
   renderApplicationExportCards(state.applicationReviewSummary);
   renderApplicationOutcomeSummary(state.applicationReviewSummary);
 }
@@ -13625,6 +13647,16 @@ function bindEvents() {
   elements.applicationAcademicEntrySaveButton.addEventListener("click", (event) => {
     void saveApplicationAcademicEntry(event);
   });
+  for (const input of [
+    elements.applicationAcademicEntryCwa,
+    elements.applicationAcademicEntryWassce
+  ]) {
+    input.addEventListener("keydown", (event) => {
+      if (!shouldSaveAcademicHistoryFromKeydown(event)) return;
+      event.preventDefault();
+      void saveApplicationAcademicEntry(event);
+    });
+  }
   elements.applicationBulkInterviewApplyButton.addEventListener("click", (event) => {
     void applyBulkInterviewUpdate(event);
   });

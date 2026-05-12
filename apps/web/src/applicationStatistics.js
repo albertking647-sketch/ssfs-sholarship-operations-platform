@@ -17,6 +17,36 @@ export function renderApplicationCollegeBreakdownMarkup(summary = {}) {
   if (!rows.length) {
     return `<p class="empty-state">College breakdown will appear once applications are loaded in the current review scope.</p>`;
   }
+  const totals = rows.reduce(
+    (accumulator, item) => ({
+      totalApplications: accumulator.totalApplications + numberValue(item.totalApplications),
+      reviewedCount: accumulator.reviewedCount + numberValue(item.reviewedCount),
+      qualifiedCount: accumulator.qualifiedCount + numberValue(item.qualifiedCount),
+      pendingCount: accumulator.pendingCount + numberValue(item.pendingCount),
+      disqualifiedCount: accumulator.disqualifiedCount + numberValue(item.disqualifiedCount),
+      notReviewedCount: accumulator.notReviewedCount + numberValue(item.notReviewedCount),
+      interviewCompletedCount:
+        accumulator.interviewCompletedCount + numberValue(item.interviewCompletedCount),
+      interviewScheduledCount:
+        accumulator.interviewScheduledCount + numberValue(item.interviewScheduledCount),
+      interviewPendingCount:
+        accumulator.interviewPendingCount + numberValue(item.interviewPendingCount),
+      interviewWaivedCount:
+        accumulator.interviewWaivedCount + numberValue(item.interviewWaivedCount)
+    }),
+    {
+      totalApplications: 0,
+      reviewedCount: 0,
+      qualifiedCount: 0,
+      pendingCount: 0,
+      disqualifiedCount: 0,
+      notReviewedCount: 0,
+      interviewCompletedCount: 0,
+      interviewScheduledCount: 0,
+      interviewPendingCount: 0,
+      interviewWaivedCount: 0
+    }
+  );
 
   return `
     <div class="college-breakdown">
@@ -61,6 +91,23 @@ export function renderApplicationCollegeBreakdownMarkup(summary = {}) {
               )
               .join("")}
           </tbody>
+          <tfoot>
+            <tr>
+              <td>Totals</td>
+              <td>${totals.totalApplications}</td>
+              <td>${totals.reviewedCount}</td>
+              <td>${totals.qualifiedCount}</td>
+              <td>${totals.pendingCount}</td>
+              <td>${totals.disqualifiedCount}</td>
+              <td>${totals.notReviewedCount}</td>
+              <td>
+                Completed: ${totals.interviewCompletedCount} |
+                Scheduled: ${totals.interviewScheduledCount} |
+                Pending: ${totals.interviewPendingCount} |
+                Waived: ${totals.interviewWaivedCount}
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>

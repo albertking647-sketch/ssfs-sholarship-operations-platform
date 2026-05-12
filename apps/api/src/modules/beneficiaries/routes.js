@@ -179,6 +179,40 @@ export function createBeneficiaryRoutes({ config, services }) {
     },
     {
       method: "POST",
+      path: "/api/beneficiaries/duplicates/declination-confirmations",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, req, res }) {
+        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const item = await services.beneficiaries.confirmDuplicateDeclinationForGroup(payload, actor);
+
+        return sendJson(res, 200, {
+          ok: true,
+          item
+        });
+      }
+    },
+    {
+      method: "POST",
+      path: "/api/beneficiaries/duplicates/:decisionId/cancel-declination-request",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, params, req, res }) {
+        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const item = await services.beneficiaries.cancelDuplicateDeclinationRequest(
+          params.decisionId,
+          payload,
+          actor
+        );
+
+        return sendJson(res, 200, {
+          ok: true,
+          item
+        });
+      }
+    },
+    {
+      method: "POST",
       path: "/api/beneficiaries/duplicates/:decisionId/confirm-declination",
       auth: "required",
       roles: ["admin"],

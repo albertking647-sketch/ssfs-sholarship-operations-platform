@@ -777,6 +777,132 @@ async function duplicateDeclinationRequestCanUseAdminContactOverride() {
   assert.equal(result.items[0].requestedContact, "manual.duplicate@example.test");
 }
 
+async function directDuplicateDeclinationConfirmationWorksWithoutPriorRequest() {
+  const repositories = createRepositories();
+  const service = createBeneficiaryService({ repositories });
+
+  await repositories.beneficiaries.importRows({
+    items: [
+      {
+        academicYearLabel: "2026/2027 Academic Year",
+        schemeName: "SRC KBN",
+        fullName: "Already Declined Student",
+        studentReferenceId: "20261111",
+        amountPaid: 1000,
+        supportType: "internal"
+      },
+      {
+        academicYearLabel: "2026/2027 Academic Year",
+        schemeName: "Alumni Scholarship",
+        fullName: "Already Declined Student",
+        studentReferenceId: "20261111",
+        amountPaid: 1500,
+        supportType: "external"
+      }
+    ],
+    importMode: "historical_archive",
+    sourceFileName: "duplicates.xlsx",
+    actor: { userId: "user-admin", fullName: "Admin User", roleCode: "admin" }
+  });
+
+  const unresolved = await service.listDuplicateSupports({ view: "unresolved" });
+  assert.equal(unresolved.items[0].status, "unresolved");
+
+  const confirmed = await service.confirmDuplicateDeclinationForGroup(
+    {
+      groupKey: unresolved.items[0].groupKey,
+      declinedSchemeName: "Alumni Scholarship",
+      confirmed: true
+    },
+    { userId: "user-admin", fullName: "Admin User", roleCode: "admin" }
+  );
+
+  assert.equal(confirmed.status, "declined_one_scheme");
+  assert.equal(confirmed.deletedRows, 1);
+
+  const remaining = await service.list({
+    academicYearLabel: "2026/2027 Academic Year"
+  });
+  assert.equal(remaining.total, 1);
+  assert.equal(remaining.items[0].schemeName, "SRC KBN");
+
+  const resolved = await service.listDuplicateSupports({ view: "resolved" });
+  assert.equal(resolved.items[0].declinedSchemeName, "Alumni Scholarship");
+  assert.equal(resolved.items[0].resolvedByName, "Admin User");
+}
+
+async function duplicateDeclinationRequestCanBeCancelledBeforeAnotherAction() {
+  const repositories = createRepositories();
+  const service = createBeneficiaryService({
+    repositories,
+    messaging: {
+      async send() {
+        return { sent: true, providerMessageId: "message-cancel" };
+      }
+    }
+  });
+
+  await repositories.beneficiaries.importRows({
+    items: [
+      {
+        academicYearLabel: "2026/2027 Academic Year",
+        schemeName: "SRC KBN",
+        fullName: "Change Request Student",
+        studentReferenceId: "20262222",
+        amountPaid: 1000,
+        supportType: "internal"
+      },
+      {
+        academicYearLabel: "2026/2027 Academic Year",
+        schemeName: "Alumni Scholarship",
+        fullName: "Change Request Student",
+        studentReferenceId: "20262222",
+        amountPaid: 1500,
+        supportType: "external"
+      }
+    ],
+    importMode: "historical_archive",
+    sourceFileName: "duplicates.xlsx",
+    actor: { userId: "user-admin", fullName: "Admin User", roleCode: "admin" }
+  });
+
+  const unresolved = await service.listDuplicateSupports({ view: "unresolved" });
+  const groupKey = unresolved.items[0].groupKey;
+  await service.sendDuplicateDeclinationRequests(
+    {
+      groupKeys: [groupKey],
+      channel: "email",
+      contactOverrides: {
+        [groupKey]: {
+          email: "change.request@example.test"
+        }
+      }
+    },
+    { userId: "user-admin", fullName: "Admin User", roleCode: "admin" }
+  );
+
+  const awaiting = await service.listDuplicateSupports({ view: "unresolved" });
+  assert.equal(awaiting.items[0].status, "awaiting_student_response");
+
+  const cancelled = await service.cancelDuplicateDeclinationRequest(
+    awaiting.items[0].decisionId,
+    { notes: "Use another channel instead." },
+    { userId: "user-admin", fullName: "Admin User", roleCode: "admin" }
+  );
+  assert.equal(cancelled.status, "request_cancelled");
+
+  const afterCancel = await service.listDuplicateSupports({ view: "unresolved" });
+  assert.equal(afterCancel.items[0].status, "unresolved");
+
+  await service.allowDuplicateSupports(
+    { groupKeys: [afterCancel.items[0].groupKey] },
+    { userId: "user-admin", fullName: "Admin User", roleCode: "admin" }
+  );
+
+  const resolved = await service.listDuplicateSupports({ view: "resolved" });
+  assert.equal(resolved.items[0].status, "allowed_on_both");
+}
+
 async function main() {
   await beneficiaryDashboardIncludesCohortCounts();
   await previewUsesSelectedDefaultCurrencyWhenRowsDoNotIncludeOne();
@@ -790,6 +916,8 @@ async function main() {
   await duplicateDeclinationConfirmationRequiresAdminAcknowledgement();
   await duplicateDeclinationRequestRequiresContactBeforeAwaiting();
   await duplicateDeclinationRequestCanUseAdminContactOverride();
+  await directDuplicateDeclinationConfirmationWorksWithoutPriorRequest();
+  await duplicateDeclinationRequestCanBeCancelledBeforeAnotherAction();
   console.log("beneficiaries-service-tests: ok");
 }
 

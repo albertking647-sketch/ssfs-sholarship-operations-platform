@@ -32,10 +32,16 @@ function duplicateSupportsActionsAreWired() {
   assert.match(appSource, /function renderBeneficiaryDuplicateDeclinationMessaging/u);
   assert.match(appSource, /function getBeneficiaryDuplicateContactOverride/u);
   assert.match(appSource, /function confirmBeneficiaryDuplicateDeclination/u);
+  assert.match(appSource, /function confirmBeneficiaryDuplicateDirectDeclination/u);
+  assert.match(appSource, /function cancelBeneficiaryDuplicateDeclinationRequest/u);
   assert.match(appSource, /data-beneficiary-duplicate-maintained-schemes/u);
   assert.match(appSource, /data-beneficiary-duplicate-declination-warning/u);
   assert.match(appSource, /data-beneficiary-duplicate-confirm-check/u);
   assert.match(appSource, /data-beneficiary-duplicate-confirm/u);
+  assert.match(appSource, /data-beneficiary-duplicate-direct-declined-scheme/u);
+  assert.match(appSource, /data-beneficiary-duplicate-direct-confirm-check/u);
+  assert.match(appSource, /data-beneficiary-duplicate-direct-confirm/u);
+  assert.match(appSource, /data-beneficiary-duplicate-cancel-request/u);
   assert.match(appSource, /confirmed:\s*true/u);
   assert.match(appSource, /data-beneficiary-duplicate-select/u);
   assert.match(appSource, /beneficiaryDuplicateSelectAll/u);

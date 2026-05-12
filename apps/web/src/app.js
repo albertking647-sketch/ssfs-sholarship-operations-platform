@@ -3775,6 +3775,35 @@ function syncBeneficiaryDuplicateActions() {
   }
 }
 
+function renderBeneficiaryDuplicateDirectDeclinationControls(item, schemes = []) {
+  const groupKey = item.groupKey || "";
+  return `
+    <div class="form-grid application-review-grid">
+      <label class="field">
+        <span>Support declined by student</span>
+        <select data-beneficiary-duplicate-direct-declined-scheme="${escapeHtml(groupKey)}">
+          <option value="">Choose declined support</option>
+          ${schemes.map((schemeName) => `<option value="${escapeHtml(schemeName)}">${escapeHtml(schemeName)}</option>`).join("")}
+        </select>
+      </label>
+      <div class="detail-item">
+        <span>Student keeps</span>
+        <strong data-beneficiary-duplicate-direct-maintained-schemes="${escapeHtml(groupKey)}">Choose declined support first</strong>
+      </div>
+      <div class="inline-note tone-error" data-beneficiary-duplicate-direct-warning="${escapeHtml(groupKey)}" hidden>
+        Choose the declined support to review what will be removed before confirming.
+      </div>
+      <label class="checkbox-field">
+        <input type="checkbox" data-beneficiary-duplicate-direct-confirm-check="${escapeHtml(groupKey)}" disabled />
+        <span>I confirm this is the support the student declined.</span>
+      </label>
+      <div class="action-row">
+        <button class="action-button primary" type="button" data-beneficiary-duplicate-direct-confirm="${escapeHtml(groupKey)}" disabled>Confirm declined support</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderBeneficiaryDuplicateList(items = state.beneficiaryDuplicates) {
   if (!elements.beneficiaryDuplicateList) return;
   const isResolvedView = elements.beneficiaryDuplicateViewFilter?.value === "resolved";
@@ -3871,10 +3900,13 @@ function renderBeneficiaryDuplicateList(items = state.beneficiaryDuplicates) {
                   </label>
                   <div class="action-row">
                     <button class="action-button primary" type="button" data-beneficiary-duplicate-confirm="${escapeHtml(item.decisionId || "")}" disabled>Confirm declination</button>
+                    <button class="action-button tertiary" type="button" data-beneficiary-duplicate-cancel-request="${escapeHtml(item.decisionId || "")}">Cancel request</button>
+                    <button class="action-button tertiary" type="button" data-beneficiary-duplicate-allow="${escapeHtml(item.groupKey || "")}">Allow on both</button>
                   </div>
                 </div>
               `
               : `
+                ${renderBeneficiaryDuplicateDirectDeclinationControls(item, schemes)}
                 <div class="action-row">
                   <button class="action-button tertiary" type="button" data-beneficiary-duplicate-request="${escapeHtml(item.groupKey || "")}">Prepare declination request</button>
                   <button class="action-button tertiary" type="button" data-beneficiary-duplicate-allow="${escapeHtml(item.groupKey || "")}">Allow on both</button>
@@ -4516,6 +4548,86 @@ async function confirmBeneficiaryDuplicateDeclination(decisionId, declinedScheme
     await loadBeneficiaryRecords();
     await loadBeneficiaryDuplicates();
     await loadDashboard();
+  } catch (error) {
+    setBeneficiaryDuplicateMessage(error.message, "error");
+  }
+}
+
+async function confirmBeneficiaryDuplicateDirectDeclination(groupKey, declinedSchemeName, confirmed = false) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    setBeneficiaryDuplicateMessage("Enter the API URL first.", "error");
+    return;
+  }
+  if (!groupKey || !declinedSchemeName) {
+    setBeneficiaryDuplicateMessage("Choose the support the student declined before confirming.", "error");
+    return;
+  }
+  if (confirmed !== true) {
+    setBeneficiaryDuplicateMessage("Tick the confirmation box after checking the declined and maintained support.", "error");
+    return;
+  }
+  setBeneficiaryDuplicateMessage("Recording student declination...", "warning");
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/beneficiaries/duplicates/declination-confirmations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({ groupKey, declinedSchemeName, confirmed: true })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.message || payload.error || "Unable to record the student declination.");
+    }
+    setBeneficiaryDuplicateMessage(
+      `Declination recorded. Removed ${payload.item?.deletedRows || 0} beneficiary row(s).`,
+      "success"
+    );
+    await loadBeneficiaryRecords();
+    await loadBeneficiaryDuplicates();
+    await loadDashboard();
+  } catch (error) {
+    setBeneficiaryDuplicateMessage(error.message, "error");
+  }
+}
+
+async function cancelBeneficiaryDuplicateDeclinationRequest(decisionId) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    setBeneficiaryDuplicateMessage("Enter the API URL first.", "error");
+    return;
+  }
+  if (!decisionId) {
+    setBeneficiaryDuplicateMessage("Choose the awaiting request to cancel.", "error");
+    return;
+  }
+  setBeneficiaryDuplicateMessage("Cancelling declination request...", "warning");
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/api/beneficiaries/duplicates/${encodeURIComponent(decisionId)}/cancel-declination-request`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({})
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.message || payload.error || "Unable to cancel the declination request.");
+    }
+    state.beneficiaryDuplicateDeclinationDraft = null;
+    state.beneficiaryDuplicateContactOverrides = {};
+    renderBeneficiaryDuplicateDeclinationMessaging();
+    setBeneficiaryDuplicateMessage(
+      "Declination request cancelled. You can prepare a new request or allow both supports.",
+      "success"
+    );
+    await loadBeneficiaryDuplicates();
   } catch (error) {
     setBeneficiaryDuplicateMessage(error.message, "error");
   }
@@ -14221,6 +14333,90 @@ function bindEvents() {
       }
       return;
     }
+    const directDeclinedSchemeSelect = event.target.closest(
+      "[data-beneficiary-duplicate-direct-declined-scheme]"
+    );
+    if (directDeclinedSchemeSelect) {
+      const groupKey = directDeclinedSchemeSelect.getAttribute(
+        "data-beneficiary-duplicate-direct-declined-scheme"
+      );
+      const item = state.beneficiaryDuplicates.find(
+        (duplicate) => String(duplicate.groupKey || "") === String(groupKey || "")
+      );
+      const declinedSchemeName = directDeclinedSchemeSelect.value || "";
+      const maintained = (item?.schemes || [])
+        .map((scheme) => scheme.schemeName)
+        .filter((schemeName) => schemeName && schemeName !== declinedSchemeName);
+      const maintainedTarget = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-direct-maintained-schemes]"
+        )
+      ].find(
+        (target) =>
+          target.getAttribute("data-beneficiary-duplicate-direct-maintained-schemes") === groupKey
+      );
+      if (maintainedTarget) {
+        maintainedTarget.textContent = declinedSchemeName
+          ? maintained.join(", ") || "No remaining support"
+          : "Choose declined support first";
+      }
+      const warningTarget = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-direct-warning]"
+        )
+      ].find(
+        (target) =>
+          target.getAttribute("data-beneficiary-duplicate-direct-warning") === groupKey
+      );
+      if (warningTarget) {
+        warningTarget.hidden = !declinedSchemeName;
+        warningTarget.textContent = declinedSchemeName
+          ? `Warning: confirming will remove ${declinedSchemeName} from this student's beneficiary records. The student will remain on ${maintained.join(", ") || "no other listed support"}.`
+          : "Choose the declined support to review what will be removed before confirming.";
+      }
+      const directConfirmCheck = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-direct-confirm-check]"
+        )
+      ].find(
+        (target) =>
+          target.getAttribute("data-beneficiary-duplicate-direct-confirm-check") === groupKey
+      );
+      const directConfirmButton = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll("[data-beneficiary-duplicate-direct-confirm]")
+      ].find(
+        (target) => target.getAttribute("data-beneficiary-duplicate-direct-confirm") === groupKey
+      );
+      if (directConfirmCheck) {
+        directConfirmCheck.checked = false;
+        directConfirmCheck.disabled = !declinedSchemeName;
+      }
+      if (directConfirmButton) {
+        directConfirmButton.disabled = true;
+      }
+      return;
+    }
+    const directConfirmCheck = event.target.closest("[data-beneficiary-duplicate-direct-confirm-check]");
+    if (directConfirmCheck) {
+      const groupKey = directConfirmCheck.getAttribute("data-beneficiary-duplicate-direct-confirm-check");
+      const select = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-direct-declined-scheme]"
+        )
+      ].find(
+        (target) =>
+          target.getAttribute("data-beneficiary-duplicate-direct-declined-scheme") === groupKey
+      );
+      const directConfirmButton = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll("[data-beneficiary-duplicate-direct-confirm]")
+      ].find(
+        (target) => target.getAttribute("data-beneficiary-duplicate-direct-confirm") === groupKey
+      );
+      if (directConfirmButton) {
+        directConfirmButton.disabled = !directConfirmCheck.checked || !select?.value;
+      }
+      return;
+    }
     const checkbox = event.target.closest("[data-beneficiary-duplicate-select]");
     if (!checkbox) return;
     const groupKey = checkbox.getAttribute("data-beneficiary-duplicate-select");
@@ -14245,6 +14441,38 @@ function bindEvents() {
       void allowBeneficiaryDuplicateGroups([
         allowButton.getAttribute("data-beneficiary-duplicate-allow")
       ]);
+      return;
+    }
+    const cancelRequestButton = event.target.closest("[data-beneficiary-duplicate-cancel-request]");
+    if (cancelRequestButton) {
+      void cancelBeneficiaryDuplicateDeclinationRequest(
+        cancelRequestButton.getAttribute("data-beneficiary-duplicate-cancel-request")
+      );
+      return;
+    }
+    const directConfirmButton = event.target.closest("[data-beneficiary-duplicate-direct-confirm]");
+    if (directConfirmButton) {
+      const groupKey = directConfirmButton.getAttribute("data-beneficiary-duplicate-direct-confirm");
+      const select = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-direct-declined-scheme]"
+        )
+      ].find(
+        (item) =>
+          item.getAttribute("data-beneficiary-duplicate-direct-declined-scheme") === groupKey
+      );
+      const confirmCheck = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-direct-confirm-check]"
+        )
+      ].find(
+        (item) => item.getAttribute("data-beneficiary-duplicate-direct-confirm-check") === groupKey
+      );
+      void confirmBeneficiaryDuplicateDirectDeclination(
+        groupKey,
+        select?.value || "",
+        Boolean(confirmCheck?.checked)
+      );
       return;
     }
     const confirmButton = event.target.closest("[data-beneficiary-duplicate-confirm]");

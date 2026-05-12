@@ -511,6 +511,56 @@ async function buildPromotedWaitlistLookup(repositories, items = []) {
 }
 
 export function createBeneficiaryService({ repositories, messaging = defaultDuplicateMessenger }) {
+  async function completeDuplicateDeclination(group, payload = {}, actor) {
+    const declinedSchemeName = normalizeSchemeName(payload.declinedSchemeName);
+    const matchedScheme = (group.schemes || []).find(
+      (item) => normalizeSchemeName(item.schemeName).toLowerCase() === declinedSchemeName.toLowerCase()
+    );
+    if (!matchedScheme) {
+      throw new ValidationError("The declined scheme must be one of the student's duplicate schemes.");
+    }
+
+    const deleteResult = await repositories.beneficiaries.deleteDuplicateSchemeRecords({
+      academicYearLabel: group.academicYearLabel,
+      studentReferenceId: group.studentReferenceId,
+      schemeName: matchedScheme.schemeName,
+      reason: payload.notes || "Student submitted declination letter.",
+      actor
+    });
+    const updated = await repositories.beneficiaries.upsertDuplicateDecision({
+      academicYearLabel: group.academicYearLabel,
+      studentReferenceId: group.studentReferenceId,
+      fullName: group.fullName,
+      schemes: group.schemes,
+      schemeSignature: group.schemeSignature || buildDuplicateSchemeSignature(group.schemes || []),
+      status: "declined_one_scheme",
+      declinedSchemeName: matchedScheme.schemeName,
+      resolvedByUserId: actor.userId || null,
+      resolvedByName: normalizeActorName(actor),
+      resolvedAt: new Date().toISOString(),
+      notes: String(payload.notes || "").trim() || null,
+      actor
+    });
+    await recordAuditEvent(repositories.audit, {
+      actor,
+      actionCode: "beneficiary.duplicate_declined",
+      entityType: "beneficiary_duplicate",
+      entityId: updated.id,
+      summary: "Beneficiary duplicate support declination was confirmed.",
+      metadata: {
+        academicYearLabel: group.academicYearLabel,
+        studentReferenceId: group.studentReferenceId,
+        declinedSchemeName: matchedScheme.schemeName,
+        deletedRows: deleteResult.deletedRows || 0
+      }
+    });
+
+    return {
+      ...updated,
+      deletedRows: deleteResult.deletedRows || 0
+    };
+  }
+
   return {
     async list(filters = {}) {
       const [result, filterOptions] = await Promise.all([
@@ -747,47 +797,75 @@ export function createBeneficiaryService({ repositories, messaging = defaultDupl
       if (decision.status !== "awaiting_student_response") {
         throw new ValidationError("Only awaiting-response duplicate decisions can be confirmed.");
       }
-      const matchedScheme = (decision.schemes || []).find(
-        (item) => normalizeSchemeName(item.schemeName).toLowerCase() === declinedSchemeName.toLowerCase()
-      );
-      if (!matchedScheme) {
-        throw new ValidationError("The declined scheme must be one of the student's duplicate schemes.");
+
+      return completeDuplicateDeclination(decision, payload, actor);
+    },
+
+    async confirmDuplicateDeclinationForGroup(payload = {}, actor) {
+      if (!actor || actor.roleCode !== "admin") {
+        throw new ValidationError("Only admins can confirm duplicate beneficiary declinations.");
+      }
+      const groupKey = String(payload.groupKey || "").trim();
+      if (!groupKey) {
+        throw new ValidationError("Choose the duplicate support group to resolve.");
+      }
+      const declinedSchemeName = normalizeSchemeName(payload.declinedSchemeName);
+      if (!declinedSchemeName) {
+        throw new ValidationError("Choose the scheme the student declined.");
+      }
+      if (payload.confirmed !== true) {
+        throw new ValidationError("Please confirm that this is the scheme the student declined before finalising.");
       }
 
-      const deleteResult = await repositories.beneficiaries.deleteDuplicateSchemeRecords({
-        academicYearLabel: decision.academicYearLabel,
-        studentReferenceId: decision.studentReferenceId,
-        schemeName: matchedScheme.schemeName,
-        reason: payload.notes || "Student submitted declination letter.",
-        actor
-      });
+      const records = await loadAllBeneficiaryRecords(repositories.beneficiaries);
+      const decisions = await (repositories.beneficiaries.listDuplicateDecisions?.({}) || []);
+      const group = buildCurrentDuplicateGroups(records, decisions, {}).find(
+        (item) => item.groupKey === groupKey
+      );
+      if (!group) {
+        throw new NotFoundError("Duplicate support group was not found.");
+      }
+      if (!["unresolved", "awaiting_student_response"].includes(group.status || "unresolved")) {
+        throw new ValidationError("Only unresolved duplicate support groups can be confirmed this way.");
+      }
+
+      return completeDuplicateDeclination(group, payload, actor);
+    },
+
+    async cancelDuplicateDeclinationRequest(id, payload = {}, actor) {
+      if (!actor || actor.roleCode !== "admin") {
+        throw new ValidationError("Only admins can cancel duplicate beneficiary declination requests.");
+      }
+      const decisionId = String(id || "").trim();
+      if (!decisionId) {
+        throw new ValidationError("Choose the pending duplicate decision to cancel.");
+      }
+      const decision = await repositories.beneficiaries.getDuplicateDecision(decisionId);
+      if (!decision) {
+        throw new NotFoundError("Duplicate decision was not found.");
+      }
+      if (decision.status !== "awaiting_student_response") {
+        throw new ValidationError("Only awaiting-response duplicate decisions can be cancelled.");
+      }
       const updated = await repositories.beneficiaries.updateDuplicateDecision(decisionId, {
-        status: "declined_one_scheme",
-        declinedSchemeName: matchedScheme.schemeName,
-        resolvedByUserId: actor.userId || null,
-        resolvedByName: normalizeActorName(actor),
-        resolvedAt: new Date().toISOString(),
+        status: "request_cancelled",
         notes: String(payload.notes || "").trim() || null,
         actor
       });
       await recordAuditEvent(repositories.audit, {
         actor,
-        actionCode: "beneficiary.duplicate_declined",
+        actionCode: "beneficiary.duplicate_request_cancelled",
         entityType: "beneficiary_duplicate",
         entityId: decisionId,
-        summary: "Beneficiary duplicate support declination was confirmed.",
+        summary: "Beneficiary duplicate support declination request was cancelled.",
         metadata: {
           academicYearLabel: decision.academicYearLabel,
           studentReferenceId: decision.studentReferenceId,
-          declinedSchemeName: matchedScheme.schemeName,
-          deletedRows: deleteResult.deletedRows || 0
+          notes: String(payload.notes || "").trim() || null
         }
       });
 
-      return {
-        ...updated,
-        deletedRows: deleteResult.deletedRows || 0
-      };
+      return updated;
     },
 
     async previewImport(payload) {

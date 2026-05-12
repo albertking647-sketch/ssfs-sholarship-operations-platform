@@ -130,6 +130,74 @@ export function createBeneficiaryRoutes({ config, services }) {
     },
     {
       method: "GET",
+      path: "/api/beneficiaries/duplicates",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ res, url }) {
+        const result = await services.beneficiaries.listDuplicateSupports({
+          view: url.searchParams.get("view") || "",
+          academicYearLabel: url.searchParams.get("academicYearLabel") || "",
+          schemeName: url.searchParams.get("schemeName") || "",
+          status: url.searchParams.get("status") || ""
+        });
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "POST",
+      path: "/api/beneficiaries/duplicates/allow",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, req, res }) {
+        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const result = await services.beneficiaries.allowDuplicateSupports(payload, actor);
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "POST",
+      path: "/api/beneficiaries/duplicates/declination-requests",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, req, res }) {
+        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const result = await services.beneficiaries.sendDuplicateDeclinationRequests(payload, actor);
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "POST",
+      path: "/api/beneficiaries/duplicates/:decisionId/confirm-declination",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, params, req, res }) {
+        const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
+        const item = await services.beneficiaries.confirmDuplicateDeclination(
+          params.decisionId,
+          payload,
+          actor
+        );
+
+        return sendJson(res, 200, {
+          ok: true,
+          item
+        });
+      }
+    },
+    {
+      method: "GET",
       path: "/api/beneficiaries/:id/history",
       auth: "required",
       roles: ["admin"],

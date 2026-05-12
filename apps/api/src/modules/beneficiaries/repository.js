@@ -552,6 +552,48 @@ function buildSchemeReport(records, academicYearLabel, schemeName) {
   };
 }
 
+function normalizeDuplicateSchemes(schemes = []) {
+  return (schemes || [])
+    .map((item) => ({
+      schemeName: normalizeSchemeName(item.schemeName || item),
+      recordIds: Array.isArray(item.recordIds) ? item.recordIds.map(String) : []
+    }))
+    .filter((item) => item.schemeName)
+    .sort((left, right) => left.schemeName.localeCompare(right.schemeName));
+}
+
+function buildDuplicateSchemeSignature(schemes = []) {
+  return normalizeDuplicateSchemes(schemes)
+    .map((item) => item.schemeName.toLowerCase())
+    .join("||");
+}
+
+function mapDuplicateDecision(decision = {}) {
+  return {
+    id: String(decision.id),
+    academicYearLabel: normalizeYearLabel(decision.academicYearLabel),
+    studentReferenceId: decision.studentReferenceId || null,
+    fullName: decision.fullName || null,
+    schemes: normalizeDuplicateSchemes(decision.schemes || []),
+    schemeSignature: decision.schemeSignature || buildDuplicateSchemeSignature(decision.schemes || []),
+    status: decision.status || "awaiting_student_response",
+    requestedChannel: decision.requestedChannel || null,
+    requestedContact: decision.requestedContact || null,
+    deliveryStatus: decision.deliveryStatus || null,
+    deliveryMessageId: decision.deliveryMessageId || null,
+    requestedByUserId: decision.requestedByUserId || null,
+    requestedByName: decision.requestedByName || null,
+    requestedAt: decision.requestedAt || null,
+    declinedSchemeName: decision.declinedSchemeName || null,
+    resolvedByUserId: decision.resolvedByUserId || null,
+    resolvedByName: decision.resolvedByName || null,
+    resolvedAt: decision.resolvedAt || null,
+    notes: decision.notes || null,
+    createdAt: decision.createdAt || null,
+    updatedAt: decision.updatedAt || null
+  };
+}
+
 function matchesScopedBeneficiaryDelete(record, academicYearLabel, schemeName) {
   return (
     normalizeYearLabel(record.academicYearLabel) === academicYearLabel &&
@@ -563,6 +605,7 @@ function createSampleRepository() {
   const records = [];
   const batchLogs = [];
   const auditEvents = [];
+  const duplicateDecisions = [];
 
   function addAuditEvent(event = {}) {
     auditEvents.unshift({
@@ -1016,6 +1059,103 @@ function createSampleRepository() {
     },
     async getDashboardData(options = {}) {
       return aggregateDashboard(records, options);
+    },
+    async listDuplicateDecisions() {
+      return duplicateDecisions.map(mapDuplicateDecision);
+    },
+    async getDuplicateDecision(id) {
+      const decision = duplicateDecisions.find((item) => String(item.id) === String(id));
+      return decision ? mapDuplicateDecision(decision) : null;
+    },
+    async upsertDuplicateDecision(input = {}) {
+      const academicYearLabel = normalizeYearLabel(input.academicYearLabel);
+      const studentReferenceId = String(input.studentReferenceId || "").trim();
+      const schemes = normalizeDuplicateSchemes(input.schemes || []);
+      const schemeSignature = input.schemeSignature || buildDuplicateSchemeSignature(schemes);
+      const existing = duplicateDecisions.find(
+        (item) =>
+          normalizeYearLabel(item.academicYearLabel) === academicYearLabel &&
+          String(item.studentReferenceId || "").trim().toLowerCase() === studentReferenceId.toLowerCase() &&
+          String(item.schemeSignature || "") === schemeSignature
+      );
+      const now = new Date().toISOString();
+      const next = {
+        ...(existing || {
+          id: createId("beneficiary-duplicate"),
+          createdAt: now
+        }),
+        academicYearLabel,
+        studentReferenceId,
+        fullName: input.fullName || existing?.fullName || null,
+        schemes,
+        schemeSignature,
+        status: input.status || existing?.status || "awaiting_student_response",
+        requestedChannel: input.requestedChannel ?? existing?.requestedChannel ?? null,
+        requestedContact: input.requestedContact ?? existing?.requestedContact ?? null,
+        deliveryStatus: input.deliveryStatus ?? existing?.deliveryStatus ?? null,
+        deliveryMessageId: input.deliveryMessageId ?? existing?.deliveryMessageId ?? null,
+        requestedByUserId: input.requestedByUserId ?? existing?.requestedByUserId ?? null,
+        requestedByName: input.requestedByName ?? existing?.requestedByName ?? null,
+        requestedAt: input.requestedAt ?? existing?.requestedAt ?? null,
+        declinedSchemeName: input.declinedSchemeName ?? existing?.declinedSchemeName ?? null,
+        resolvedByUserId: input.resolvedByUserId ?? existing?.resolvedByUserId ?? null,
+        resolvedByName: input.resolvedByName ?? existing?.resolvedByName ?? null,
+        resolvedAt: input.resolvedAt ?? existing?.resolvedAt ?? null,
+        notes: input.notes ?? existing?.notes ?? null,
+        updatedAt: now
+      };
+      if (existing) {
+        Object.assign(existing, next);
+        return mapDuplicateDecision(existing);
+      }
+      duplicateDecisions.unshift(next);
+      return mapDuplicateDecision(next);
+    },
+    async updateDuplicateDecision(id, updates = {}) {
+      const decision = duplicateDecisions.find((item) => String(item.id) === String(id));
+      if (!decision) {
+        return null;
+      }
+      Object.assign(decision, {
+        status: updates.status ?? decision.status,
+        declinedSchemeName: updates.declinedSchemeName ?? decision.declinedSchemeName ?? null,
+        resolvedByUserId: updates.resolvedByUserId ?? decision.resolvedByUserId ?? null,
+        resolvedByName: updates.resolvedByName ?? decision.resolvedByName ?? null,
+        resolvedAt: updates.resolvedAt ?? decision.resolvedAt ?? null,
+        notes: updates.notes ?? decision.notes ?? null,
+        updatedAt: new Date().toISOString()
+      });
+      return mapDuplicateDecision(decision);
+    },
+    async deleteDuplicateSchemeRecords({ academicYearLabel, studentReferenceId, schemeName, reason, actor }) {
+      const normalizedYear = normalizeYearLabel(academicYearLabel);
+      const normalizedReference = String(studentReferenceId || "").trim().toLowerCase();
+      const normalizedScheme = normalizeSchemeName(schemeName).toLowerCase();
+      let deletedRows = 0;
+      for (let index = records.length - 1; index >= 0; index -= 1) {
+        const record = records[index];
+        if (
+          normalizeYearLabel(record.academicYearLabel) === normalizedYear &&
+          String(record.studentReferenceId || "").trim().toLowerCase() === normalizedReference &&
+          normalizeSchemeName(record.schemeName).toLowerCase() === normalizedScheme
+        ) {
+          const deletedRecord = mapStoredRecord(record);
+          records.splice(index, 1);
+          deletedRows += 1;
+          addAuditEvent({
+            beneficiaryId: deletedRecord.id,
+            academicYearLabel: deletedRecord.academicYearLabel,
+            schemeName: deletedRecord.schemeName,
+            studentReferenceId: deletedRecord.studentReferenceId,
+            eventType: "duplicate_declination_removed",
+            summary: "Beneficiary row removed after duplicate support declination.",
+            reason,
+            actorName: normalizeActorLabel(actor),
+            snapshot: buildAuditSnapshot(deletedRecord)
+          });
+        }
+      }
+      return { deletedRows };
     }
   };
 }
@@ -1085,6 +1225,32 @@ function mapBeneficiaryAuditEventRow(row) {
     snapshot: row.snapshot || null,
     createdAt: row.created_at || null
   };
+}
+
+function mapDuplicateDecisionRow(row) {
+  return mapDuplicateDecision({
+    id: row.id,
+    academicYearLabel: row.academic_year_label,
+    studentReferenceId: row.student_reference_id,
+    fullName: row.full_name,
+    schemes: row.schemes || [],
+    schemeSignature: row.scheme_signature,
+    status: row.status,
+    requestedChannel: row.requested_channel,
+    requestedContact: row.requested_contact,
+    deliveryStatus: row.delivery_status,
+    deliveryMessageId: row.delivery_message_id,
+    requestedByUserId: row.requested_by_user_id ? String(row.requested_by_user_id) : null,
+    requestedByName: row.requested_by_name,
+    requestedAt: row.requested_at,
+    declinedSchemeName: row.declined_scheme_name,
+    resolvedByUserId: row.resolved_by_user_id ? String(row.resolved_by_user_id) : null,
+    resolvedByName: row.resolved_by_name,
+    resolvedAt: row.resolved_at,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  });
 }
 
 function createPostgresRepository(database) {
@@ -1187,6 +1353,35 @@ function createPostgresRepository(database) {
     );
     await database.query(
       "CREATE INDEX IF NOT EXISTS idx_beneficiary_audit_record ON beneficiary_audit_events(beneficiary_id, created_at DESC)"
+    );
+    await database.query(`
+      CREATE TABLE IF NOT EXISTS beneficiary_duplicate_decisions (
+        id BIGSERIAL PRIMARY KEY,
+        academic_year_label TEXT NOT NULL,
+        student_reference_id TEXT NOT NULL,
+        full_name TEXT,
+        schemes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        scheme_signature TEXT NOT NULL,
+        status TEXT NOT NULL,
+        requested_channel TEXT,
+        requested_contact TEXT,
+        delivery_status TEXT,
+        delivery_message_id TEXT,
+        requested_by_user_id BIGINT REFERENCES users(id),
+        requested_by_name TEXT,
+        requested_at TIMESTAMPTZ,
+        declined_scheme_name TEXT,
+        resolved_by_user_id BIGINT REFERENCES users(id),
+        resolved_by_name TEXT,
+        resolved_at TIMESTAMPTZ,
+        notes TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (academic_year_label, student_reference_id, scheme_signature)
+      )
+    `);
+    await database.query(
+      "CREATE INDEX IF NOT EXISTS idx_beneficiary_duplicate_decisions_scope ON beneficiary_duplicate_decisions(academic_year_label, student_reference_id, status, updated_at DESC)"
     );
 
     ensured = true;
@@ -2415,6 +2610,281 @@ function createPostgresRepository(database) {
             normalizeActorLabel(actor)
           ]
         );
+        return { deletedRows: Number(result.rowCount || 0) };
+      });
+    },
+    async listDuplicateDecisions() {
+      await ensureTable();
+      const result = await database.query(
+        `
+          SELECT
+            id::text AS id,
+            academic_year_label,
+            student_reference_id,
+            full_name,
+            schemes,
+            scheme_signature,
+            status,
+            requested_channel,
+            requested_contact,
+            delivery_status,
+            delivery_message_id,
+            requested_by_user_id::text AS requested_by_user_id,
+            requested_by_name,
+            requested_at,
+            declined_scheme_name,
+            resolved_by_user_id::text AS resolved_by_user_id,
+            resolved_by_name,
+            resolved_at,
+            notes,
+            created_at,
+            updated_at
+          FROM beneficiary_duplicate_decisions
+          ORDER BY updated_at DESC, id DESC
+        `
+      );
+      return result.rows.map(mapDuplicateDecisionRow);
+    },
+    async getDuplicateDecision(id) {
+      await ensureTable();
+      const result = await database.query(
+        `
+          SELECT
+            id::text AS id,
+            academic_year_label,
+            student_reference_id,
+            full_name,
+            schemes,
+            scheme_signature,
+            status,
+            requested_channel,
+            requested_contact,
+            delivery_status,
+            delivery_message_id,
+            requested_by_user_id::text AS requested_by_user_id,
+            requested_by_name,
+            requested_at,
+            declined_scheme_name,
+            resolved_by_user_id::text AS resolved_by_user_id,
+            resolved_by_name,
+            resolved_at,
+            notes,
+            created_at,
+            updated_at
+          FROM beneficiary_duplicate_decisions
+          WHERE id::text = $1
+        `,
+        [String(id)]
+      );
+      return result.rows[0] ? mapDuplicateDecisionRow(result.rows[0]) : null;
+    },
+    async upsertDuplicateDecision(input = {}) {
+      await ensureTable();
+      const academicYearLabel = normalizeYearLabel(input.academicYearLabel);
+      const schemes = normalizeDuplicateSchemes(input.schemes || []);
+      const schemeSignature = input.schemeSignature || buildDuplicateSchemeSignature(schemes);
+      const result = await database.query(
+        `
+          INSERT INTO beneficiary_duplicate_decisions (
+            academic_year_label,
+            student_reference_id,
+            full_name,
+            schemes,
+            scheme_signature,
+            status,
+            requested_channel,
+            requested_contact,
+            delivery_status,
+            delivery_message_id,
+            requested_by_user_id,
+            requested_by_name,
+            requested_at,
+            declined_scheme_name,
+            resolved_by_user_id,
+            resolved_by_name,
+            resolved_at,
+            notes,
+            updated_at
+          )
+          VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
+          ON CONFLICT (academic_year_label, student_reference_id, scheme_signature)
+          DO UPDATE SET
+            full_name = EXCLUDED.full_name,
+            schemes = EXCLUDED.schemes,
+            status = EXCLUDED.status,
+            requested_channel = COALESCE(EXCLUDED.requested_channel, beneficiary_duplicate_decisions.requested_channel),
+            requested_contact = COALESCE(EXCLUDED.requested_contact, beneficiary_duplicate_decisions.requested_contact),
+            delivery_status = COALESCE(EXCLUDED.delivery_status, beneficiary_duplicate_decisions.delivery_status),
+            delivery_message_id = COALESCE(EXCLUDED.delivery_message_id, beneficiary_duplicate_decisions.delivery_message_id),
+            requested_by_user_id = COALESCE(EXCLUDED.requested_by_user_id, beneficiary_duplicate_decisions.requested_by_user_id),
+            requested_by_name = COALESCE(EXCLUDED.requested_by_name, beneficiary_duplicate_decisions.requested_by_name),
+            requested_at = COALESCE(EXCLUDED.requested_at, beneficiary_duplicate_decisions.requested_at),
+            declined_scheme_name = EXCLUDED.declined_scheme_name,
+            resolved_by_user_id = EXCLUDED.resolved_by_user_id,
+            resolved_by_name = EXCLUDED.resolved_by_name,
+            resolved_at = EXCLUDED.resolved_at,
+            notes = EXCLUDED.notes,
+            updated_at = NOW()
+          RETURNING
+            id::text AS id,
+            academic_year_label,
+            student_reference_id,
+            full_name,
+            schemes,
+            scheme_signature,
+            status,
+            requested_channel,
+            requested_contact,
+            delivery_status,
+            delivery_message_id,
+            requested_by_user_id::text AS requested_by_user_id,
+            requested_by_name,
+            requested_at,
+            declined_scheme_name,
+            resolved_by_user_id::text AS resolved_by_user_id,
+            resolved_by_name,
+            resolved_at,
+            notes,
+            created_at,
+            updated_at
+        `,
+        [
+          academicYearLabel,
+          String(input.studentReferenceId || "").trim(),
+          input.fullName || null,
+          JSON.stringify(schemes),
+          schemeSignature,
+          input.status || "awaiting_student_response",
+          input.requestedChannel || null,
+          input.requestedContact || null,
+          input.deliveryStatus || null,
+          input.deliveryMessageId || null,
+          toDatabaseUserId({ userId: input.requestedByUserId }),
+          input.requestedByName || null,
+          input.requestedAt || null,
+          input.declinedSchemeName || null,
+          toDatabaseUserId({ userId: input.resolvedByUserId }),
+          input.resolvedByName || null,
+          input.resolvedAt || null,
+          input.notes || null
+        ]
+      );
+      return mapDuplicateDecisionRow(result.rows[0]);
+    },
+    async updateDuplicateDecision(id, updates = {}) {
+      await ensureTable();
+      const result = await database.query(
+        `
+          UPDATE beneficiary_duplicate_decisions
+          SET
+            status = COALESCE($2, status),
+            declined_scheme_name = $3,
+            resolved_by_user_id = $4,
+            resolved_by_name = $5,
+            resolved_at = $6,
+            notes = $7,
+            updated_at = NOW()
+          WHERE id::text = $1
+          RETURNING
+            id::text AS id,
+            academic_year_label,
+            student_reference_id,
+            full_name,
+            schemes,
+            scheme_signature,
+            status,
+            requested_channel,
+            requested_contact,
+            delivery_status,
+            delivery_message_id,
+            requested_by_user_id::text AS requested_by_user_id,
+            requested_by_name,
+            requested_at,
+            declined_scheme_name,
+            resolved_by_user_id::text AS resolved_by_user_id,
+            resolved_by_name,
+            resolved_at,
+            notes,
+            created_at,
+            updated_at
+        `,
+        [
+          String(id),
+          updates.status || null,
+          updates.declinedSchemeName || null,
+          toDatabaseUserId({ userId: updates.resolvedByUserId }),
+          updates.resolvedByName || null,
+          updates.resolvedAt || null,
+          updates.notes || null
+        ]
+      );
+      return result.rows[0] ? mapDuplicateDecisionRow(result.rows[0]) : null;
+    },
+    async deleteDuplicateSchemeRecords({ academicYearLabel, studentReferenceId, schemeName, reason, actor }) {
+      await ensureTable();
+      return database.withTransaction(async (transaction) => {
+        const lookup = await transaction.query(
+          `
+            SELECT
+              id::text AS id,
+              academic_year_label,
+              scheme_name,
+              sponsor_name,
+              full_name,
+              student_reference_id,
+              index_number,
+              college,
+              amount_paid,
+              currency,
+              support_type,
+              beneficiary_cohort,
+              carried_forward_from_prior_year,
+              remarks,
+              import_mode,
+              import_batch_reference,
+              source_file_name,
+              linked_application_id::text AS linked_application_id,
+              linked_waitlist_entry_id::text AS linked_waitlist_entry_id,
+              created_at,
+              updated_at
+            FROM beneficiaries
+            WHERE academic_year_label = $1
+              AND LOWER(TRIM(COALESCE(student_reference_id, ''))) = LOWER(TRIM($2))
+              AND LOWER(TRIM(scheme_name)) = LOWER(TRIM($3))
+          `,
+          [
+            normalizeYearLabel(academicYearLabel),
+            String(studentReferenceId || "").trim(),
+            normalizeSchemeName(schemeName)
+          ]
+        );
+        const result = await transaction.query(
+          `
+            DELETE FROM beneficiaries
+            WHERE academic_year_label = $1
+              AND LOWER(TRIM(COALESCE(student_reference_id, ''))) = LOWER(TRIM($2))
+              AND LOWER(TRIM(scheme_name)) = LOWER(TRIM($3))
+          `,
+          [
+            normalizeYearLabel(academicYearLabel),
+            String(studentReferenceId || "").trim(),
+            normalizeSchemeName(schemeName)
+          ]
+        );
+        for (const row of lookup.rows) {
+          const mapped = mapBeneficiaryRow(row);
+          await recordAuditEvent(transaction, {
+            beneficiaryId: mapped.id,
+            academicYearLabel: mapped.academicYearLabel,
+            schemeName: mapped.schemeName,
+            studentReferenceId: mapped.studentReferenceId,
+            eventType: "duplicate_declination_removed",
+            summary: "Beneficiary row removed after duplicate support declination.",
+            reason,
+            actor,
+            snapshot: buildAuditSnapshot(mapped)
+          });
+        }
         return { deletedRows: Number(result.rowCount || 0) };
       });
     },

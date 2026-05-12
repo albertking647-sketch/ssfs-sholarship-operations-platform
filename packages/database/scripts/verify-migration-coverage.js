@@ -13,7 +13,8 @@ const requiredTables = [
   "application_import_issues",
   "scheme_academic_years",
   "recommended_students",
-  "recommended_student_import_batches"
+  "recommended_student_import_batches",
+  "beneficiary_duplicate_decisions"
 ];
 
 const files = fs

@@ -1687,9 +1687,9 @@
                         <span>CWA</span>
                         <input
                           id="applicationAcademicEntryCwa"
-                          type="number"
-                          step="0.01"
-                          min="0"
+                          type="text"
+                          inputmode="decimal"
+                          autocomplete="off"
                           placeholder="Enter or update CWA"
                         />
                       </label>
@@ -1697,9 +1697,9 @@
                         <span>WASSCE Aggregate</span>
                         <input
                           id="applicationAcademicEntryWassce"
-                          type="number"
-                          step="0.01"
-                          min="0"
+                          type="text"
+                          inputmode="decimal"
+                          autocomplete="off"
                           placeholder="Enter or update WASSCE Aggregate"
                         />
                       </label>
@@ -2525,6 +2525,10 @@
           <nav class="section-nav" aria-label="Beneficiaries and support sections" style="margin-top:16px; display:flex; gap:8px; flex-wrap:wrap;">
             <button class="chip is-active" type="button" data-beneficiary-section="imports">Beneficiary Imports</button>
             <button class="chip" type="button" data-beneficiary-section="beneficiaries">Beneficiaries</button>
+            <button class="chip" type="button" data-beneficiary-section="duplicates">
+              Duplicates &amp; Declinations
+              <span id="beneficiaryDuplicateTabBadge" class="tab-warning-badge" hidden>0</span>
+            </button>
           </nav>
         </section>
 
@@ -2966,6 +2970,110 @@
             </div>
             <div id="beneficiaryAuditPageSummary" class="inline-note">
               Beneficiary lifecycle audit pagination summary will appear here after loading events.
+            </div>
+          </section>
+        </section>
+
+        <section class="section-view" data-beneficiary-section-view="duplicates">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-eyebrow">Duplicate Supports</p>
+                <h3>Review students listed under multiple schemes in the same academic year</h3>
+              </div>
+              <div class="action-row">
+                <button id="beneficiaryDuplicateReloadButton" class="action-button secondary" type="button">Reload duplicates</button>
+              </div>
+            </div>
+            <form id="beneficiaryDuplicateFilterForm" class="import-form">
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Academic year</span>
+                  <select id="beneficiaryDuplicateAcademicYearFilter">
+                    <option value="">All academic years</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Support name</span>
+                  <select id="beneficiaryDuplicateSchemeFilter">
+                    <option value="">All support names</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>View</span>
+                  <select id="beneficiaryDuplicateViewFilter">
+                    <option value="unresolved">Unresolved</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Request channel</span>
+                  <select id="beneficiaryDuplicateChannel">
+                    <option value="email">Email</option>
+                    <option value="sms">SMS</option>
+                  </select>
+                </label>
+              </div>
+              <div class="action-row">
+                <button id="beneficiaryDuplicateFilterButton" class="action-button secondary" type="submit">Apply filters</button>
+                <label class="checkbox-field">
+                  <input id="beneficiaryDuplicateSelectAll" type="checkbox" />
+                  <span>Select all unresolved shown</span>
+                </label>
+                <button id="beneficiaryDuplicateBulkRequestButton" class="action-button tertiary" type="button" disabled>Prepare declination requests</button>
+                <button id="beneficiaryDuplicateBulkAllowButton" class="action-button tertiary" type="button" disabled>Allow on both</button>
+              </div>
+            </form>
+            <div id="beneficiaryDuplicateMessage" class="inline-note">
+              Duplicate support groups will appear here after loading imported beneficiary records.
+            </div>
+            <section id="beneficiaryDuplicateDeclinationMessagingPanel" class="declination-messaging-panel" hidden>
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-eyebrow">Declination Messaging</p>
+                  <h3>Review and adjust the student request before sending</h3>
+                </div>
+                <button id="beneficiaryDuplicateDeclinationResetButton" class="action-button ghost" type="button">Reset to default</button>
+              </div>
+              <div class="form-grid application-review-grid">
+                <label class="field">
+                  <span>Subject</span>
+                  <input id="beneficiaryDuplicateDeclinationSubject" type="text" />
+                </label>
+                <label class="field">
+                  <span>Channel</span>
+                  <input id="beneficiaryDuplicateDeclinationChannelSummary" type="text" readonly />
+                </label>
+              </div>
+              <label class="field">
+                <span>Body</span>
+                <textarea id="beneficiaryDuplicateDeclinationBody" rows="9"></textarea>
+              </label>
+              <p id="beneficiaryDuplicateDeclinationCharCount" class="detail-subcopy">0 characters</p>
+              <div id="beneficiaryDuplicateDeclinationRecipients" class="result-list">
+                <p class="empty-state">Choose duplicate groups before preparing a declination request.</p>
+              </div>
+              <div class="action-row">
+                <button id="beneficiaryDuplicateDeclinationSendButton" class="action-button primary" type="button">Send edited request</button>
+                <button id="beneficiaryDuplicateDeclinationCancelButton" class="action-button tertiary" type="button">Cancel</button>
+              </div>
+            </section>
+            <div id="beneficiaryDuplicateSummaryCards" class="summary-cards summary-cards-wide">
+              <article class="metric-card">
+                <span class="metric-label">Unresolved</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Awaiting response</span>
+                <strong class="metric-value">0</strong>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">Resolved</span>
+                <strong class="metric-value">0</strong>
+              </article>
+            </div>
+            <div id="beneficiaryDuplicateList" class="result-list">
+              <p class="empty-state">No duplicate support groups loaded yet.</p>
             </div>
           </section>
         </section>

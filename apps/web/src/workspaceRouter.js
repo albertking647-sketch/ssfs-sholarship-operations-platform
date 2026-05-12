@@ -24,7 +24,7 @@ const VALID_APPLICATION_SECTIONS = new Set([
   "outcomes",
   "messaging"
 ]);
-const VALID_BENEFICIARY_SECTIONS = new Set(["imports", "beneficiaries"]);
+const VALID_BENEFICIARY_SECTIONS = new Set(["imports", "beneficiaries", "duplicates"]);
 
 function normalizeRoute(input = {}) {
   const route = {
@@ -47,11 +47,21 @@ function parseRouteFromHash(hashValue = "") {
   const sanitizedHash = String(hashValue || "").trim();
   const routePath = sanitizedHash.startsWith("#/") ? sanitizedHash.slice(2) : "";
   const [moduleName = "", sectionName = ""] = routePath.split("/");
+  const sectionKey =
+    moduleName === "awards"
+      ? { beneficiarySection: sectionName }
+      : moduleName === "applications"
+        ? { applicationsSection: sectionName }
+        : moduleName === "registry"
+          ? { registrySection: sectionName }
+          : {
+              registrySection: sectionName,
+              applicationsSection: sectionName,
+              beneficiarySection: sectionName
+            };
   return normalizeRoute({
     module: moduleName || DEFAULTS.module,
-    registrySection: sectionName,
-    applicationsSection: sectionName,
-    beneficiarySection: sectionName
+    ...sectionKey
   });
 }
 

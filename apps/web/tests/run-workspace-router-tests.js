@@ -25,6 +25,12 @@ function parsesKnownModuleSectionHashes() {
     applicationsSection: "import",
     beneficiarySection: "beneficiaries"
   });
+  assert.deepEqual(parseRouteFromHash("#/awards/duplicates"), {
+    module: "awards",
+    registrySection: "import",
+    applicationsSection: "import",
+    beneficiarySection: "duplicates"
+  });
 }
 
 function fallsBackForInvalidHashValues() {
@@ -47,6 +53,7 @@ function buildsExpectedHashesFromRouteData() {
   assert.equal(buildHashFromRoute({ module: "applications", applicationsSection: "messaging" }), "#/applications/messaging");
   assert.equal(buildHashFromRoute({ module: "registry", registrySection: "history" }), "#/registry/history");
   assert.equal(buildHashFromRoute({ module: "awards", beneficiarySection: "beneficiaries" }), "#/awards/beneficiaries");
+  assert.equal(buildHashFromRoute({ module: "awards", beneficiarySection: "duplicates" }), "#/awards/duplicates");
 }
 
 function mapsWorkspaceStateToNormalizedRoute() {
@@ -54,12 +61,12 @@ function mapsWorkspaceStateToNormalizedRoute() {
     activeModule: "applications",
     activeSection: "search",
     activeApplicationsSection: "review",
-    activeBeneficiarySection: "beneficiaries"
+    activeBeneficiarySection: "duplicates"
   });
   assert.equal(route.module, "applications");
   assert.equal(route.applicationsSection, "review");
   assert.equal(route.registrySection, "search");
-  assert.equal(route.beneficiarySection, "beneficiaries");
+  assert.equal(route.beneficiarySection, "duplicates");
 }
 
 parsesKnownModuleSectionHashes();

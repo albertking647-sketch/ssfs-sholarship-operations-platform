@@ -579,6 +579,22 @@ body[data-theme="dark"] .pill, body[data-theme="dark"] .status-dot {
   box-shadow: inset 0 0 0 1px rgba(201, 168, 76, 0.08);
 }
 
+.tab-warning-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  margin-left: 0.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
 body[data-theme="dark"] .chip {
   background: rgba(212, 175, 55, 0.12);
   color: var(--gold-light);
@@ -1272,6 +1288,26 @@ tbody tr:hover td { background: var(--gold-faint); }
 .result-list .search-result-card + .search-result-card { margin-top: 12px; }
 .review-search-actions { justify-content: flex-end; margin-top: 12px; }
 .message-batch-actions { justify-content: flex-start; }
+.declination-messaging-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.declination-messaging-panel[hidden] { display: none; }
+.message-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+  font: 12px/1.5 var(--font-sans);
+}
 .message-batch-errors {
   display: grid;
   gap: 8px;

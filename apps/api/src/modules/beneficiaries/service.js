@@ -1,9 +1,18 @@
-import { ValidationError } from "../../lib/errors.js";
+import { config } from "../../config.js";
+import { NotFoundError, ValidationError } from "../../lib/errors.js";
 import { recordAuditEvent } from "../../lib/audit.js";
 import { buildBeneficiaryImportPreview } from "./import.js";
 
 const VALID_IMPORT_MODES = new Set(["current_cycle_linked", "historical_archive"]);
 const VALID_DUPLICATE_STRATEGIES = new Set(["skip", "import_anyway", "replace_existing"]);
+const VALID_DUPLICATE_VIEWS = new Set(["unresolved", "resolved"]);
+const VALID_DECLINATION_CHANNELS = new Set(["email", "sms"]);
+const DUPLICATE_RESOLVED_STATUSES = new Set(["allowed_on_both", "declined_one_scheme"]);
+const DECLINATION_MESSAGE_SIGNATURE = [
+  "Best regards,",
+  "Student Support and Financial Services, DoSA",
+  "KNUST"
+];
 
 function normalizeImportMode(value) {
   const mode = String(value || "").trim().toLowerCase() || "historical_archive";
@@ -106,6 +115,326 @@ function normalizeBeneficiaryCohort(value) {
   return null;
 }
 
+function normalizeDuplicateView(value) {
+  const view = String(value || "").trim().toLowerCase() || "unresolved";
+  return VALID_DUPLICATE_VIEWS.has(view) ? view : "unresolved";
+}
+
+function normalizeDeclinationChannel(value) {
+  const channel = String(value || "").trim().toLowerCase();
+  if (!VALID_DECLINATION_CHANNELS.has(channel)) {
+    throw new ValidationError("Choose email or SMS before sending declination requests.");
+  }
+  return channel;
+}
+
+function normalizeGroupKeyPart(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function buildDuplicateGroupKey(academicYearLabel, studentReferenceId) {
+  return [
+    normalizeGroupKeyPart(normalizeAcademicYearLabel(academicYearLabel)),
+    normalizeGroupKeyPart(studentReferenceId)
+  ].join("||");
+}
+
+function buildDuplicateSchemeSignature(schemes = []) {
+  return [...new Set(
+    (schemes || [])
+      .map((item) => normalizeSchemeName(item.schemeName || item))
+      .filter(Boolean)
+      .map((value) => value.toLowerCase())
+  )]
+    .sort((left, right) => left.localeCompare(right))
+    .join("||");
+}
+
+function normalizeActorName(actor) {
+  return (
+    String(actor?.fullName || "").trim() ||
+    String(actor?.email || "").trim() ||
+    String(actor?.userId || "").trim() ||
+    "System"
+  );
+}
+
+function applyDuplicateGroupFilters(group, filters = {}) {
+  const academicYearLabel = normalizeAcademicYearLabel(filters.academicYearLabel);
+  const schemeName = normalizeSchemeName(filters.schemeName).toLowerCase();
+  if (academicYearLabel && group.academicYearLabel !== academicYearLabel) {
+    return false;
+  }
+  if (
+    schemeName &&
+    !group.schemes.some((item) => normalizeSchemeName(item.schemeName).toLowerCase() === schemeName)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function buildDeclinationMessage(group) {
+  const schemeNames = (group.schemes || []).map((item) => item.schemeName).filter(Boolean);
+  return [
+    `Dear ${group.fullName || "Student"},`,
+    "",
+    `Our records show that you are currently listed under more than one support or scholarship scheme for ${group.academicYearLabel}.`,
+    "",
+    "Schemes:",
+    ...schemeNames.map((schemeName) => `- ${schemeName}`),
+    "",
+    "Please report to the Directorate of Student Affairs, Room 19 with a letter to decline one support/Scholarship.",
+    "",
+    ...DECLINATION_MESSAGE_SIGNATURE
+  ].join("\n");
+}
+
+function buildDeclinationSubject(group) {
+  return `Duplicate support records for ${group.academicYearLabel}`;
+}
+
+function renderDeclinationTemplate(template, group) {
+  const schemeNames = (group.schemes || []).map((item) => item.schemeName).filter(Boolean);
+  const replacements = {
+    studentName: group.fullName || "Student",
+    studentReferenceId: group.studentReferenceId || "",
+    academicYear: group.academicYearLabel || "",
+    schemeList: schemeNames.map((schemeName) => `- ${schemeName}`).join("\n"),
+    schemes: schemeNames.join(", ")
+  };
+
+  return String(template || "").replace(/\{\{\s*(studentName|studentReferenceId|academicYear|schemeList|schemes)\s*\}\}/gu, (_match, key) => replacements[key] || "");
+}
+
+function resolveDeclinationSubject(group, payload = {}) {
+  const subjectTemplate = String(payload.subjectLine || "").trim();
+  return subjectTemplate ? renderDeclinationTemplate(subjectTemplate, group) : buildDeclinationSubject(group);
+}
+
+function resolveDeclinationBody(group, payload = {}) {
+  const bodyTemplate = String(payload.bodyTemplate || "").trim();
+  return bodyTemplate ? renderDeclinationTemplate(bodyTemplate, group) : buildDeclinationMessage(group);
+}
+
+async function defaultDuplicateMessenger({ channel, to, subject, body }) {
+  if (channel === "email") {
+    if (!config.messaging.enabled || config.messaging.provider !== "brevo" || !config.messaging.brevoApiKey) {
+      return {
+        sent: false,
+        errorMessage: "Email sending is not configured."
+      };
+    }
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "api-key": config.messaging.brevoApiKey
+      },
+      body: JSON.stringify({
+        sender: {
+          name: config.messaging.senderName,
+          email: config.messaging.senderEmail
+        },
+        to: [{ email: to }],
+        subject,
+        textContent: body
+      })
+    });
+    const payloadText = await response.text().catch(() => "");
+    if (!response.ok) {
+      return {
+        sent: false,
+        errorMessage: payloadText || "Email provider rejected the request."
+      };
+    }
+    return {
+      sent: true,
+      providerMessageId: payloadText || null
+    };
+  }
+
+  if (!config.messaging.smsEnabled) {
+    return {
+      sent: false,
+      errorMessage: "SMS sending is not configured."
+    };
+  }
+
+  if (config.messaging.smsProvider === "mnotify") {
+    if (!config.messaging.mnotifyApiKey || !config.messaging.mnotifySenderId) {
+      return {
+        sent: false,
+        errorMessage: "MNotify SMS credentials are not configured."
+      };
+    }
+    const params = new URLSearchParams({ key: config.messaging.mnotifyApiKey });
+    const response = await fetch(`https://api.mnotify.com/api/sms/quick?${params.toString()}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        recipient: [to],
+        sender: config.messaging.mnotifySenderId,
+        message: body,
+        is_schedule: false,
+        schedule_date: ""
+      })
+    });
+    const payloadText = await response.text().catch(() => "");
+    if (!response.ok) {
+      return {
+        sent: false,
+        errorMessage: payloadText || "SMS provider rejected the request."
+      };
+    }
+    return {
+      sent: true,
+      providerMessageId: payloadText || null
+    };
+  }
+
+  return {
+    sent: false,
+    errorMessage: "The configured SMS provider is not supported for beneficiary duplicate requests."
+  };
+}
+
+async function loadAllBeneficiaryRecords(repository) {
+  const pageSize = 200;
+  const records = [];
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const result = await repository.list({ page, pageSize });
+    records.push(...(result.items || []));
+    totalPages = Number(result.totalPages || 1);
+    page += 1;
+  } while (page <= totalPages);
+  return records;
+}
+
+async function resolveDuplicateContact(repositories, group, channel) {
+  const fallbackEmail = group.records.find((item) => item.email)?.email || "";
+  const fallbackPhone = group.records.find((item) => item.phoneNumber)?.phoneNumber || "";
+  const lookup = repositories.students?.list
+    ? await repositories.students.list({ studentReferenceId: group.studentReferenceId })
+    : { items: [] };
+  const student = (lookup.items || []).find(
+    (item) =>
+      String(item.studentReferenceId || "").trim().toLowerCase() ===
+      String(group.studentReferenceId || "").trim().toLowerCase()
+  );
+
+  if (channel === "email") {
+    return String(student?.email || fallbackEmail || "").trim();
+  }
+  return String(student?.phoneNumber || fallbackPhone || "").trim();
+}
+
+function getDuplicateContactOverride(payload = {}, group = {}, channel) {
+  const overrides = payload.contactOverrides || {};
+  const candidates = [
+    overrides[group.groupKey],
+    overrides[group.studentReferenceId],
+    overrides[String(group.studentReferenceId || "").trim().toLowerCase()]
+  ].filter(Boolean);
+  const override = candidates[0] || {};
+  if (channel === "email") {
+    return String(override.email || "").trim();
+  }
+  return String(override.phoneNumber || override.phone || "").trim();
+}
+
+function buildCurrentDuplicateGroups(records = [], decisions = [], filters = {}) {
+  const groups = new Map();
+  for (const record of records) {
+    const academicYearLabel = normalizeAcademicYearLabel(record.academicYearLabel);
+    const studentReferenceId = String(record.studentReferenceId || "").trim();
+    if (!academicYearLabel || !studentReferenceId) continue;
+    const groupKey = buildDuplicateGroupKey(academicYearLabel, studentReferenceId);
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, {
+        groupKey,
+        academicYearLabel,
+        studentReferenceId,
+        fullName: record.fullName || "",
+        schemes: [],
+        records: []
+      });
+    }
+
+    const group = groups.get(groupKey);
+    group.records.push(record);
+    if (!group.contactEmail && record.email) {
+      group.contactEmail = String(record.email || "").trim();
+    }
+    if (!group.contactPhoneNumber && record.phoneNumber) {
+      group.contactPhoneNumber = String(record.phoneNumber || "").trim();
+    }
+    if (!group.fullName && record.fullName) {
+      group.fullName = record.fullName;
+    }
+    const schemeName = normalizeSchemeName(record.schemeName);
+    const existingScheme = group.schemes.find(
+      (item) => item.schemeName.toLowerCase() === schemeName.toLowerCase()
+    );
+    if (existingScheme) {
+      existingScheme.recordIds.push(String(record.id));
+    } else if (schemeName) {
+      group.schemes.push({
+        schemeName,
+        recordIds: [String(record.id)]
+      });
+    }
+  }
+
+  const decisionsByCurrentSignature = new Map();
+  for (const decision of decisions || []) {
+    const decisionGroupKey = buildDuplicateGroupKey(
+      decision.academicYearLabel,
+      decision.studentReferenceId
+    );
+    const signature = decision.schemeSignature || buildDuplicateSchemeSignature(decision.schemes || []);
+    decisionsByCurrentSignature.set(`${decisionGroupKey}::${signature}`, decision);
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      schemes: group.schemes.sort((left, right) => left.schemeName.localeCompare(right.schemeName)),
+      schemeSignature: buildDuplicateSchemeSignature(group.schemes)
+    }))
+    .filter((group) => group.schemes.length > 1)
+    .filter((group) => applyDuplicateGroupFilters(group, filters))
+    .map((group) => {
+      const decision = decisionsByCurrentSignature.get(`${group.groupKey}::${group.schemeSignature}`);
+      if (decision?.status === "allowed_on_both") {
+        return null;
+      }
+      return {
+        ...group,
+        decisionId: decision?.id || null,
+        status: decision?.status === "awaiting_student_response" ? decision.status : "unresolved",
+        contactEmail: group.contactEmail || "",
+        contactPhoneNumber: group.contactPhoneNumber || "",
+        requestedChannel: decision?.requestedChannel || null,
+        requestedContact: decision?.requestedContact || null,
+        requestedAt: decision?.requestedAt || null,
+        requestedByName: decision?.requestedByName || null
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const statusDelta =
+        (left.status === "unresolved" ? 0 : 1) - (right.status === "unresolved" ? 0 : 1);
+      if (statusDelta !== 0) return statusDelta;
+      return left.fullName.localeCompare(right.fullName);
+    });
+}
+
 function buildBeneficiaryWaitlistLookupKey(payload = {}) {
   const academicYearLabel = normalizeAcademicYearLabel(payload.academicYearLabel || payload.cycleLabel);
   const schemeName = String(payload.schemeName || "").trim();
@@ -181,7 +510,7 @@ async function buildPromotedWaitlistLookup(repositories, items = []) {
   return lookup;
 }
 
-export function createBeneficiaryService({ repositories }) {
+export function createBeneficiaryService({ repositories, messaging = defaultDuplicateMessenger }) {
   return {
     async list(filters = {}) {
       const [result, filterOptions] = await Promise.all([
@@ -212,6 +541,253 @@ export function createBeneficiaryService({ repositories }) {
     async getDashboard() {
       const currentYearLabel = await resolveCurrentBeneficiaryYearLabel(repositories);
       return repositories.beneficiaries.getDashboardData({ currentYearLabel });
+    },
+
+    async listDuplicateSupports(filters = {}) {
+      const view = normalizeDuplicateView(filters.view);
+      const [records, decisions, filterOptions] = await Promise.all([
+        loadAllBeneficiaryRecords(repositories.beneficiaries),
+        repositories.beneficiaries.listDuplicateDecisions?.({}) || [],
+        repositories.beneficiaries.listFilterOptions()
+      ]);
+      const currentGroups = await Promise.all(
+        buildCurrentDuplicateGroups(records, decisions, filters).map(async (group) => ({
+          ...group,
+          contactEmail: group.contactEmail || (await resolveDuplicateContact(repositories, group, "email")),
+          contactPhoneNumber:
+            group.contactPhoneNumber || (await resolveDuplicateContact(repositories, group, "sms"))
+        }))
+      );
+      const resolvedItems = (decisions || [])
+        .filter((item) => DUPLICATE_RESOLVED_STATUSES.has(item.status))
+        .filter((item) =>
+          applyDuplicateGroupFilters(
+            {
+              academicYearLabel: normalizeAcademicYearLabel(item.academicYearLabel),
+              schemes: item.schemes || []
+            },
+            filters
+          )
+        )
+        .sort((left, right) => new Date(right.resolvedAt || right.createdAt || 0) - new Date(left.resolvedAt || left.createdAt || 0));
+
+      return {
+        summary: {
+          unresolvedCount: currentGroups.filter((item) => item.status === "unresolved").length,
+          awaitingResponseCount: currentGroups.filter(
+            (item) => item.status === "awaiting_student_response"
+          ).length,
+          resolvedCount: resolvedItems.length
+        },
+        items: view === "resolved" ? resolvedItems : currentGroups,
+        filterOptions: {
+          academicYears: filterOptions.academicYears || [],
+          schemeNames: filterOptions.schemeNames || []
+        }
+      };
+    },
+
+    async allowDuplicateSupports(payload = {}, actor) {
+      if (!actor || actor.roleCode !== "admin") {
+        throw new ValidationError("Only admins can allow duplicate beneficiary support.");
+      }
+      const groupKeys = [...new Set((payload.groupKeys || []).map((item) => String(item || "").trim()).filter(Boolean))];
+      if (!groupKeys.length) {
+        throw new ValidationError("Choose at least one duplicate support group.");
+      }
+
+      const records = await loadAllBeneficiaryRecords(repositories.beneficiaries);
+      const decisions = await (repositories.beneficiaries.listDuplicateDecisions?.({}) || []);
+      const currentGroups = buildCurrentDuplicateGroups(records, decisions, {});
+      const currentByKey = new Map(currentGroups.map((group) => [group.groupKey, group]));
+      const items = [];
+
+      for (const groupKey of groupKeys) {
+        const group = currentByKey.get(groupKey);
+        if (!group) {
+          continue;
+        }
+        const decision = await repositories.beneficiaries.upsertDuplicateDecision({
+          academicYearLabel: group.academicYearLabel,
+          studentReferenceId: group.studentReferenceId,
+          fullName: group.fullName,
+          schemes: group.schemes,
+          schemeSignature: group.schemeSignature,
+          status: "allowed_on_both",
+          resolvedByUserId: actor.userId || null,
+          resolvedByName: normalizeActorName(actor),
+          resolvedAt: new Date().toISOString(),
+          actor
+        });
+        items.push(decision);
+        await recordAuditEvent(repositories.audit, {
+          actor,
+          actionCode: "beneficiary.duplicate_allowed",
+          entityType: "beneficiary_duplicate",
+          entityId: decision.id,
+          summary: "Beneficiary duplicate support was allowed on both schemes.",
+          metadata: {
+            academicYearLabel: group.academicYearLabel,
+            studentReferenceId: group.studentReferenceId,
+            schemes: group.schemes.map((item) => item.schemeName)
+          }
+        });
+      }
+
+      return {
+        summary: {
+          allowedCount: items.length
+        },
+        items
+      };
+    },
+
+    async sendDuplicateDeclinationRequests(payload = {}, actor) {
+      if (!actor || actor.roleCode !== "admin") {
+        throw new ValidationError("Only admins can send duplicate beneficiary declination requests.");
+      }
+      const channel = normalizeDeclinationChannel(payload.channel);
+      const groupKeys = [...new Set((payload.groupKeys || []).map((item) => String(item || "").trim()).filter(Boolean))];
+      if (!groupKeys.length) {
+        throw new ValidationError("Choose at least one duplicate support group.");
+      }
+
+      const records = await loadAllBeneficiaryRecords(repositories.beneficiaries);
+      const decisions = await (repositories.beneficiaries.listDuplicateDecisions?.({}) || []);
+      const currentGroups = buildCurrentDuplicateGroups(records, decisions, {});
+      const currentByKey = new Map(currentGroups.map((group) => [group.groupKey, group]));
+      const requested = [];
+      const failed = [];
+
+      for (const groupKey of groupKeys) {
+        const group = currentByKey.get(groupKey);
+        if (!group || group.status === "awaiting_student_response") {
+          continue;
+        }
+        const contact =
+          getDuplicateContactOverride(payload, group, channel) ||
+          (await resolveDuplicateContact(repositories, group, channel));
+        if (!contact) {
+          failed.push({
+            groupKey,
+            fullName: group.fullName,
+            studentReferenceId: group.studentReferenceId,
+            message: channel === "email" ? "Student email is missing." : "Student phone number is missing."
+          });
+          continue;
+        }
+
+        const sendMessage = typeof messaging === "function" ? messaging : messaging?.send;
+        const delivery = await sendMessage({
+          channel,
+          to: contact,
+          subject: resolveDeclinationSubject(group, payload),
+          body: resolveDeclinationBody(group, payload),
+          group
+        });
+        if (!delivery?.sent) {
+          failed.push({
+            groupKey,
+            fullName: group.fullName,
+            studentReferenceId: group.studentReferenceId,
+            message: delivery?.errorMessage || "The declination request could not be sent."
+          });
+          continue;
+        }
+
+        const decision = await repositories.beneficiaries.upsertDuplicateDecision({
+          academicYearLabel: group.academicYearLabel,
+          studentReferenceId: group.studentReferenceId,
+          fullName: group.fullName,
+          schemes: group.schemes,
+          schemeSignature: group.schemeSignature,
+          status: "awaiting_student_response",
+          requestedChannel: channel,
+          requestedContact: contact,
+          deliveryStatus: "sent",
+          deliveryMessageId: delivery.providerMessageId || null,
+          requestedByUserId: actor.userId || null,
+          requestedByName: normalizeActorName(actor),
+          requestedAt: new Date().toISOString(),
+          actor
+        });
+        requested.push(decision);
+      }
+
+      return {
+        summary: {
+          requestedCount: requested.length,
+          failedCount: failed.length
+        },
+        items: requested,
+        failed
+      };
+    },
+
+    async confirmDuplicateDeclination(id, payload = {}, actor) {
+      if (!actor || actor.roleCode !== "admin") {
+        throw new ValidationError("Only admins can confirm duplicate beneficiary declinations.");
+      }
+      const decisionId = String(id || "").trim();
+      if (!decisionId) {
+        throw new ValidationError("Choose the awaiting duplicate decision to confirm.");
+      }
+      const declinedSchemeName = normalizeSchemeName(payload.declinedSchemeName);
+      if (!declinedSchemeName) {
+        throw new ValidationError("Choose the scheme the student declined.");
+      }
+      if (payload.confirmed !== true) {
+        throw new ValidationError("Please confirm that this is the scheme the student declined before finalising.");
+      }
+
+      const decision = await repositories.beneficiaries.getDuplicateDecision(decisionId);
+      if (!decision) {
+        throw new NotFoundError("Duplicate decision was not found.");
+      }
+      if (decision.status !== "awaiting_student_response") {
+        throw new ValidationError("Only awaiting-response duplicate decisions can be confirmed.");
+      }
+      const matchedScheme = (decision.schemes || []).find(
+        (item) => normalizeSchemeName(item.schemeName).toLowerCase() === declinedSchemeName.toLowerCase()
+      );
+      if (!matchedScheme) {
+        throw new ValidationError("The declined scheme must be one of the student's duplicate schemes.");
+      }
+
+      const deleteResult = await repositories.beneficiaries.deleteDuplicateSchemeRecords({
+        academicYearLabel: decision.academicYearLabel,
+        studentReferenceId: decision.studentReferenceId,
+        schemeName: matchedScheme.schemeName,
+        reason: payload.notes || "Student submitted declination letter.",
+        actor
+      });
+      const updated = await repositories.beneficiaries.updateDuplicateDecision(decisionId, {
+        status: "declined_one_scheme",
+        declinedSchemeName: matchedScheme.schemeName,
+        resolvedByUserId: actor.userId || null,
+        resolvedByName: normalizeActorName(actor),
+        resolvedAt: new Date().toISOString(),
+        notes: String(payload.notes || "").trim() || null,
+        actor
+      });
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "beneficiary.duplicate_declined",
+        entityType: "beneficiary_duplicate",
+        entityId: decisionId,
+        summary: "Beneficiary duplicate support declination was confirmed.",
+        metadata: {
+          academicYearLabel: decision.academicYearLabel,
+          studentReferenceId: decision.studentReferenceId,
+          declinedSchemeName: matchedScheme.schemeName,
+          deletedRows: deleteResult.deletedRows || 0
+        }
+      });
+
+      return {
+        ...updated,
+        deletedRows: deleteResult.deletedRows || 0
+      };
     },
 
     async previewImport(payload) {

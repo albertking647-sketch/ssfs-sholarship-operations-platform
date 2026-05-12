@@ -2078,6 +2078,9 @@ export function createApplicationService({ repositories }) {
       return result;
     },
     async bulkUpdateInterview(payload, actor) {
+      if (!actor || actor.roleCode !== "admin") {
+        throw new ValidationError("Only admins can bulk update interview details.");
+      }
       await validateContext(payload);
 
       const interviewStatus = normalizeInterviewStatus(payload.interviewStatus);

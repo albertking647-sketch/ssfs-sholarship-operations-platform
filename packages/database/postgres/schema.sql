@@ -341,6 +341,31 @@ CREATE TABLE beneficiary_audit_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE beneficiary_duplicate_decisions (
+  id BIGSERIAL PRIMARY KEY,
+  academic_year_label TEXT NOT NULL,
+  student_reference_id TEXT NOT NULL,
+  full_name TEXT,
+  schemes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  scheme_signature TEXT NOT NULL,
+  status TEXT NOT NULL,
+  requested_channel TEXT,
+  requested_contact TEXT,
+  delivery_status TEXT,
+  delivery_message_id TEXT,
+  requested_by_user_id BIGINT REFERENCES users(id),
+  requested_by_name TEXT,
+  requested_at TIMESTAMPTZ,
+  declined_scheme_name TEXT,
+  resolved_by_user_id BIGINT REFERENCES users(id),
+  resolved_by_name TEXT,
+  resolved_at TIMESTAMPTZ,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (academic_year_label, student_reference_id, scheme_signature)
+);
+
 ALTER TABLE waitlist_entries
   ADD CONSTRAINT waitlist_entries_promoted_award_id_fkey
   FOREIGN KEY (promoted_award_id) REFERENCES awards(id);
@@ -449,6 +474,7 @@ CREATE INDEX idx_beneficiaries_college ON beneficiaries(college);
 CREATE INDEX idx_beneficiary_import_batches_scope ON beneficiary_import_batches(academic_year_label, scheme_name, created_at DESC);
 CREATE INDEX idx_beneficiary_audit_scope ON beneficiary_audit_events(academic_year_label, scheme_name, student_reference_id, created_at DESC);
 CREATE INDEX idx_beneficiary_audit_record ON beneficiary_audit_events(beneficiary_id, created_at DESC);
+CREATE INDEX idx_beneficiary_duplicate_decisions_scope ON beneficiary_duplicate_decisions(academic_year_label, student_reference_id, status, updated_at DESC);
 CREATE INDEX idx_payments_award_id ON payments(award_id);
 CREATE INDEX idx_support_applications_student_program ON support_applications(student_id, program_id);
 CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);

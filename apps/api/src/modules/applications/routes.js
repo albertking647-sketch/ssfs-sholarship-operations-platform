@@ -388,7 +388,7 @@ export function createApplicationRoutes({ config, services }) {
       method: "PUT",
       path: "/api/applications/interview-bulk",
       auth: "required",
-      roles: ["admin", "reviewer"],
+      roles: ["admin"],
       async handler({ actor, req, res }) {
         const payload = await readJsonBody(req, config.limits.jsonBodyBytes);
         const result = await services.applications.bulkUpdateInterview(payload, actor);

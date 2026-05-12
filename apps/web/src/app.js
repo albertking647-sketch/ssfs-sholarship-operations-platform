@@ -213,6 +213,15 @@ const state = {
     total: 0,
     totalPages: 1
   },
+  beneficiaryDuplicates: [],
+  beneficiaryDuplicateSummary: {
+    unresolvedCount: 0,
+    awaitingResponseCount: 0,
+    resolvedCount: 0
+  },
+  beneficiaryDuplicateSelectedGroupKeys: new Set(),
+  beneficiaryDuplicateDeclinationDraft: null,
+  beneficiaryDuplicateContactOverrides: {},
   recommendedPreview: null,
   lastRecommendedImport: null,
   recommendedRecords: [],
@@ -307,8 +316,7 @@ const state = {
   applicationReviewHidden: false,
   applicationReviewResultsHidden:
     safeLocalStorageGet(APPLICATION_REVIEW_RESULTS_HIDDEN_KEY, "true") === "true",
-  applicationBulkInterviewHidden:
-    safeLocalStorageGet(APPLICATION_BULK_INTERVIEW_HIDDEN_KEY, "true") === "true",
+  applicationBulkInterviewHidden: false,
   applicationCwaCoverageHidden:
     safeLocalStorageGet(APPLICATION_CWA_COVERAGE_HIDDEN_KEY, "true") === "true",
   dashboardActivityHidden:
@@ -469,6 +477,29 @@ const elements = {
   beneficiaryAuditPrevPageButton: document.querySelector("#beneficiaryAuditPrevPageButton"),
   beneficiaryAuditNextPageButton: document.querySelector("#beneficiaryAuditNextPageButton"),
   beneficiaryAuditPageSummary: document.querySelector("#beneficiaryAuditPageSummary"),
+  beneficiaryDuplicateTabBadge: document.querySelector("#beneficiaryDuplicateTabBadge"),
+  beneficiaryDuplicateFilterForm: document.querySelector("#beneficiaryDuplicateFilterForm"),
+  beneficiaryDuplicateAcademicYearFilter: document.querySelector("#beneficiaryDuplicateAcademicYearFilter"),
+  beneficiaryDuplicateSchemeFilter: document.querySelector("#beneficiaryDuplicateSchemeFilter"),
+  beneficiaryDuplicateViewFilter: document.querySelector("#beneficiaryDuplicateViewFilter"),
+  beneficiaryDuplicateChannel: document.querySelector("#beneficiaryDuplicateChannel"),
+  beneficiaryDuplicateFilterButton: document.querySelector("#beneficiaryDuplicateFilterButton"),
+  beneficiaryDuplicateReloadButton: document.querySelector("#beneficiaryDuplicateReloadButton"),
+  beneficiaryDuplicateSelectAll: document.querySelector("#beneficiaryDuplicateSelectAll"),
+  beneficiaryDuplicateBulkRequestButton: document.querySelector("#beneficiaryDuplicateBulkRequestButton"),
+  beneficiaryDuplicateBulkAllowButton: document.querySelector("#beneficiaryDuplicateBulkAllowButton"),
+  beneficiaryDuplicateMessage: document.querySelector("#beneficiaryDuplicateMessage"),
+  beneficiaryDuplicateDeclinationMessagingPanel: document.querySelector("#beneficiaryDuplicateDeclinationMessagingPanel"),
+  beneficiaryDuplicateDeclinationSubject: document.querySelector("#beneficiaryDuplicateDeclinationSubject"),
+  beneficiaryDuplicateDeclinationChannelSummary: document.querySelector("#beneficiaryDuplicateDeclinationChannelSummary"),
+  beneficiaryDuplicateDeclinationBody: document.querySelector("#beneficiaryDuplicateDeclinationBody"),
+  beneficiaryDuplicateDeclinationCharCount: document.querySelector("#beneficiaryDuplicateDeclinationCharCount"),
+  beneficiaryDuplicateDeclinationRecipients: document.querySelector("#beneficiaryDuplicateDeclinationRecipients"),
+  beneficiaryDuplicateDeclinationResetButton: document.querySelector("#beneficiaryDuplicateDeclinationResetButton"),
+  beneficiaryDuplicateDeclinationSendButton: document.querySelector("#beneficiaryDuplicateDeclinationSendButton"),
+  beneficiaryDuplicateDeclinationCancelButton: document.querySelector("#beneficiaryDuplicateDeclinationCancelButton"),
+  beneficiaryDuplicateSummaryCards: document.querySelector("#beneficiaryDuplicateSummaryCards"),
+  beneficiaryDuplicateList: document.querySelector("#beneficiaryDuplicateList"),
   recommendedSummaryCards: document.querySelector("#recommendedSummaryCards"),
   recommendedMessage: document.querySelector("#recommendedMessage"),
   recommendedFormTitle: document.querySelector("#recommendedFormTitle"),
@@ -918,7 +949,11 @@ async function loadCurrentRouteData(options = {}) {
     tasks.push(() => loadRecommendedRecords());
   }
   if (route.module === "awards") {
-    tasks.push(() => loadBeneficiaryRecords());
+    if (route.beneficiarySection === "duplicates") {
+      tasks.push(() => loadBeneficiaryDuplicates());
+    } else {
+      tasks.push(() => loadBeneficiaryRecords());
+    }
   }
   if (route.module === "support") {
     tasks.push(() => loadSupportFoodBankRecords());
@@ -941,10 +976,7 @@ function persistPanelState() {
     APPLICATION_REVIEW_RESULTS_HIDDEN_KEY,
     state.applicationReviewResultsHidden
   );
-  safeLocalStorageSet(
-    APPLICATION_BULK_INTERVIEW_HIDDEN_KEY,
-    state.applicationBulkInterviewHidden
-  );
+  safeLocalStorageRemove(APPLICATION_BULK_INTERVIEW_HIDDEN_KEY);
   safeLocalStorageSet(
     APPLICATION_CWA_COVERAGE_HIDDEN_KEY,
     state.applicationCwaCoverageHidden
@@ -2072,6 +2104,12 @@ function setBeneficiaryAuditMessage(text, tone = "warning") {
   if (!elements.beneficiaryAuditMessage) return;
   elements.beneficiaryAuditMessage.textContent = text;
   elements.beneficiaryAuditMessage.className = `inline-note ${tone ? `tone-${tone}` : ""}`;
+}
+
+function setBeneficiaryDuplicateMessage(text, tone = "warning") {
+  if (!elements.beneficiaryDuplicateMessage) return;
+  elements.beneficiaryDuplicateMessage.textContent = text;
+  elements.beneficiaryDuplicateMessage.className = `inline-note ${tone ? `tone-${tone}` : ""}`;
 }
 
 function setRecommendedMessage(text, tone = "warning") {
@@ -3530,6 +3568,324 @@ function renderBeneficiaryFilterOptions(filterOptions = state.beneficiaryFilterO
     renderReportsBeneficiarySchemeReport();
   }
   syncReportsBeneficiarySchemeControls();
+  renderBeneficiaryDuplicateFilterOptions(safeOptions);
+}
+
+function renderBeneficiaryDuplicateFilterOptions(filterOptions = state.beneficiaryFilterOptions) {
+  const safeOptions = filterOptions || { academicYears: [], schemeNames: [] };
+  populateBeneficiaryFilterSelect(
+    elements.beneficiaryDuplicateAcademicYearFilter,
+    safeOptions.academicYears,
+    "All academic years",
+    elements.beneficiaryDuplicateAcademicYearFilter?.value || ""
+  );
+  populateBeneficiaryFilterSelect(
+    elements.beneficiaryDuplicateSchemeFilter,
+    safeOptions.schemeNames,
+    "All support names",
+    elements.beneficiaryDuplicateSchemeFilter?.value || ""
+  );
+}
+
+function renderBeneficiaryDuplicateSummary(summary = state.beneficiaryDuplicateSummary) {
+  const unresolvedCount = Number(summary.unresolvedCount || 0);
+  const awaitingResponseCount = Number(summary.awaitingResponseCount || 0);
+  const resolvedCount = Number(summary.resolvedCount || 0);
+  if (elements.beneficiaryDuplicateSummaryCards) {
+    elements.beneficiaryDuplicateSummaryCards.innerHTML = `
+      <article class="metric-card ${unresolvedCount ? "is-warning" : ""}">
+        <span class="metric-label">Unresolved</span>
+        <strong class="metric-value">${escapeHtml(unresolvedCount)}</strong>
+      </article>
+      <article class="metric-card ${awaitingResponseCount ? "is-warning" : ""}">
+        <span class="metric-label">Awaiting response</span>
+        <strong class="metric-value">${escapeHtml(awaitingResponseCount)}</strong>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">Resolved</span>
+        <strong class="metric-value">${escapeHtml(resolvedCount)}</strong>
+      </article>
+    `;
+  }
+  const warningCount = unresolvedCount + awaitingResponseCount;
+  if (elements.beneficiaryDuplicateTabBadge) {
+    elements.beneficiaryDuplicateTabBadge.hidden = warningCount === 0;
+    elements.beneficiaryDuplicateTabBadge.textContent = String(warningCount);
+  }
+}
+
+function getSelectedBeneficiaryDuplicateGroupKeys() {
+  return [...state.beneficiaryDuplicateSelectedGroupKeys];
+}
+
+function getVisibleUnresolvedBeneficiaryDuplicateGroupKeys() {
+  return state.beneficiaryDuplicates
+    .filter((item) => (item.status || "unresolved") === "unresolved")
+    .map((item) => item.groupKey)
+    .filter(Boolean);
+}
+
+function getBeneficiaryDuplicateDeclinationSubjectTemplate() {
+  return "Duplicate support declination request";
+}
+
+function getBeneficiaryDuplicateDeclinationBodyTemplate() {
+  return [
+    "Dear {{studentName}},",
+    "",
+    "Our records show that you are listed for the following support schemes in {{academicYear}}:",
+    "{{schemeList}}",
+    "",
+    "Please report to the Directorate of Student Affairs, Room 19 with a letter to decline one support/Scholarship.",
+    "",
+    "Reference ID: {{studentReferenceId}}",
+    "",
+    "Best regards,",
+    "Student Support and Financial Services, DoSA",
+    "KNUST"
+  ].join("\n");
+}
+
+function getBeneficiaryDuplicateGroupsForKeys(groupKeys = []) {
+  const keySet = new Set(groupKeys.filter(Boolean));
+  return state.beneficiaryDuplicates.filter((item) => keySet.has(item.groupKey));
+}
+
+function getBeneficiaryDuplicateContactOverride(item) {
+  const groupKey = item?.groupKey || "";
+  return {
+    email:
+      state.beneficiaryDuplicateContactOverrides[groupKey]?.email ??
+      item?.contactEmail ??
+      "",
+    phoneNumber:
+      state.beneficiaryDuplicateContactOverrides[groupKey]?.phoneNumber ??
+      item?.contactPhoneNumber ??
+      ""
+  };
+}
+
+function setBeneficiaryDuplicateContactOverride(groupKey, field, value) {
+  if (!groupKey || !["email", "phoneNumber"].includes(field)) return;
+  state.beneficiaryDuplicateContactOverrides = {
+    ...state.beneficiaryDuplicateContactOverrides,
+    [groupKey]: {
+      ...(state.beneficiaryDuplicateContactOverrides[groupKey] || {}),
+      [field]: String(value || "").trim()
+    }
+  };
+}
+
+function renderBeneficiaryDuplicateTemplate(template, item) {
+  const schemeNames = (item?.schemes || []).map((scheme) => scheme.schemeName).filter(Boolean);
+  const replacements = {
+    studentName: item?.fullName || "Student",
+    studentReferenceId: item?.studentReferenceId || "",
+    academicYear: item?.academicYearLabel || "",
+    schemeList: schemeNames.map((schemeName) => `- ${schemeName}`).join("\n"),
+    schemes: schemeNames.join(", ")
+  };
+  return String(template || "").replace(
+    /\{\{\s*(studentName|studentReferenceId|academicYear|schemeList|schemes)\s*\}\}/gu,
+    (_match, key) => replacements[key] || ""
+  );
+}
+
+function renderBeneficiaryDuplicateDeclinationMessaging() {
+  const draft = state.beneficiaryDuplicateDeclinationDraft;
+  const panel = elements.beneficiaryDuplicateDeclinationMessagingPanel;
+  if (!panel) return;
+  panel.hidden = !draft;
+  if (!draft) return;
+
+  const recipients = getBeneficiaryDuplicateGroupsForKeys(draft.groupKeys);
+  if (elements.beneficiaryDuplicateDeclinationSubject) {
+    elements.beneficiaryDuplicateDeclinationSubject.value = draft.subjectLine || "";
+  }
+  if (elements.beneficiaryDuplicateDeclinationBody) {
+    elements.beneficiaryDuplicateDeclinationBody.value = draft.bodyTemplate || "";
+  }
+  if (elements.beneficiaryDuplicateDeclinationChannelSummary) {
+    elements.beneficiaryDuplicateDeclinationChannelSummary.value = formatMessagingChannelLabel(draft.channel);
+  }
+  if (elements.beneficiaryDuplicateDeclinationCharCount) {
+    const length = String(draft.bodyTemplate || "").length;
+    elements.beneficiaryDuplicateDeclinationCharCount.textContent =
+      draft.channel === "sms"
+        ? `${length} characters | standard SMS limit: 160`
+        : `${length} characters`;
+  }
+  if (elements.beneficiaryDuplicateDeclinationRecipients) {
+    elements.beneficiaryDuplicateDeclinationRecipients.innerHTML = recipients.length
+      ? recipients
+          .map(
+            (item) => {
+              const contact = getBeneficiaryDuplicateContactOverride(item);
+              const missingContact =
+                draft.channel === "email" ? !contact.email : !contact.phoneNumber;
+              return `
+              <article class="search-result-card">
+                <div class="search-result-top">
+                  <div>
+                    <strong>${escapeHtml(item.fullName || "Unknown student")}</strong>
+                    <p class="detail-subcopy">${escapeHtml(item.studentReferenceId || "No reference ID")} | ${escapeHtml(item.academicYearLabel || "No academic year")}</p>
+                  </div>
+                  ${createFlagPill(missingContact ? "Contact needed" : formatMessagingChannelLabel(draft.channel), missingContact ? "error" : "warning")}
+                </div>
+                <div class="form-grid application-review-grid">
+                  <label class="field">
+                    <span>Email</span>
+                    <input data-beneficiary-duplicate-contact-email="${escapeHtml(item.groupKey || "")}" type="email" value="${escapeHtml(contact.email)}" />
+                  </label>
+                  <label class="field">
+                    <span>Phone number</span>
+                    <input data-beneficiary-duplicate-contact-phone="${escapeHtml(item.groupKey || "")}" type="tel" value="${escapeHtml(contact.phoneNumber)}" />
+                  </label>
+                </div>
+                <p class="detail-subcopy">${escapeHtml((item.schemes || []).map((scheme) => scheme.schemeName).filter(Boolean).join(", "))}</p>
+                <pre class="message-preview">${escapeHtml(renderBeneficiaryDuplicateTemplate(draft.bodyTemplate, item))}</pre>
+              </article>
+            `;
+            }
+          )
+          .join("")
+      : `<p class="empty-state">Choose at least one unresolved duplicate group before sending.</p>`;
+  }
+}
+
+function syncBeneficiaryDuplicateActions() {
+  const selectedCount = getSelectedBeneficiaryDuplicateGroupKeys().length;
+  const isResolvedView = elements.beneficiaryDuplicateViewFilter?.value === "resolved";
+  const visibleUnresolvedKeys = getVisibleUnresolvedBeneficiaryDuplicateGroupKeys();
+  if (elements.beneficiaryDuplicateBulkAllowButton) {
+    elements.beneficiaryDuplicateBulkAllowButton.disabled = isResolvedView || selectedCount === 0;
+  }
+  if (elements.beneficiaryDuplicateBulkRequestButton) {
+    elements.beneficiaryDuplicateBulkRequestButton.disabled = isResolvedView || selectedCount === 0;
+  }
+  if (elements.beneficiaryDuplicateSelectAll) {
+    const selectedVisibleCount = visibleUnresolvedKeys.filter((groupKey) =>
+      state.beneficiaryDuplicateSelectedGroupKeys.has(groupKey)
+    ).length;
+    elements.beneficiaryDuplicateSelectAll.disabled = isResolvedView || visibleUnresolvedKeys.length === 0;
+    elements.beneficiaryDuplicateSelectAll.checked =
+      visibleUnresolvedKeys.length > 0 && selectedVisibleCount === visibleUnresolvedKeys.length;
+    elements.beneficiaryDuplicateSelectAll.indeterminate =
+      selectedVisibleCount > 0 && selectedVisibleCount < visibleUnresolvedKeys.length;
+  }
+}
+
+function renderBeneficiaryDuplicateList(items = state.beneficiaryDuplicates) {
+  if (!elements.beneficiaryDuplicateList) return;
+  const isResolvedView = elements.beneficiaryDuplicateViewFilter?.value === "resolved";
+  if (!items.length) {
+    elements.beneficiaryDuplicateList.innerHTML = `<p class="empty-state">${
+      isResolvedView
+        ? "No resolved duplicate support decisions match these filters."
+        : "No unresolved or awaiting-response duplicate support groups match these filters."
+    }</p>`;
+    state.beneficiaryDuplicateSelectedGroupKeys = new Set();
+    syncBeneficiaryDuplicateActions();
+    return;
+  }
+
+  elements.beneficiaryDuplicateList.innerHTML = items
+    .map((item) => {
+      const schemes = (item.schemes || []).map((scheme) => scheme.schemeName).filter(Boolean);
+      const status = item.status || "unresolved";
+      const statusLabel =
+        status === "awaiting_student_response"
+          ? "Awaiting student response"
+          : status === "allowed_on_both"
+            ? "Allowed on both"
+            : status === "declined_one_scheme"
+              ? "Declined one scheme"
+              : "Unresolved";
+      const tone =
+        status === "unresolved" || status === "awaiting_student_response"
+          ? "warning"
+          : "success";
+      if (isResolvedView) {
+        return `
+          <article class="search-result-card fade-in">
+            <div class="search-result-top">
+              <div>
+                <strong>${escapeHtml(item.fullName || "Unknown student")}</strong>
+                <p class="detail-subcopy">${escapeHtml(item.studentReferenceId || "No reference ID")} | ${escapeHtml(item.academicYearLabel || "No academic year")}</p>
+              </div>
+              ${createFlagPill(statusLabel, tone)}
+            </div>
+            <div class="search-meta">
+              ${schemes.map((schemeName) => `<span class="meta-pill">${escapeHtml(schemeName)}</span>`).join("")}
+            </div>
+            <p class="detail-subcopy">
+              ${
+                item.declinedSchemeName
+                  ? `Declined: ${escapeHtml(item.declinedSchemeName)} | `
+                  : ""
+              }Confirmed by ${escapeHtml(item.resolvedByName || item.requestedByName || "System")} ${escapeHtml(formatDateTime(item.resolvedAt || item.updatedAt || item.createdAt))}
+            </p>
+          </article>
+        `;
+      }
+
+      const isAwaiting = status === "awaiting_student_response";
+      return `
+        <article class="search-result-card fade-in">
+          <div class="search-result-top">
+            <label class="checkbox-field">
+              <input type="checkbox" data-beneficiary-duplicate-select="${escapeHtml(item.groupKey || "")}" ${
+                state.beneficiaryDuplicateSelectedGroupKeys.has(item.groupKey) ? "checked" : ""
+              } ${isAwaiting ? "disabled" : ""} />
+              <span>
+                <strong>${escapeHtml(item.fullName || "Unknown student")}</strong>
+                <span class="detail-subcopy">${escapeHtml(item.studentReferenceId || "No reference ID")} | ${escapeHtml(item.academicYearLabel || "No academic year")}</span>
+              </span>
+            </label>
+            ${createFlagPill(statusLabel, tone)}
+          </div>
+          <div class="search-meta">
+            ${schemes.map((schemeName) => `<span class="meta-pill">${escapeHtml(schemeName)}</span>`).join("")}
+          </div>
+          ${
+            isAwaiting
+              ? `
+                <div class="form-grid application-review-grid">
+                  <label class="field">
+                    <span>Scheme declined by student</span>
+                    <select data-beneficiary-duplicate-declined-scheme="${escapeHtml(item.decisionId || "")}">
+                      <option value="">Choose declined scheme</option>
+                      ${schemes.map((schemeName) => `<option value="${escapeHtml(schemeName)}">${escapeHtml(schemeName)}</option>`).join("")}
+                    </select>
+                  </label>
+                  <div class="detail-item">
+                    <span>Student maintains</span>
+                    <strong data-beneficiary-duplicate-maintained-schemes="${escapeHtml(item.decisionId || "")}">Choose declined scheme first</strong>
+                  </div>
+                  <div class="inline-note tone-error" data-beneficiary-duplicate-declination-warning="${escapeHtml(item.decisionId || "")}" hidden>
+                    Choose the declined scheme to review what will be removed before confirming.
+                  </div>
+                  <label class="checkbox-field">
+                    <input type="checkbox" data-beneficiary-duplicate-confirm-check="${escapeHtml(item.decisionId || "")}" disabled />
+                    <span>I confirm this is the scheme the student declined in their letter.</span>
+                  </label>
+                  <div class="action-row">
+                    <button class="action-button primary" type="button" data-beneficiary-duplicate-confirm="${escapeHtml(item.decisionId || "")}" disabled>Confirm declination</button>
+                  </div>
+                </div>
+              `
+              : `
+                <div class="action-row">
+                  <button class="action-button tertiary" type="button" data-beneficiary-duplicate-request="${escapeHtml(item.groupKey || "")}">Prepare declination request</button>
+                  <button class="action-button tertiary" type="button" data-beneficiary-duplicate-allow="${escapeHtml(item.groupKey || "")}">Allow on both</button>
+                </div>
+              `
+          }
+        </article>
+      `;
+    })
+    .join("");
+  syncBeneficiaryDuplicateActions();
 }
 
 function renderReportsBeneficiarySchemeReport(report = state.reportsBeneficiarySchemeReport) {
@@ -3621,6 +3977,21 @@ function buildBeneficiaryListUrl() {
   url.searchParams.set("page", String(state.beneficiaryListPagination?.page || 1));
   url.searchParams.set("pageSize", String(state.beneficiaryListPagination?.pageSize || 50));
 
+  return url.toString();
+}
+
+function buildBeneficiaryDuplicateUrl() {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    throw new Error("Enter the API URL first.");
+  }
+  const url = new URL(`${apiBaseUrl}/api/beneficiaries/duplicates`);
+  const view = elements.beneficiaryDuplicateViewFilter?.value || "unresolved";
+  const academicYearLabel = elements.beneficiaryDuplicateAcademicYearFilter?.value.trim() || "";
+  const schemeName = elements.beneficiaryDuplicateSchemeFilter?.value.trim() || "";
+  url.searchParams.set("view", view);
+  if (academicYearLabel) url.searchParams.set("academicYearLabel", academicYearLabel);
+  if (schemeName) url.searchParams.set("schemeName", schemeName);
   return url.toString();
 }
 
@@ -3803,6 +4174,7 @@ async function handleBeneficiaryImport() {
       "success"
     );
     await loadBeneficiaryRecords();
+    await loadBeneficiaryDuplicates();
     await loadBeneficiaryImportHistory();
     await loadBeneficiaryAuditFeed();
     await loadDashboard();
@@ -3862,6 +4234,9 @@ async function loadBeneficiaryRecords() {
       `Loaded page ${state.beneficiaryListPagination.page} of ${state.beneficiaryListPagination.totalPages} (${payload.total || 0} beneficiary record(s) total).`,
       payload.total ? "success" : "warning"
     );
+    if (state.activeModule === "awards") {
+      await loadBeneficiaryDuplicates();
+    }
     await loadBeneficiaryImportHistory();
     await loadBeneficiaryAuditFeed();
   } catch (error) {
@@ -3891,6 +4266,259 @@ async function loadBeneficiaryRecords() {
       setBeneficiaryAuditMessage("Unable to load beneficiary lifecycle audit.", "error");
       setBeneficiaryListMessage(error.message, "error");
     }
+}
+
+async function loadBeneficiaryDuplicates() {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    return;
+  }
+
+  setBeneficiaryDuplicateMessage("Loading duplicate support groups...", "warning");
+  try {
+    const response = await fetch(buildBeneficiaryDuplicateUrl(), {
+      headers: {
+        ...getAuthHeaders()
+      }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.message || payload.error || "Unable to load duplicate support groups.");
+    }
+
+    state.beneficiaryDuplicates = payload.items || [];
+    state.beneficiaryDuplicateSummary = payload.summary || {
+      unresolvedCount: 0,
+      awaitingResponseCount: 0,
+      resolvedCount: 0
+    };
+    state.beneficiaryDuplicateSelectedGroupKeys = new Set(
+      [...state.beneficiaryDuplicateSelectedGroupKeys].filter((groupKey) =>
+        state.beneficiaryDuplicates.some((item) => item.groupKey === groupKey)
+      )
+    );
+    if (state.beneficiaryDuplicateDeclinationDraft) {
+      const remainingDraftKeys = state.beneficiaryDuplicateDeclinationDraft.groupKeys.filter((groupKey) =>
+        state.beneficiaryDuplicates.some((item) => item.groupKey === groupKey)
+      );
+      state.beneficiaryDuplicateDeclinationDraft = remainingDraftKeys.length
+        ? {
+            ...state.beneficiaryDuplicateDeclinationDraft,
+            groupKeys: remainingDraftKeys
+          }
+        : null;
+    }
+    renderBeneficiaryDuplicateFilterOptions(payload.filterOptions || state.beneficiaryFilterOptions);
+    renderBeneficiaryDuplicateSummary();
+    renderBeneficiaryDuplicateList();
+    renderBeneficiaryDuplicateDeclinationMessaging();
+    const view = elements.beneficiaryDuplicateViewFilter?.value || "unresolved";
+    setBeneficiaryDuplicateMessage(
+      view === "resolved"
+        ? `Loaded ${state.beneficiaryDuplicates.length} resolved duplicate decision(s).`
+        : `Loaded ${state.beneficiaryDuplicates.length} unresolved or awaiting-response duplicate group(s).`,
+      state.beneficiaryDuplicates.length ? "success" : "warning"
+    );
+  } catch (error) {
+    state.beneficiaryDuplicates = [];
+    state.beneficiaryDuplicateSummary = {
+      unresolvedCount: 0,
+      awaitingResponseCount: 0,
+      resolvedCount: 0
+    };
+    state.beneficiaryDuplicateSelectedGroupKeys = new Set();
+    state.beneficiaryDuplicateDeclinationDraft = null;
+    state.beneficiaryDuplicateContactOverrides = {};
+    renderBeneficiaryDuplicateSummary();
+    renderBeneficiaryDuplicateList([]);
+    renderBeneficiaryDuplicateDeclinationMessaging();
+    setBeneficiaryDuplicateMessage(error.message, "error");
+  }
+}
+
+async function allowBeneficiaryDuplicateGroups(groupKeys = getSelectedBeneficiaryDuplicateGroupKeys()) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    setBeneficiaryDuplicateMessage("Enter the API URL first.", "error");
+    return;
+  }
+  const targetKeys = [...new Set(groupKeys.filter(Boolean))];
+  if (!targetKeys.length) {
+    setBeneficiaryDuplicateMessage("Choose at least one unresolved duplicate group.", "error");
+    return;
+  }
+  setBeneficiaryDuplicateMessage("Marking selected duplicate supports as allowed on both...", "warning");
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/beneficiaries/duplicates/allow`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({ groupKeys: targetKeys })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.message || payload.error || "Unable to allow duplicate supports.");
+    }
+    state.beneficiaryDuplicateSelectedGroupKeys = new Set();
+    state.beneficiaryDuplicateDeclinationDraft = null;
+    state.beneficiaryDuplicateContactOverrides = {};
+    renderBeneficiaryDuplicateDeclinationMessaging();
+    setBeneficiaryDuplicateMessage(
+      `Allowed ${payload.summary?.allowedCount || 0} duplicate support group(s) on both schemes.`,
+      "success"
+    );
+    await loadBeneficiaryDuplicates();
+  } catch (error) {
+    setBeneficiaryDuplicateMessage(error.message, "error");
+  }
+}
+
+function openBeneficiaryDuplicateDeclinationMessaging(groupKeys = getSelectedBeneficiaryDuplicateGroupKeys()) {
+  const targetKeys = [...new Set(groupKeys.filter(Boolean))];
+  if (!targetKeys.length) {
+    setBeneficiaryDuplicateMessage("Choose at least one unresolved duplicate group.", "error");
+    return;
+  }
+  const recipients = getBeneficiaryDuplicateGroupsForKeys(targetKeys).filter(
+    (item) => (item.status || "unresolved") === "unresolved"
+  );
+  if (!recipients.length) {
+    setBeneficiaryDuplicateMessage("Declination requests can only be prepared for unresolved duplicate groups.", "error");
+    return;
+  }
+  const channel = elements.beneficiaryDuplicateChannel?.value || "email";
+  state.beneficiaryDuplicateContactOverrides = Object.fromEntries(
+    recipients.map((item) => [
+      item.groupKey,
+      {
+        email: item.contactEmail || "",
+        phoneNumber: item.contactPhoneNumber || ""
+      }
+    ])
+  );
+  state.beneficiaryDuplicateDeclinationDraft = {
+    groupKeys: recipients.map((item) => item.groupKey).filter(Boolean),
+    channel,
+    subjectLine: getBeneficiaryDuplicateDeclinationSubjectTemplate(),
+    bodyTemplate: getBeneficiaryDuplicateDeclinationBodyTemplate()
+  };
+  renderBeneficiaryDuplicateDeclinationMessaging();
+  setBeneficiaryDuplicateMessage(
+    `Prepared ${recipients.length} declination request recipient(s). Review the template, then send.`,
+    "warning"
+  );
+  elements.beneficiaryDuplicateDeclinationMessagingPanel?.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
+}
+
+async function requestBeneficiaryDuplicateDeclinations(groupKeys = state.beneficiaryDuplicateDeclinationDraft?.groupKeys || getSelectedBeneficiaryDuplicateGroupKeys()) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    setBeneficiaryDuplicateMessage("Enter the API URL first.", "error");
+    return;
+  }
+  const targetKeys = [...new Set(groupKeys.filter(Boolean))];
+  if (!targetKeys.length) {
+    setBeneficiaryDuplicateMessage("Choose at least one unresolved duplicate group.", "error");
+    return;
+  }
+  const draft = state.beneficiaryDuplicateDeclinationDraft || {};
+  const channel = draft.channel || elements.beneficiaryDuplicateChannel?.value || "email";
+  const subjectLine =
+    elements.beneficiaryDuplicateDeclinationSubject?.value.trim() ||
+    draft.subjectLine ||
+    getBeneficiaryDuplicateDeclinationSubjectTemplate();
+  const bodyTemplate =
+    elements.beneficiaryDuplicateDeclinationBody?.value.trim() ||
+    draft.bodyTemplate ||
+    getBeneficiaryDuplicateDeclinationBodyTemplate();
+  const contactOverrides = Object.fromEntries(
+    targetKeys.map((groupKey) => {
+      const item = state.beneficiaryDuplicates.find((duplicate) => duplicate.groupKey === groupKey) || {};
+      return [groupKey, getBeneficiaryDuplicateContactOverride(item)];
+    })
+  );
+  setBeneficiaryDuplicateMessage("Sending declination request(s)...", "warning");
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/beneficiaries/duplicates/declination-requests`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({
+        groupKeys: targetKeys,
+        channel,
+        subjectLine,
+        bodyTemplate,
+        contactOverrides
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.message || payload.error || "Unable to send declination request(s).");
+    }
+    state.beneficiaryDuplicateSelectedGroupKeys = new Set();
+    state.beneficiaryDuplicateDeclinationDraft = null;
+    state.beneficiaryDuplicateContactOverrides = {};
+    renderBeneficiaryDuplicateDeclinationMessaging();
+    const requestedCount = payload.summary?.requestedCount || 0;
+    const failedCount = payload.summary?.failedCount || 0;
+    setBeneficiaryDuplicateMessage(
+      `Sent ${requestedCount} declination request(s). ${failedCount} failed.`,
+      failedCount ? "warning" : "success"
+    );
+    await loadBeneficiaryDuplicates();
+  } catch (error) {
+    setBeneficiaryDuplicateMessage(error.message, "error");
+  }
+}
+
+async function confirmBeneficiaryDuplicateDeclination(decisionId, declinedSchemeName, confirmed = false) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    setBeneficiaryDuplicateMessage("Enter the API URL first.", "error");
+    return;
+  }
+  if (!decisionId || !declinedSchemeName) {
+    setBeneficiaryDuplicateMessage("Choose the scheme the student declined before confirming.", "error");
+    return;
+  }
+  if (confirmed !== true) {
+    setBeneficiaryDuplicateMessage("Tick the confirmation box after checking the declined and maintained schemes.", "error");
+    return;
+  }
+  setBeneficiaryDuplicateMessage("Confirming student declination...", "warning");
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/api/beneficiaries/duplicates/${encodeURIComponent(decisionId)}/confirm-declination`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({ declinedSchemeName, confirmed: true })
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.message || payload.error || "Unable to confirm declination.");
+    }
+    setBeneficiaryDuplicateMessage(
+      `Declination confirmed. Removed ${payload.item?.deletedRows || 0} beneficiary row(s).`,
+      "success"
+    );
+    await loadBeneficiaryRecords();
+    await loadBeneficiaryDuplicates();
+    await loadDashboard();
+  } catch (error) {
+    setBeneficiaryDuplicateMessage(error.message, "error");
+  }
 }
 
 async function loadBeneficiaryImportHistory() {
@@ -4920,6 +5548,7 @@ async function handleRecommendedSupportHandoff(event) {
     );
     await loadRecommendedRecords();
     await loadBeneficiaryRecords();
+    await loadBeneficiaryDuplicates();
     await loadDashboard();
     await loadReportsOverview();
   } catch (error) {
@@ -5117,6 +5746,7 @@ async function handleBeneficiaryRowEdit(recordId) {
 
     setBeneficiaryEditorMessage("Beneficiary record updated.", "success");
     await loadBeneficiaryRecords();
+    await loadBeneficiaryDuplicates();
     await loadDashboard();
     await loadReportsOverview();
     await loadBeneficiaryAuditFeed();
@@ -5166,6 +5796,7 @@ async function handleBeneficiaryRowDelete(recordId) {
     renderBeneficiaryRecordHistory();
     setBeneficiaryEditorMessage("Beneficiary row removed.", "success");
     await loadBeneficiaryRecords();
+    await loadBeneficiaryDuplicates();
     await loadBeneficiaryImportHistory();
     await loadDashboard();
     await loadReportsOverview();
@@ -5220,6 +5851,7 @@ async function handleBeneficiaryBatchRollback(batchReference) {
       elements.beneficiaryRollbackReason.value = "";
     }
     await loadBeneficiaryRecords();
+    await loadBeneficiaryDuplicates();
     await loadBeneficiaryImportHistory();
     await loadBeneficiaryAuditFeed();
     await loadDashboard();
@@ -6107,6 +6739,7 @@ async function handleClearBeneficiaryScope() {
     }
 
     await loadBeneficiaryRecords();
+    await loadBeneficiaryDuplicates();
     await loadBeneficiaryImportHistory();
     await loadBeneficiaryAuditFeed();
     await loadDashboard();
@@ -7379,6 +8012,36 @@ function syncBeneficiaryControls() {
   if (elements.beneficiaryEditorCancelButton) {
     elements.beneficiaryEditorCancelButton.disabled = !hasSelectedRecord;
   }
+  if (elements.beneficiaryDuplicateFilterButton) {
+    elements.beneficiaryDuplicateFilterButton.disabled = !canManageImports;
+  }
+  if (elements.beneficiaryDuplicateReloadButton) {
+    elements.beneficiaryDuplicateReloadButton.disabled = !canManageImports;
+  }
+  if (elements.beneficiaryDuplicateAcademicYearFilter) {
+    elements.beneficiaryDuplicateAcademicYearFilter.disabled = !canManageImports;
+  }
+  if (elements.beneficiaryDuplicateSchemeFilter) {
+    elements.beneficiaryDuplicateSchemeFilter.disabled = !canManageImports;
+  }
+  if (elements.beneficiaryDuplicateViewFilter) {
+    elements.beneficiaryDuplicateViewFilter.disabled = !canManageImports;
+  }
+  if (elements.beneficiaryDuplicateChannel) {
+    elements.beneficiaryDuplicateChannel.disabled = !canManageImports;
+  }
+  [
+    elements.beneficiaryDuplicateDeclinationSubject,
+    elements.beneficiaryDuplicateDeclinationBody,
+    elements.beneficiaryDuplicateDeclinationResetButton,
+    elements.beneficiaryDuplicateDeclinationSendButton,
+    elements.beneficiaryDuplicateDeclinationCancelButton
+  ].forEach((element) => {
+    if (element) {
+      element.disabled = !canManageImports;
+    }
+  });
+  syncBeneficiaryDuplicateActions();
 }
 
 function renderApplicationCriteria(criteria) {
@@ -13441,6 +14104,224 @@ function bindEvents() {
       void loadBeneficiaryImportHistory();
       void loadBeneficiaryAuditFeed();
     });
+  elements.beneficiaryDuplicateFilterForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.beneficiaryDuplicateSelectedGroupKeys = new Set();
+    state.beneficiaryDuplicateDeclinationDraft = null;
+    state.beneficiaryDuplicateContactOverrides = {};
+    renderBeneficiaryDuplicateDeclinationMessaging();
+    void loadBeneficiaryDuplicates();
+  });
+  elements.beneficiaryDuplicateReloadButton?.addEventListener("click", () => {
+    state.beneficiaryDuplicateDeclinationDraft = null;
+    state.beneficiaryDuplicateContactOverrides = {};
+    renderBeneficiaryDuplicateDeclinationMessaging();
+    void loadBeneficiaryDuplicates();
+  });
+  elements.beneficiaryDuplicateBulkAllowButton?.addEventListener("click", () => {
+    void allowBeneficiaryDuplicateGroups();
+  });
+  elements.beneficiaryDuplicateBulkRequestButton?.addEventListener("click", () => {
+    openBeneficiaryDuplicateDeclinationMessaging();
+  });
+  elements.beneficiaryDuplicateSelectAll?.addEventListener("change", () => {
+    const visibleKeys = getVisibleUnresolvedBeneficiaryDuplicateGroupKeys();
+    if (elements.beneficiaryDuplicateSelectAll.checked) {
+      visibleKeys.forEach((groupKey) => state.beneficiaryDuplicateSelectedGroupKeys.add(groupKey));
+    } else {
+      visibleKeys.forEach((groupKey) => state.beneficiaryDuplicateSelectedGroupKeys.delete(groupKey));
+    }
+    renderBeneficiaryDuplicateList();
+  });
+  elements.beneficiaryDuplicateViewFilter?.addEventListener("change", () => {
+    state.beneficiaryDuplicateSelectedGroupKeys = new Set();
+    state.beneficiaryDuplicateDeclinationDraft = null;
+    state.beneficiaryDuplicateContactOverrides = {};
+    renderBeneficiaryDuplicateDeclinationMessaging();
+    void loadBeneficiaryDuplicates();
+  });
+  elements.beneficiaryDuplicateList?.addEventListener("change", (event) => {
+    const declinedSchemeSelect = event.target.closest("[data-beneficiary-duplicate-declined-scheme]");
+    if (declinedSchemeSelect) {
+      const decisionId = declinedSchemeSelect.getAttribute("data-beneficiary-duplicate-declined-scheme");
+      const item = state.beneficiaryDuplicates.find(
+        (duplicate) => String(duplicate.decisionId || "") === String(decisionId || "")
+      );
+      const declinedSchemeName = declinedSchemeSelect.value || "";
+      const maintained = (item?.schemes || [])
+        .map((scheme) => scheme.schemeName)
+        .filter((schemeName) => schemeName && schemeName !== declinedSchemeName);
+      const maintainedTarget = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-maintained-schemes]"
+        )
+      ].find(
+        (target) =>
+          target.getAttribute("data-beneficiary-duplicate-maintained-schemes") === decisionId
+      );
+      if (maintainedTarget) {
+        maintainedTarget.textContent = declinedSchemeName
+          ? maintained.join(", ") || "No remaining scheme"
+          : "Choose declined scheme first";
+      }
+      const warningTarget = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-declination-warning]"
+        )
+      ].find(
+        (target) =>
+          target.getAttribute("data-beneficiary-duplicate-declination-warning") === decisionId
+      );
+      if (warningTarget) {
+        warningTarget.hidden = !declinedSchemeName;
+        warningTarget.textContent = declinedSchemeName
+          ? `Warning: confirming will remove ${declinedSchemeName} from this student's beneficiary records. The student will remain on ${maintained.join(", ") || "no other listed scheme"}.`
+          : "Choose the declined scheme to review what will be removed before confirming.";
+      }
+      const confirmCheck = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-confirm-check]"
+        )
+      ].find(
+        (target) =>
+          target.getAttribute("data-beneficiary-duplicate-confirm-check") === decisionId
+      );
+      const confirmButton = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll("[data-beneficiary-duplicate-confirm]")
+      ].find(
+        (target) => target.getAttribute("data-beneficiary-duplicate-confirm") === decisionId
+      );
+      if (confirmCheck) {
+        confirmCheck.checked = false;
+        confirmCheck.disabled = !declinedSchemeName;
+      }
+      if (confirmButton) {
+        confirmButton.disabled = true;
+      }
+      return;
+    }
+    const confirmCheck = event.target.closest("[data-beneficiary-duplicate-confirm-check]");
+    if (confirmCheck) {
+      const decisionId = confirmCheck.getAttribute("data-beneficiary-duplicate-confirm-check");
+      const select = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-declined-scheme]"
+        )
+      ].find(
+        (target) =>
+          target.getAttribute("data-beneficiary-duplicate-declined-scheme") === decisionId
+      );
+      const confirmButton = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll("[data-beneficiary-duplicate-confirm]")
+      ].find(
+        (target) => target.getAttribute("data-beneficiary-duplicate-confirm") === decisionId
+      );
+      if (confirmButton) {
+        confirmButton.disabled = !confirmCheck.checked || !select?.value;
+      }
+      return;
+    }
+    const checkbox = event.target.closest("[data-beneficiary-duplicate-select]");
+    if (!checkbox) return;
+    const groupKey = checkbox.getAttribute("data-beneficiary-duplicate-select");
+    if (!groupKey) return;
+    if (checkbox.checked) {
+      state.beneficiaryDuplicateSelectedGroupKeys.add(groupKey);
+    } else {
+      state.beneficiaryDuplicateSelectedGroupKeys.delete(groupKey);
+    }
+    syncBeneficiaryDuplicateActions();
+  });
+  elements.beneficiaryDuplicateList?.addEventListener("click", (event) => {
+    const requestButton = event.target.closest("[data-beneficiary-duplicate-request]");
+    if (requestButton) {
+      openBeneficiaryDuplicateDeclinationMessaging([
+        requestButton.getAttribute("data-beneficiary-duplicate-request")
+      ]);
+      return;
+    }
+    const allowButton = event.target.closest("[data-beneficiary-duplicate-allow]");
+    if (allowButton) {
+      void allowBeneficiaryDuplicateGroups([
+        allowButton.getAttribute("data-beneficiary-duplicate-allow")
+      ]);
+      return;
+    }
+    const confirmButton = event.target.closest("[data-beneficiary-duplicate-confirm]");
+    if (confirmButton) {
+      const decisionId = confirmButton.getAttribute("data-beneficiary-duplicate-confirm");
+      const select = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-declined-scheme]"
+        )
+      ].find(
+        (item) =>
+          item.getAttribute("data-beneficiary-duplicate-declined-scheme") === decisionId
+      );
+      const confirmCheck = [
+        ...elements.beneficiaryDuplicateList.querySelectorAll(
+          "[data-beneficiary-duplicate-confirm-check]"
+        )
+      ].find(
+        (item) => item.getAttribute("data-beneficiary-duplicate-confirm-check") === decisionId
+      );
+      void confirmBeneficiaryDuplicateDeclination(
+        decisionId,
+        select?.value || "",
+        Boolean(confirmCheck?.checked)
+      );
+    }
+  });
+  elements.beneficiaryDuplicateDeclinationSubject?.addEventListener("input", () => {
+    if (!state.beneficiaryDuplicateDeclinationDraft) return;
+    state.beneficiaryDuplicateDeclinationDraft.subjectLine =
+      elements.beneficiaryDuplicateDeclinationSubject.value;
+    renderBeneficiaryDuplicateDeclinationMessaging();
+  });
+  elements.beneficiaryDuplicateDeclinationBody?.addEventListener("input", () => {
+    if (!state.beneficiaryDuplicateDeclinationDraft) return;
+    state.beneficiaryDuplicateDeclinationDraft.bodyTemplate =
+      elements.beneficiaryDuplicateDeclinationBody.value;
+    renderBeneficiaryDuplicateDeclinationMessaging();
+  });
+  elements.beneficiaryDuplicateDeclinationRecipients?.addEventListener("change", (event) => {
+    const emailInput = event.target.closest("[data-beneficiary-duplicate-contact-email]");
+    if (emailInput) {
+      setBeneficiaryDuplicateContactOverride(
+        emailInput.getAttribute("data-beneficiary-duplicate-contact-email"),
+        "email",
+        emailInput.value
+      );
+      renderBeneficiaryDuplicateDeclinationMessaging();
+      return;
+    }
+    const phoneInput = event.target.closest("[data-beneficiary-duplicate-contact-phone]");
+    if (phoneInput) {
+      setBeneficiaryDuplicateContactOverride(
+        phoneInput.getAttribute("data-beneficiary-duplicate-contact-phone"),
+        "phoneNumber",
+        phoneInput.value
+      );
+      renderBeneficiaryDuplicateDeclinationMessaging();
+    }
+  });
+  elements.beneficiaryDuplicateDeclinationResetButton?.addEventListener("click", () => {
+    if (!state.beneficiaryDuplicateDeclinationDraft) return;
+    state.beneficiaryDuplicateDeclinationDraft.subjectLine =
+      getBeneficiaryDuplicateDeclinationSubjectTemplate();
+    state.beneficiaryDuplicateDeclinationDraft.bodyTemplate =
+      getBeneficiaryDuplicateDeclinationBodyTemplate();
+    renderBeneficiaryDuplicateDeclinationMessaging();
+  });
+  elements.beneficiaryDuplicateDeclinationCancelButton?.addEventListener("click", () => {
+    state.beneficiaryDuplicateDeclinationDraft = null;
+    state.beneficiaryDuplicateContactOverrides = {};
+    renderBeneficiaryDuplicateDeclinationMessaging();
+    setBeneficiaryDuplicateMessage("Declination request draft cancelled.", "warning");
+  });
+  elements.beneficiaryDuplicateDeclinationSendButton?.addEventListener("click", () => {
+    void requestBeneficiaryDuplicateDeclinations();
+  });
   elements.beneficiaryClearConfirmation?.addEventListener("input", () => {
     syncBeneficiaryControls();
   });

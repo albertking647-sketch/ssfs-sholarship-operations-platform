@@ -88,22 +88,22 @@ const MODULE_META = {
   registry: {
     title: "Student Registry",
     description:
-      "The registry is now the first working module. Import files, preview row quality, and build a clean student database."
+      "Import files, preview row quality, resolve duplicate identifiers, and maintain a clean student database."
   },
   applications: {
     title: "Applications",
     description:
-      "This module will handle application intake, eligibility checks, weighted scoring, and shortlist preparation."
+      "Handle application intake, eligibility checks, screening criteria, interview scores, messaging, and final exports."
   },
   waitlist: {
     title: "Recommended Students",
     description:
-      "This module will manage students who approach SSFS for support and later get recommended into suitable schemes."
+      "Manage students who approach SSFS for support and connect them to suitable schemes, applications, or beneficiary records."
   },
   awards: {
     title: "Beneficiaries & Support",
     description:
-      "This module will manage beneficiary lists, paid support records, and historical beneficiary imports."
+      "Manage beneficiary lists, paid support records, duplicate decisions, lifecycle history, and historical imports."
   },
   support: {
     title: "Food & Clothing Support",
@@ -113,7 +113,7 @@ const MODULE_META = {
   reports: {
     title: "Reports",
     description:
-      "This module will bring together management dashboards, donor summaries, and audit-ready exports."
+      "Review management dashboards, donor summaries, food and clothing support counts, and audit-ready exports."
   }
 };
 
@@ -1934,6 +1934,30 @@ function renderBeneficiaryCurrencyBreakdown(currencyTotals = [], emptyLabel = "G
   `;
 }
 
+function renderBeneficiaryAmountTotalValue(currentYear = {}) {
+  const safeTotals = Array.isArray(currentYear.currencyTotals)
+    ? currentYear.currencyTotals.filter((item) => item?.amountLabel)
+    : [];
+  const amountLabels = safeTotals.length
+    ? safeTotals.map((item) => item.amountLabel)
+    : [currentYear.totalAmountPaidLabel || "GHS 0"];
+
+  return `
+    <strong class="metric-value dashboard-amount-total-value">
+      ${amountLabels
+        .map(
+          (label, index) => `
+            <span>
+              ${index > 0 ? `<span class="dashboard-amount-total-plus">+</span>` : ""}
+              ${escapeHtml(label)}
+            </span>
+          `
+        )
+        .join("")}
+    </strong>
+  `;
+}
+
 function renderDashboardBeneficiarySection(dashboard) {
   const beneficiaryData = getBeneficiaryDashboardData(dashboard);
   const currentYear = beneficiaryData.currentYear || {};
@@ -1950,7 +1974,7 @@ function renderDashboardBeneficiarySection(dashboard) {
       </article>
       <article class="metric-card dashboard-beneficiary-card dashboard-beneficiary-card--accent fade-in">
         <span class="metric-label">Amount totals</span>
-        <strong class="metric-value">${escapeHtml(currentYear.totalAmountPaidLabel || "GHS 0")}</strong>
+        ${renderBeneficiaryAmountTotalValue(currentYear)}
         <span class="detail-subcopy">Support paid across the active beneficiary lists, grouped by recorded currency</span>
         ${renderBeneficiaryCurrencyBreakdown(
           currentYear.currencyTotals || [],
@@ -8883,11 +8907,34 @@ function renderApplicationReviewResults(items) {
   state.applicationReviewResults = items || [];
 
   if (!state.applicationReviewResults.length) {
-      elements.applicationReviewResultsList.innerHTML =
-        `<p class="empty-state">Search results for review will appear here.</p>`;
-      syncApplicationReviewResultsActions();
-      return;
-    }
+    const referenceId = elements.applicationReviewSearchReference?.value.trim() || "";
+    elements.applicationReviewResultsList.innerHTML = referenceId
+      ? `
+        <div class="empty-state">
+          <p>No application was found for reference ID ${escapeHtml(
+            referenceId
+          )} in the selected scheme and academic year.</p>
+          <button
+            class="action-button tertiary"
+            type="button"
+            data-review-add-missing-reference="${escapeHtml(referenceId)}"
+          >
+            Add this applicant
+          </button>
+        </div>
+      `
+      : `<p class="empty-state">Search results for review will appear here.</p>`;
+    const addMissingButton = elements.applicationReviewResultsList.querySelector(
+      "[data-review-add-missing-reference]"
+    );
+    addMissingButton?.addEventListener("click", () => {
+      void beginSingleApplicantAddFromReviewSearch(
+        addMissingButton.dataset.reviewAddMissingReference
+      );
+    });
+    syncApplicationReviewResultsActions();
+    return;
+  }
 
   // Sort: undecided first, decided (qualified/pending/disqualified) to bottom
   const decisionOrder = { "": 0, "not_reviewed": 0, "qualified": 1, "pending": 2, "disqualified": 3 };
@@ -10792,7 +10839,7 @@ async function postImport(endpoint) {
   }
 
   if (!files.length) {
-    throw new Error("Choose one or more class-list workbooks before continuing.");
+    throw new Error("Choose one or more class-list files before continuing.");
   }
 
   const formData = new FormData();
@@ -11663,29 +11710,31 @@ async function loadApplicationReviewResults(extraFilters = {}) {
       }
     });
     const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.message || "Unable to load applications for review.");
-      }
-
-      renderApplicationReviewResults(payload.items || []);
-    setApplicationReviewMessage(
-        payload.total
-          ? `Loaded ${payload.total} application(s) for review.`
-          : "No applications matched the current review search.",
-        payload.total ? "success" : "warning"
-      );
-      return payload;
-    } catch (error) {
-      renderApplicationReviewResults([]);
-      setApplicationReviewMessage(error.message, "error");
-      return {
-        ok: false,
-        total: 0,
-        items: [],
-        error: error.message
-      };
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to load applications for review.");
     }
+
+    renderApplicationReviewResults(payload.items || []);
+    setApplicationReviewMessage(
+      payload.total
+        ? `Loaded ${payload.total} application(s) for review.`
+        : extraFilters.studentReferenceId
+          ? `No application was found for reference ID ${extraFilters.studentReferenceId} in the selected scheme and academic year.`
+          : "No applications matched the current review search.",
+      payload.total ? "success" : "warning"
+    );
+    return payload;
+  } catch (error) {
+    renderApplicationReviewResults([]);
+    setApplicationReviewMessage(error.message, "error");
+    return {
+      ok: false,
+      total: 0,
+      items: [],
+      error: error.message
+    };
   }
+}
 
 async function handleApplicationExport(qualificationStatus) {
   const apiBaseUrl = getApiBaseUrl();
@@ -12059,6 +12108,32 @@ async function handleSingleApplicationLookup() {
   }
 }
 
+async function beginSingleApplicantAddFromReviewSearch(referenceId) {
+  const normalizedReferenceId = String(referenceId || "").trim();
+  state.activeModule = "applications";
+  state.activeApplicationsSection = "review";
+  state.singleApplicationMatch = null;
+  renderModuleShell();
+  elements.singleApplicationForm.reset();
+  elements.singleApplicationReferenceId.value = normalizedReferenceId;
+  renderSingleApplicationLookupSummary(null);
+  setSingleApplicationMessage(
+    normalizedReferenceId
+      ? "Reference ID copied from Review Search. Confirm the registry student, then add the applicant."
+      : "Enter the registry reference ID, confirm the student, then add the applicant.",
+    "warning"
+  );
+
+  requestAnimationFrame(() => {
+    elements.singleApplicationForm?.scrollIntoView({ behavior: "smooth", block: "start" });
+    elements.singleApplicationReferenceId?.focus({ preventScroll: true });
+  });
+
+  if (normalizedReferenceId) {
+    await handleSingleApplicationLookup();
+  }
+}
+
 async function saveSingleApplication(event) {
   event?.preventDefault();
   const apiBaseUrl = getApiBaseUrl();
@@ -12082,6 +12157,7 @@ async function saveSingleApplication(event) {
 
   elements.singleApplicationAddButton.disabled = true;
   setSingleApplicationMessage("Adding the single applicant to the application list...", "warning");
+  const submittedReferenceId = elements.singleApplicationReferenceId.value.trim();
 
   try {
     const response = await fetch(`${apiBaseUrl}/api/applications`, {
@@ -12107,16 +12183,31 @@ async function saveSingleApplication(event) {
       throw new Error(payload.message || "Unable to add the single applicant.");
     }
 
+    const addedApplication = payload.item || null;
+    const reviewReferenceId =
+      addedApplication?.uploadedStudentReferenceId ||
+      addedApplication?.studentReferenceId ||
+      submittedReferenceId;
+    const reviewFilters = reviewReferenceId ? { studentReferenceId: reviewReferenceId } : {};
+
     elements.singleApplicationForm.reset();
     state.singleApplicationMatch = null;
-      renderSingleApplicationLookupSummary(null);
-      setSingleApplicationMessage("Single applicant added successfully.", "success");
-      await loadApplicationsList();
-      await refreshApplicationReviewWorkspace();
-      await loadDashboard();
-      state.selectedApplicationId = payload.item?.id || null;
+    renderSingleApplicationLookupSummary(null);
+    elements.applicationReviewSearchReference.value = reviewReferenceId;
+    setSingleApplicationMessage(
+      "Single applicant added successfully and loaded into Review Search.",
+      "success"
+    );
+    await loadApplicationsList(reviewFilters);
+    await refreshApplicationReviewWorkspace(reviewFilters);
+    await loadDashboard();
+    state.selectedApplicationId = addedApplication?.id || null;
     if (state.selectedApplicationId) {
       await selectApplicationForReview(state.selectedApplicationId);
+      setApplicationReviewMessage(
+        "Single applicant added and ready for review.",
+        "success"
+      );
     }
   } catch (error) {
     setSingleApplicationMessage(error.message, "error");
@@ -15130,7 +15221,7 @@ function init() {
       "warning"
     );
   setBeneficiaryImportMessage(
-      "Upload one or more beneficiary/support list files to preview and import them into Beneficiaries & Support. Support type should be included on every row; blank values will import as Unknown / other.",
+      "Upload one or more beneficiary/support list files to preview and import them into Beneficiaries & Support. Support type is required and must be Internal or External.",
       "warning"
     );
   setBeneficiaryDuplicateReviewMessage(

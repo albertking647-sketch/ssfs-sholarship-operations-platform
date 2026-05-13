@@ -10,11 +10,31 @@ const indexHtmlPath = path.resolve(__dirname, "..", "index.html");
 const appJsPath = path.resolve(__dirname, "..", "src", "app.js");
 const userManualPath = path.join(workspaceRoot, "docs", "user-manual.md");
 const readmePath = path.join(workspaceRoot, "README.md");
+const beneficiarySchemeExportPath = path.join(
+  workspaceRoot,
+  "apps",
+  "api",
+  "src",
+  "modules",
+  "reports",
+  "beneficiarySchemeExportWorkbook.js"
+);
+const beneficiarySummaryExportPath = path.join(
+  workspaceRoot,
+  "apps",
+  "api",
+  "src",
+  "modules",
+  "reports",
+  "beneficiarySummaryExportWorkbook.js"
+);
 
 const html = fs.readFileSync(indexHtmlPath, "utf8");
 const appJs = fs.readFileSync(appJsPath, "utf8");
 const userManual = fs.readFileSync(userManualPath, "utf8");
 const readme = fs.readFileSync(readmePath, "utf8");
+const beneficiarySchemeExport = fs.readFileSync(beneficiarySchemeExportPath, "utf8");
+const beneficiarySummaryExport = fs.readFileSync(beneficiarySummaryExportPath, "utf8");
 
 function describesActiveModulesInPresentTense() {
   assert.doesNotMatch(appJs, /first working module/u);
@@ -48,6 +68,27 @@ function alignsBeneficiarySupportTypeAndCurrencyGuidance() {
   assert.doesNotMatch(userManual, /Strongly expected:\s*\n\s*\n- Support Type/u);
 }
 
+function usesBeneficiaryStreamLanguage() {
+  assert.match(html, /Beneficiary stream/u);
+  assert.match(html, /<option value="single_cycle">Single Cycle<\/option>/u);
+  assert.match(appJs, /Single Cycle/u);
+  assert.doesNotMatch(html, /Beneficiary cohort/u);
+  assert.doesNotMatch(html, /Not tagged/u);
+  assert.doesNotMatch(appJs, /Not tagged/u);
+  assert.doesNotMatch(
+    beneficiarySchemeExport,
+    /Beneficiary Cohort|Current Beneficiaries|New Beneficiaries|Not Tagged/u
+  );
+  assert.doesNotMatch(beneficiarySummaryExport, /Current Cohort|New Cohort|Not Tagged/u);
+}
+
+function letsRecommendedBeneficiarySupportUseAvailableSupportOptions() {
+  assert.match(html, /<select id="recommendedSupportName" class="select-field">/u);
+  assert.doesNotMatch(html, /<input id="recommendedSupportName"/u);
+  assert.match(appJs, /function renderRecommendedBeneficiarySupportOptions/u);
+  assert.match(appJs, /state\.beneficiaryFilterOptions\?\.schemeNames/u);
+}
+
 function keepsReadmeCurrentWithImplementedWorkflows() {
   assert.doesNotMatch(readme, /fresh project scaffold/u);
   assert.doesNotMatch(readme, /core web shell/u);
@@ -63,6 +104,8 @@ documentsStudentImportRequirementsAccurately();
 usesRealisticIndexNumberExamples();
 alignsRecommendedStudentIdentifierGuidance();
 alignsBeneficiarySupportTypeAndCurrencyGuidance();
+usesBeneficiaryStreamLanguage();
+letsRecommendedBeneficiarySupportUseAvailableSupportOptions();
 keepsReadmeCurrentWithImplementedWorkflows();
 
 console.log("copy-consistency-tests: ok");

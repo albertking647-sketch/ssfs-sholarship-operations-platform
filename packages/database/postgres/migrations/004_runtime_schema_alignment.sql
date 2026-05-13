@@ -46,8 +46,10 @@ CREATE TABLE IF NOT EXISTS scheme_academic_years (
 CREATE TABLE IF NOT EXISTS recommended_students (
   id BIGSERIAL PRIMARY KEY,
   student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
-  scheme_id BIGINT NOT NULL REFERENCES schemes(id) ON DELETE CASCADE,
+  scheme_id BIGINT REFERENCES schemes(id) ON DELETE CASCADE,
   cycle_id BIGINT NOT NULL REFERENCES application_cycles(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL DEFAULT 'application_scheme',
+  support_name TEXT,
   recommendation_reason TEXT,
   notes TEXT,
   status TEXT NOT NULL DEFAULT 'awaiting_support',

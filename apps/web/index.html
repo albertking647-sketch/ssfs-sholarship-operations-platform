@@ -2351,9 +2351,28 @@
             </div>
             <form id="recommendedCreateForm" class="import-form">
               <label class="field">
-                <span>Available scheme</span>
+                <span>Recommendation target</span>
+                <select id="recommendedTargetType" class="select-field">
+                  <option value="application_scheme">Application scheme</option>
+                  <option value="beneficiary_support">Beneficiary support</option>
+                </select>
+              </label>
+              <label id="recommendedSchemeField" class="field">
+                <span>Application scheme</span>
                 <select id="recommendedSchemeSelect" class="select-field">
                   <option value="">Choose a scheme</option>
+                </select>
+              </label>
+              <label id="recommendedCycleField" class="field" hidden>
+                <span>Academic year</span>
+                <select id="recommendedCycleSelect" class="select-field">
+                  <option value="">Choose academic year</option>
+                </select>
+              </label>
+              <label id="recommendedSupportNameField" class="field" hidden>
+                <span>Beneficiary support name</span>
+                <select id="recommendedSupportName" class="select-field">
+                  <option value="">Choose beneficiary support</option>
                 </select>
               </label>
               <label class="field">
@@ -2377,7 +2396,7 @@
               </div>
             </form>
             <div id="recommendedCreateMessage" class="inline-note">
-              The student ID / reference number is matched to the registry first. The matched registry name, email, college, programme, and year are what follow the student into Applications and Beneficiaries handoffs.
+              The student ID / reference number is matched to the registry first. Application-scheme recommendations can go to Applications or Beneficiaries; beneficiary-support recommendations go directly to Beneficiaries &amp; Support.
             </div>
           </section>
 
@@ -2491,11 +2510,11 @@
                 </select>
               </label>
               <label class="field">
-                <span>Beneficiary cohort</span>
+                <span>Beneficiary stream</span>
                 <select id="recommendedSupportCohort" class="select-field">
-                  <option value="">Not applicable</option>
-                  <option value="current">Current Beneficiaries</option>
-                  <option value="new">New Beneficiaries</option>
+                  <option value="single_cycle">Single Cycle</option>
+                  <option value="current">Continuing</option>
+                  <option value="new">New</option>
                 </select>
               </label>
               <div class="action-row">
@@ -2550,13 +2569,13 @@
                     </select>
                   </label>
                     <label class="field">
-                      <span>Beneficiary cohort</span>
+                      <span>Beneficiary stream</span>
                       <select id="beneficiaryCohort" class="select-field">
-                        <option value="">Not applicable</option>
-                        <option value="current">Current Beneficiaries</option>
-                        <option value="new">New Beneficiaries</option>
+                        <option value="single_cycle">Single Cycle</option>
+                        <option value="current">Continuing</option>
+                        <option value="new">New</option>
                       </select>
-                      <small class="detail-subcopy">If left blank in a current-cycle import, students who were new beneficiaries in the previous academic year can be carried forward into the current cohort when they reappear in the new list.</small>
+                      <small class="detail-subcopy">Use Single Cycle for support that applies only to this academic year. Continuing and New identify beneficiary streams for recurring annual support.</small>
                     </label>
                     <label class="field">
                       <span>Award amount currency</span>
@@ -2628,7 +2647,8 @@
                   <select id="beneficiaryPreviewFilter" class="select-field">
                     <option value="all">All preview rows</option>
                     <option value="new">New</option>
-                    <option value="current">Current</option>
+                    <option value="current">Continuing</option>
+                    <option value="single_cycle">Single Cycle</option>
                     <option value="carried_forward">Carried forward</option>
                     <option value="duplicate">Duplicate</option>
                   </select>
@@ -2673,7 +2693,7 @@
                         <th>College</th>
                         <th>Amount Paid</th>
                         <th>Support Type</th>
-                        <th>Cohort</th>
+                        <th>Beneficiary stream</th>
                       </tr>
                     </thead>
                     <tbody id="beneficiaryValidRowsTable">
@@ -2694,9 +2714,9 @@
               </div>
               <div id="beneficiaryImportResultSummary" class="summary-cards summary-cards-wide">
                 <article class="metric-card"><span class="metric-label">Imported rows</span><strong class="metric-value">0</strong></article>
-                <article class="metric-card"><span class="metric-label">Current</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">Continuing</span><strong class="metric-value">0</strong></article>
                 <article class="metric-card"><span class="metric-label">New</span><strong class="metric-value">0</strong></article>
-                <article class="metric-card"><span class="metric-label">Not tagged</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">Single Cycle</span><strong class="metric-value">0</strong></article>
                 <article class="metric-card"><span class="metric-label">Carried forward</span><strong class="metric-value">0</strong></article>
               </div>
               <div id="beneficiaryImportedRowsList" class="result-list">
@@ -2749,12 +2769,12 @@
                     </select>
                   </label>
                   <label class="field">
-                    <span>Cohort</span>
+                    <span>Beneficiary stream</span>
                     <select id="beneficiaryCohortFilter">
-                      <option value="">All cohorts</option>
-                      <option value="current">Current Beneficiaries</option>
-                      <option value="new">New Beneficiaries</option>
-                      <option value="not_tagged">Not tagged</option>
+                      <option value="">All streams</option>
+                      <option value="current">Continuing</option>
+                      <option value="new">New</option>
+                      <option value="single_cycle">Single Cycle</option>
                     </select>
                   </label>
                 </div>
@@ -2774,7 +2794,7 @@
                 </div>
                 </form>
               <div id="beneficiaryListMessage" class="inline-note">
-                Imported beneficiary records will appear here and can be filtered by year, support name, support type, and cohort.
+                Imported beneficiary records will appear here and can be filtered by year, support name, support type, and beneficiary stream.
               </div>
             </section>
           </section>
@@ -2852,11 +2872,11 @@
                     </select>
                   </label>
                   <label class="field">
-                    <span>Beneficiary cohort</span>
+                    <span>Beneficiary stream</span>
                     <select id="beneficiaryEditorCohort">
-                      <option value="">Not tagged</option>
-                      <option value="current">Current Beneficiaries</option>
-                      <option value="new">New Beneficiaries</option>
+                      <option value="single_cycle">Single Cycle</option>
+                      <option value="current">Continuing</option>
+                      <option value="new">New</option>
                     </select>
                   </label>
                   <label class="field field-span-2">
@@ -3325,9 +3345,9 @@
               <article class="metric-card"><span class="metric-label">Amount totals</span><strong class="metric-value">GHS 0</strong></article>
               <article class="metric-card"><span class="metric-label">Colleges represented</span><strong class="metric-value">0</strong></article>
               <article class="metric-card"><span class="metric-label">College-tagged records</span><strong class="metric-value">0</strong></article>
-              <article class="metric-card"><span class="metric-label">Current</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Continuing</span><strong class="metric-value">0</strong></article>
               <article class="metric-card"><span class="metric-label">New</span><strong class="metric-value">0</strong></article>
-              <article class="metric-card"><span class="metric-label">Not tagged</span><strong class="metric-value">0</strong></article>
+              <article class="metric-card"><span class="metric-label">Single Cycle</span><strong class="metric-value">0</strong></article>
               <article class="metric-card"><span class="metric-label">Carried forward</span><strong class="metric-value">0</strong></article>
             </div>
           </section>
@@ -3365,9 +3385,9 @@
               <div id="reportsBeneficiarySchemeCards" class="summary-cards summary-cards-wide">
                 <article class="metric-card"><span class="metric-label">Beneficiaries</span><strong class="metric-value">0</strong></article>
                 <article class="metric-card"><span class="metric-label">Amount totals</span><strong class="metric-value">GHS 0</strong></article>
-                <article class="metric-card"><span class="metric-label">Current</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">Continuing</span><strong class="metric-value">0</strong></article>
                 <article class="metric-card"><span class="metric-label">New</span><strong class="metric-value">0</strong></article>
-                <article class="metric-card"><span class="metric-label">Not tagged</span><strong class="metric-value">0</strong></article>
+                <article class="metric-card"><span class="metric-label">Single Cycle</span><strong class="metric-value">0</strong></article>
                 <article class="metric-card"><span class="metric-label">Carried forward</span><strong class="metric-value">0</strong></article>
               </div>
             </section>
@@ -3386,9 +3406,9 @@
                       <th>College</th>
                       <th>Beneficiaries</th>
                       <th>Amount Total</th>
-                      <th>Current</th>
+                      <th>Continuing</th>
                       <th>New</th>
-                      <th>Not Tagged</th>
+                      <th>Single Cycle</th>
                       <th>Carried Forward</th>
                     </tr>
                   </thead>
@@ -3416,14 +3436,15 @@
                     <th>Beneficiaries</th>
                     <th>Amount Total</th>
                     <th>Imported Lists</th>
-                    <th>Current</th>
+                    <th>Continuing</th>
                     <th>New</th>
+                    <th>Single Cycle</th>
                     <th>Carried Forward</th>
                   </tr>
                 </thead>
                 <tbody id="reportsBeneficiaryYearComparisonTable">
                   <tr>
-                    <td colspan="7" class="empty-cell">Beneficiary year comparison will appear here.</td>
+                    <td colspan="8" class="empty-cell">Beneficiary year comparison will appear here.</td>
                   </tr>
                 </tbody>
               </table>

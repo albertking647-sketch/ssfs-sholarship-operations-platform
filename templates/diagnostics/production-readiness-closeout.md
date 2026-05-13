@@ -148,12 +148,12 @@ Optional:
 - Sponsor
 - Index Number
 - Currency
-- Beneficiary Cohort
+- Beneficiary Stream
 - Remarks
 
 Batch-level options:
 - Import Mode
-- Beneficiary Cohort
+- Beneficiary Stream
 - Award Amount Currency fallback
 - Duplicate Student ID action
 - Categorized into colleges toggle

@@ -26,6 +26,11 @@ function normalizeRecommendedStatus(value) {
   return "awaiting_support";
 }
 
+function normalizeRecommendationTargetType(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return text === "beneficiary_support" ? "beneficiary_support" : "application_scheme";
+}
+
 function normalizeSupportType(value) {
   const text = String(value || "").trim().toLowerCase();
   if (text === "internal" || text === "external") return text;
@@ -39,6 +44,7 @@ function normalizeBeneficiaryCohort(value) {
   }
   if (text.includes("current")) return "current";
   if (text.includes("new")) return "new";
+  if (text === "single_cycle" || text.includes("single cycle")) return "single_cycle";
   return null;
 }
 
@@ -167,6 +173,60 @@ async function resolveSchemeContext(repositories, payload = {}) {
     cycleId: String(cycle.id),
     cycleLabel: cycle.label || cycle.academicYearLabel || academicYearLabel
   };
+}
+
+async function resolveRecommendationContext(repositories, payload = {}) {
+  const targetType = normalizeRecommendationTargetType(payload.targetType);
+  if (targetType === "application_scheme") {
+    const context = await resolveSchemeContext(repositories, payload);
+    return {
+      ...context,
+      targetType,
+      supportName: context.schemeName
+    };
+  }
+
+  const cycles = await repositories.cycles.list();
+  const cycleId = String(payload.cycleId || "").trim();
+  const supportName = String(payload.supportName || payload.schemeName || "").trim();
+  const academicYearLabel = normalizeAcademicYearLabel(payload.academicYearLabel || payload.cycleLabel);
+  let cycle = cycleId ? cycles.find((item) => String(item.id) === cycleId) : null;
+  if (!cycle && academicYearLabel) {
+    cycle = cycles.find(
+      (item) => normalizeAcademicYearLabel(item.label || item.academicYearLabel) === academicYearLabel
+    );
+  }
+
+  if (!cycle) {
+    throw new NotFoundError("The selected academic year was not found.");
+  }
+  if (!supportName) {
+    throw new ValidationError("Support name is required.");
+  }
+
+  return {
+    targetType,
+    schemeId: null,
+    schemeName: supportName,
+    supportName,
+    cycleId: String(cycle.id),
+    cycleLabel: cycle.label || cycle.academicYearLabel || academicYearLabel
+  };
+}
+
+async function findExistingRecommendationByTarget(repositories, context = {}) {
+  if (typeof repositories.waitlist.findExistingByTarget === "function") {
+    return repositories.waitlist.findExistingByTarget(context);
+  }
+
+  if (
+    context.schemeId &&
+    typeof repositories.waitlist.findExisting === "function"
+  ) {
+    return repositories.waitlist.findExisting(context.studentId, context.schemeId, context.cycleId);
+  }
+
+  return null;
 }
 
 async function buildStudentBatchLookup(repositories, rows = []) {
@@ -324,6 +384,8 @@ async function buildImportAssessment(repositories, payload) {
     if (schemeResult.scheme && schemeResult.cycle) {
       payloadRow.schemeId = String(schemeResult.scheme.id);
       payloadRow.schemeName = schemeResult.scheme.name;
+      payloadRow.targetType = "application_scheme";
+      payloadRow.supportName = schemeResult.scheme.name;
       payloadRow.cycleId = String(schemeResult.cycle.id);
       payloadRow.cycleLabel =
         schemeResult.cycle.label ||
@@ -333,11 +395,12 @@ async function buildImportAssessment(repositories, payload) {
     }
 
     if (!issues.length && payloadRow.studentId && payloadRow.schemeId && payloadRow.cycleId) {
-      const existing = await repositories.waitlist.findExisting(
-        payloadRow.studentId,
-        payloadRow.schemeId,
-        payloadRow.cycleId
-      );
+      const existing = await findExistingRecommendationByTarget(repositories, {
+        studentId: payloadRow.studentId,
+        schemeId: payloadRow.schemeId,
+        cycleId: payloadRow.cycleId,
+        supportName: payloadRow.supportName || payloadRow.schemeName
+      });
       if (existing) {
         issues.push(
           "A recommended-student record already exists for this student under the same scheme and academic year."
@@ -402,15 +465,16 @@ export function createWaitlistService({ repositories, services }) {
 
     async create(payload, actor) {
       const student = await resolveStudentMatch(repositories, payload);
-      const context = await resolveSchemeContext(repositories, payload);
-      const existing = await repositories.waitlist.findExisting(
-        student.id,
-        context.schemeId,
-        context.cycleId
-      );
+      const context = await resolveRecommendationContext(repositories, payload);
+      const existing = await findExistingRecommendationByTarget(repositories, {
+        studentId: student.id,
+        schemeId: context.schemeId,
+        cycleId: context.cycleId,
+        supportName: context.supportName
+      });
       if (existing) {
         throw new ConflictError(
-          "This student is already recorded as recommended for the selected scheme and academic year."
+          "This student is already recorded as recommended for the selected support and academic year."
         );
       }
 
@@ -426,6 +490,8 @@ export function createWaitlistService({ repositories, services }) {
           year: student.year || null,
           schemeId: context.schemeId,
           schemeName: context.schemeName,
+          targetType: context.targetType,
+          supportName: context.supportName,
           cycleId: context.cycleId,
           cycleLabel: context.cycleLabel,
           recommendationReason: String(payload.recommendationReason || "").trim() || null,
@@ -462,15 +528,16 @@ export function createWaitlistService({ repositories, services }) {
       }
 
       const student = await resolveStudentMatch(repositories, payload);
-      const context = await resolveSchemeContext(repositories, payload);
-      const conflict = await repositories.waitlist.findExisting(
-        student.id,
-        context.schemeId,
-        context.cycleId
-      );
+      const context = await resolveRecommendationContext(repositories, payload);
+      const conflict = await findExistingRecommendationByTarget(repositories, {
+        studentId: student.id,
+        schemeId: context.schemeId,
+        cycleId: context.cycleId,
+        supportName: context.supportName
+      });
       if (conflict && String(conflict.id) !== String(entryId)) {
         throw new ConflictError(
-          "This student is already recorded as recommended for the selected scheme and academic year."
+          "This student is already recorded as recommended for the selected support and academic year."
         );
       }
 
@@ -488,6 +555,8 @@ export function createWaitlistService({ repositories, services }) {
           year: student.year || null,
           schemeId: context.schemeId,
           schemeName: context.schemeName,
+          targetType: context.targetType,
+          supportName: context.supportName,
           cycleId: context.cycleId,
           cycleLabel: context.cycleLabel,
           recommendationReason: String(payload.recommendationReason || "").trim() || null,
@@ -582,6 +651,11 @@ export function createWaitlistService({ repositories, services }) {
       if (entry.linkedApplicationId) {
         throw new ConflictError("This recommended student has already been added to Applications.");
       }
+      if (normalizeRecommendationTargetType(entry.targetType) !== "application_scheme" || !entry.schemeId) {
+        throw new ConflictError(
+          "This recommendation is for Beneficiaries & Support only and cannot be added to Applications."
+        );
+      }
 
       const existing = await repositories.applications.findExisting(
         entry.studentId,
@@ -671,7 +745,7 @@ export function createWaitlistService({ repositories, services }) {
       ]);
       if (duplicateKeys.size) {
         throw new ConflictError(
-          "A beneficiary/support record already exists for this student under the same scheme and academic year."
+          "A beneficiary/support record already exists for this student under the same support and academic year."
         );
       }
 

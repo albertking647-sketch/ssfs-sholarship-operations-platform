@@ -6,12 +6,21 @@ function normalizeAcademicYearLabel(value) {
   return /^\d{4}\/\d{4}$/.test(text) ? `${text} Academic Year` : text;
 }
 
+function normalizeSchemeName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
 function normalizeStatus(value) {
   const text = String(value || "").trim().toLowerCase();
   if (text === "waitlisted") return "awaiting_support";
   if (text === "promoted") return "supported";
   if (text === "supported") return "supported";
   return "awaiting_support";
+}
+
+function normalizeTargetType(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return text === "beneficiary_support" ? "beneficiary_support" : "application_scheme";
 }
 
 function normalizeActorLabel(actor) {
@@ -36,7 +45,9 @@ function mapStoredRecord(record) {
     program: record.program || null,
     year: record.year || null,
     schemeId: record.schemeId || null,
-    schemeName: record.schemeName || null,
+    schemeName: record.schemeName || record.supportName || null,
+    targetType: normalizeTargetType(record.targetType),
+    supportName: record.supportName || record.schemeName || null,
     cycleId: record.cycleId || null,
     cycleLabel: normalizeAcademicYearLabel(record.cycleLabel),
     recommendationReason: record.recommendationReason || null,
@@ -117,6 +128,19 @@ function createSampleRepository() {
       );
       return item ? mapStoredRecord(item) : null;
     },
+    async findExistingByTarget({ studentId, schemeId, cycleId, supportName }) {
+      const normalizedSupportName = normalizeSchemeName(supportName).toLowerCase();
+      const item = records.find((entry) => {
+        const entrySupportName = normalizeSchemeName(entry.supportName || entry.schemeName).toLowerCase();
+        return (
+          String(entry.studentId) === String(studentId) &&
+          String(entry.cycleId) === String(cycleId) &&
+          (String(entry.schemeId || "") === String(schemeId || "") ||
+            entrySupportName === normalizedSupportName)
+        );
+      });
+      return item ? mapStoredRecord(item) : null;
+    },
     async create(input, actor) {
       const now = new Date().toISOString();
       const stored = {
@@ -146,6 +170,8 @@ function createSampleRepository() {
         year: input.year || null,
         schemeId: input.schemeId,
         schemeName: input.schemeName || null,
+        targetType: normalizeTargetType(input.targetType),
+        supportName: input.supportName || input.schemeName || null,
         cycleId: input.cycleId,
         cycleLabel: input.cycleLabel || null,
         recommendationReason: input.recommendationReason || null,
@@ -230,7 +256,9 @@ function mapPostgresRow(row) {
     program: row.program,
     year: row.year_of_study,
     schemeId: row.scheme_id,
-    schemeName: row.scheme_name,
+    schemeName: row.scheme_name || row.support_name,
+    targetType: normalizeTargetType(row.target_type),
+    supportName: row.support_name || row.scheme_name,
     cycleId: row.cycle_id,
     cycleLabel: normalizeAcademicYearLabel(row.cycle_label),
     recommendationReason: row.recommendation_reason,
@@ -256,8 +284,10 @@ function createPostgresRepository(database) {
       CREATE TABLE IF NOT EXISTS recommended_students (
         id BIGSERIAL PRIMARY KEY,
         student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
-        scheme_id BIGINT NOT NULL REFERENCES schemes(id) ON DELETE CASCADE,
+        scheme_id BIGINT REFERENCES schemes(id) ON DELETE CASCADE,
         cycle_id BIGINT NOT NULL REFERENCES application_cycles(id) ON DELETE CASCADE,
+        target_type TEXT NOT NULL DEFAULT 'application_scheme',
+        support_name TEXT,
         recommendation_reason TEXT,
         notes TEXT,
         status TEXT NOT NULL DEFAULT 'awaiting_support',
@@ -285,6 +315,13 @@ function createPostgresRepository(database) {
       CREATE INDEX IF NOT EXISTS idx_recommended_students_status
         ON recommended_students(status, created_at DESC);
     `);
+    await database.query("ALTER TABLE recommended_students ALTER COLUMN scheme_id DROP NOT NULL");
+    await database.query(
+      "ALTER TABLE recommended_students ADD COLUMN IF NOT EXISTS target_type TEXT NOT NULL DEFAULT 'application_scheme'"
+    );
+    await database.query(
+      "ALTER TABLE recommended_students ADD COLUMN IF NOT EXISTS support_name TEXT"
+    );
     ensured = true;
   }
 
@@ -367,7 +404,9 @@ function createPostgresRepository(database) {
               : "NULL::text AS year_of_study,"
           }
           rs.scheme_id::text AS scheme_id,
-          scheme.name AS scheme_name,
+          COALESCE(rs.support_name, scheme.name) AS scheme_name,
+          rs.target_type,
+          rs.support_name,
           rs.cycle_id::text AS cycle_id,
           cycle.label AS cycle_label,
           rs.recommendation_reason,
@@ -392,7 +431,7 @@ function createPostgresRepository(database) {
         LEFT JOIN academic_profiles profile
           ON profile.student_id = student.id
          AND profile.cycle_id = rs.cycle_id
-        INNER JOIN schemes scheme ON scheme.id = rs.scheme_id
+        LEFT JOIN schemes scheme ON scheme.id = rs.scheme_id
         INNER JOIN application_cycles cycle ON cycle.id = rs.cycle_id
         ${whereClause}
         ORDER BY rs.created_at DESC, rs.id DESC
@@ -431,6 +470,29 @@ function createPostgresRepository(database) {
       if (!result.rows.length) return null;
       return this.getById(result.rows[0].id);
     },
+    async findExistingByTarget({ studentId, schemeId, cycleId, supportName }) {
+      await ensureTables();
+      const normalizedSupportName = normalizeSchemeName(supportName).toLowerCase();
+      const result = await database.query(
+        `
+          SELECT rs.id::text AS id
+          FROM recommended_students rs
+          LEFT JOIN schemes scheme ON scheme.id = rs.scheme_id
+          WHERE rs.student_id::text = $1
+            AND rs.cycle_id::text = $2
+            AND (
+              ($3 <> '' AND rs.scheme_id::text = $3)
+              OR LOWER(TRIM(COALESCE(rs.support_name, scheme.name, ''))) = $4
+            )
+          ORDER BY rs.created_at DESC, rs.id DESC
+          LIMIT 1
+        `,
+        [String(studentId), String(cycleId), String(schemeId || ""), normalizedSupportName]
+      );
+
+      if (!result.rows.length) return null;
+      return this.getById(result.rows[0].id);
+    },
     async create(input, actor) {
       await ensureTables();
       const result = await database.query(
@@ -439,6 +501,8 @@ function createPostgresRepository(database) {
             student_id,
             scheme_id,
             cycle_id,
+            target_type,
+            support_name,
             recommendation_reason,
             notes,
             status,
@@ -457,14 +521,18 @@ function createPostgresRepository(database) {
             $7,
             $8,
             $9,
-            $10
+            $10,
+            $11,
+            $12
           )
           RETURNING id::text AS id
         `,
         [
           input.studentId,
-          input.schemeId,
+          input.schemeId || null,
           input.cycleId,
+          normalizeTargetType(input.targetType),
+          input.supportName || input.schemeName || null,
           input.recommendationReason || null,
           input.notes || null,
           normalizeStatus(input.status),
@@ -485,16 +553,20 @@ function createPostgresRepository(database) {
             student_id = NULLIF($2, '')::BIGINT,
             scheme_id = NULLIF($3, '')::BIGINT,
             cycle_id = NULLIF($4, '')::BIGINT,
-            recommendation_reason = $5,
-            notes = $6,
+            target_type = $5,
+            support_name = $6,
+            recommendation_reason = $7,
+            notes = $8,
             updated_at = NOW()
           WHERE id::text = $1
         `,
         [
           String(id),
           input.studentId,
-          input.schemeId,
+          input.schemeId || null,
           input.cycleId,
+          normalizeTargetType(input.targetType),
+          input.supportName || input.schemeName || null,
           input.recommendationReason || null,
           input.notes || null
         ]
@@ -515,6 +587,8 @@ function createPostgresRepository(database) {
                 student_id,
                 scheme_id,
                 cycle_id,
+                target_type,
+                support_name,
                 recommendation_reason,
                 notes,
                 status,
@@ -533,14 +607,18 @@ function createPostgresRepository(database) {
                 $7,
                 $8,
                 $9,
-                $10
+                $10,
+                $11,
+                $12
               )
               RETURNING id::text AS id
             `,
             [
               item.studentId,
-              item.schemeId,
+              item.schemeId || null,
               item.cycleId,
+              normalizeTargetType(item.targetType),
+              item.supportName || item.schemeName || null,
               item.recommendationReason || null,
               item.notes || null,
               normalizeStatus(item.status),

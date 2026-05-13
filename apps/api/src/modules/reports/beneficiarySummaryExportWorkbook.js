@@ -25,9 +25,14 @@ export async function buildBeneficiarySummaryExportWorkbook({ report, generatedB
       item.amountLabel || ""
     ]),
     ["Imported Lists", report.summary?.currentYear?.importedListsCount || 0],
-    ["Current Cohort", report.summary?.currentYear?.cohortCounts?.current || 0],
-    ["New Cohort", report.summary?.currentYear?.cohortCounts?.new || 0],
-    ["Not Tagged", report.summary?.currentYear?.cohortCounts?.untagged || 0],
+    ["Continuing", report.summary?.currentYear?.cohortCounts?.current || 0],
+    ["New", report.summary?.currentYear?.cohortCounts?.new || 0],
+    [
+      "Single Cycle",
+      report.summary?.currentYear?.cohortCounts?.singleCycle ??
+        report.summary?.currentYear?.cohortCounts?.untagged ??
+        0
+    ],
     ["Carried Forward", report.summary?.currentYear?.cohortCounts?.carriedForward || 0]
   ];
   utils.book_append_sheet(
@@ -42,9 +47,9 @@ export async function buildBeneficiarySummaryExportWorkbook({ report, generatedB
       "Beneficiaries",
       "Amount Paid",
       "Imported Lists",
-      "Current",
+      "Continuing",
       "New",
-      "Not Tagged",
+      "Single Cycle",
       "Carried Forward"
     ],
     ...(report.summary?.yearComparison || []).map((item) => [
@@ -54,7 +59,7 @@ export async function buildBeneficiarySummaryExportWorkbook({ report, generatedB
       item.importedListsCount || 0,
       item.cohortCounts?.current || 0,
       item.cohortCounts?.new || 0,
-      item.cohortCounts?.untagged || 0,
+      item.cohortCounts?.singleCycle ?? item.cohortCounts?.untagged ?? 0,
       item.cohortCounts?.carriedForward || 0
     ])
   ];

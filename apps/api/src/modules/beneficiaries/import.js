@@ -110,6 +110,7 @@ function normalizeBeneficiaryCohort(value, fallbackValue = "") {
   }
   if (text.includes("current")) return "current";
   if (text.includes("new")) return "new";
+  if (text === "single_cycle" || text.includes("single cycle")) return "single_cycle";
   return null;
 }
 
@@ -255,7 +256,7 @@ export function buildBeneficiaryImportPreview(rows, context) {
       payload.beneficiaryCohort = "current";
       payload.carriedForwardFromPriorYear = true;
       warnings.push(
-        "Tagged as Current Beneficiaries because this student was imported as a new beneficiary in the previous academic year."
+        "Tagged as Continuing because this student was imported as a new beneficiary in the previous academic year."
       );
     }
 

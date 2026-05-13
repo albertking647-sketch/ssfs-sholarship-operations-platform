@@ -292,13 +292,13 @@ Optional:
 - Sponsor
 - Index Number
 - Currency
-- Beneficiary Cohort
+- Beneficiary Stream
 - Remarks
 
 Batch options before upload:
 
 - Import Mode
-- Beneficiary Cohort
+- Beneficiary Stream
 - Award amount currency fallback
 - Duplicate student ID action
 - Categorized into colleges
@@ -459,7 +459,7 @@ Use this section to import:
 Important options before preview/import:
 
 - import mode
-- beneficiary cohort
+- beneficiary stream
 - duplicate student ID action
 - categorized into colleges
 - award amount currency

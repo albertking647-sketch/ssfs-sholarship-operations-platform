@@ -112,6 +112,7 @@ function normalizeBeneficiaryCohort(value) {
   }
   if (text.includes("current")) return "current";
   if (text.includes("new")) return "new";
+  if (text === "single_cycle" || text.includes("single cycle")) return "single_cycle";
   return null;
 }
 
@@ -455,14 +456,14 @@ function summarizeBeneficiaryCohorts(items = []) {
   const totals = {
     current: 0,
     new: 0,
-    untagged: 0,
+    singleCycle: 0,
     carriedForward: 0
   };
 
   for (const item of items) {
     if (item?.beneficiaryCohort === "current") totals.current += 1;
     else if (item?.beneficiaryCohort === "new") totals.new += 1;
-    else totals.untagged += 1;
+    else totals.singleCycle += 1;
 
     if (item?.carriedForwardFromPriorYear) {
       totals.carriedForward += 1;

@@ -73,6 +73,7 @@ function normalizeBeneficiaryCohort(value) {
   }
   if (text.includes("current")) return "current";
   if (text.includes("new")) return "new";
+  if (text === "single_cycle" || text.includes("single cycle")) return "single_cycle";
   return null;
 }
 
@@ -81,17 +82,21 @@ function normalizeBeneficiaryCohortFilter(value) {
   if (!text) return "";
   if (text === "current") return "current";
   if (text === "new") return "new";
-  if (["not_tagged", "not tagged", "untagged", "none", "null"].includes(text)) {
-    return "not_tagged";
+  if (
+    ["single_cycle", "single cycle", "not_tagged", "not tagged", "untagged", "none", "null"].includes(
+      text
+    )
+  ) {
+    return "single_cycle";
   }
   return "";
 }
 
 function formatBeneficiaryCohort(value) {
   const normalized = normalizeBeneficiaryCohort(value);
-  if (normalized === "current") return "Current Beneficiaries";
-  if (normalized === "new") return "New Beneficiaries";
-  return "Not tagged";
+  if (normalized === "current") return "Continuing";
+  if (normalized === "new") return "New";
+  return "Single Cycle";
 }
 
 function normalizeCurrency(value) {
@@ -155,7 +160,7 @@ function formatCohortCounts(items) {
   const counts = {
     current: 0,
     new: 0,
-    untagged: 0,
+    singleCycle: 0,
     carriedForward: 0
   };
 
@@ -163,7 +168,7 @@ function formatCohortCounts(items) {
     const cohort = normalizeBeneficiaryCohort(item.beneficiaryCohort);
     if (cohort === "current") counts.current += 1;
     else if (cohort === "new") counts.new += 1;
-    else counts.untagged += 1;
+    else counts.singleCycle += 1;
     if (item.carriedForwardFromPriorYear) counts.carriedForward += 1;
   }
 
@@ -309,11 +314,11 @@ function filterRecords(records, filters = {}) {
     }
     if (beneficiaryCohort) {
       const normalizedCohort = normalizeBeneficiaryCohort(record.beneficiaryCohort);
-      if (beneficiaryCohort === "not_tagged" && normalizedCohort) {
+      if (beneficiaryCohort === "single_cycle" && normalizedCohort && normalizedCohort !== "single_cycle") {
         return false;
       }
       if (
-        beneficiaryCohort !== "not_tagged" &&
+        beneficiaryCohort !== "single_cycle" &&
         normalizeBeneficiaryCohort(record.beneficiaryCohort) !== beneficiaryCohort
       ) {
         return false;
@@ -364,7 +369,7 @@ function buildFilterOptions(records) {
 
   const cohorts = [...new Set(
     (records || [])
-      .map((record) => normalizeBeneficiaryCohort(record.beneficiaryCohort) || "not_tagged")
+      .map((record) => normalizeBeneficiaryCohort(record.beneficiaryCohort) || "single_cycle")
       .filter(Boolean)
   )];
 
@@ -445,7 +450,7 @@ function summarizeChangedFields(before = {}, after = {}) {
     amountPaid: "amount paid",
     currency: "currency",
     supportType: "support type",
-    beneficiaryCohort: "beneficiary cohort",
+    beneficiaryCohort: "beneficiary stream",
     remarks: "remarks"
   };
 
@@ -1451,9 +1456,9 @@ function createPostgresRepository(database) {
         params.push(supportType);
         conditions.push(`LOWER(beneficiaries.support_type) = $${params.length}`);
       }
-      if (beneficiaryCohort === "not_tagged") {
+      if (beneficiaryCohort === "single_cycle") {
         conditions.push(
-          "(beneficiaries.beneficiary_cohort IS NULL OR TRIM(beneficiaries.beneficiary_cohort) = '')"
+          "(beneficiaries.beneficiary_cohort IS NULL OR TRIM(beneficiaries.beneficiary_cohort) = '' OR LOWER(TRIM(beneficiaries.beneficiary_cohort)) = 'single_cycle')"
         );
       } else if (beneficiaryCohort) {
         params.push(beneficiaryCohort);

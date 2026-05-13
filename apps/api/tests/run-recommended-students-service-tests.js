@@ -391,6 +391,66 @@ async function beneficiaryHandoffMarksRecommendationAsSupported() {
   assert.equal(result.beneficiary.amountPaid, 1500);
 }
 
+async function beneficiarySupportRecommendationHandsOffWithoutApplicationScheme() {
+  const repositories = createRepositories();
+  const { services } = createServices(repositories);
+  const service = createWaitlistService({ repositories, services });
+
+  const created = await service.create(
+    {
+      targetType: "beneficiary_support",
+      studentReferenceId: "20260001",
+      cycleId: "cycle-1",
+      supportName: "One-Time Emergency Grant",
+      recommendationReason: "Beneficiary-only support"
+    },
+    { userId: "user-admin" }
+  );
+
+  assert.equal(created.targetType, "beneficiary_support");
+  assert.equal(created.schemeId, null);
+  assert.equal(created.schemeName, "One-Time Emergency Grant");
+
+  const result = await service.handoffToBeneficiary(
+    created.id,
+    {
+      amountPaid: 950,
+      supportType: "external",
+      beneficiaryCohort: "single_cycle",
+      remarks: "Paid once without Applications intake"
+    },
+    { userId: "user-admin" }
+  );
+
+  assert.equal(result.record.status, "supported");
+  assert.equal(result.beneficiary.schemeName, "One-Time Emergency Grant");
+  assert.equal(result.beneficiary.linkedApplicationId, null);
+  assert.equal(result.beneficiary.beneficiaryCohort, "single_cycle");
+}
+
+async function beneficiarySupportRecommendationCannotBeHandedToApplications() {
+  const repositories = createRepositories();
+  const { services, applicationCreates } = createServices(repositories);
+  const service = createWaitlistService({ repositories, services });
+
+  const created = await service.create(
+    {
+      targetType: "beneficiary_support",
+      studentReferenceId: "20260002",
+      cycleId: "cycle-1",
+      supportName: "Dean's Discretionary Support",
+      recommendationReason: "No application scheme exists"
+    },
+    { userId: "user-admin" }
+  );
+
+  await assert.rejects(
+    service.handoffToApplication(created.id, { userId: "user-admin" }),
+    (error) => error instanceof ConflictError
+  );
+  assert.equal(applicationCreates.length, 0);
+}
+
 async function postgresListUsesAvailableAcademicProfileYearColumn() {
   const seenSelectStatements = [];
   const repository = createWaitlistRepository({
@@ -429,6 +489,8 @@ async function postgresListUsesAvailableAcademicProfileYearColumn() {
                 year_of_study: "Level 300",
                 scheme_id: "scheme-1",
                 scheme_name: "Emergency Support Fund",
+                target_type: "application_scheme",
+                support_name: null,
                 cycle_id: "cycle-1",
                 cycle_label: "2026/2027 Academic Year",
                 recommendation_reason: "High-need case",
@@ -488,6 +550,8 @@ async function main() {
   await updateRecommendationCanChangeRegistryMatchedStudentAndScheme();
   await removeRecommendationDeletesUnlinkedRecord();
   await beneficiaryHandoffMarksRecommendationAsSupported();
+  await beneficiarySupportRecommendationHandsOffWithoutApplicationScheme();
+  await beneficiarySupportRecommendationCannotBeHandedToApplications();
   await postgresListUsesAvailableAcademicProfileYearColumn();
   await exportListProducesWorkbookBytes();
   console.log("recommended-students-service-tests: ok");

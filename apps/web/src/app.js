@@ -163,7 +163,7 @@ const EMPTY_BENEFICIARY_DASHBOARD = {
     cohortCounts: {
       current: 0,
       new: 0,
-      untagged: 0,
+      singleCycle: 0,
       carriedForward: 0
     },
     collegeTaggedCount: 0,
@@ -504,7 +504,13 @@ const elements = {
   recommendedMessage: document.querySelector("#recommendedMessage"),
   recommendedFormTitle: document.querySelector("#recommendedFormTitle"),
   recommendedCreateForm: document.querySelector("#recommendedCreateForm"),
+  recommendedTargetType: document.querySelector("#recommendedTargetType"),
+  recommendedSchemeField: document.querySelector("#recommendedSchemeField"),
   recommendedSchemeSelect: document.querySelector("#recommendedSchemeSelect"),
+  recommendedCycleField: document.querySelector("#recommendedCycleField"),
+  recommendedCycleSelect: document.querySelector("#recommendedCycleSelect"),
+  recommendedSupportNameField: document.querySelector("#recommendedSupportNameField"),
+  recommendedSupportName: document.querySelector("#recommendedSupportName"),
   recommendedStudentReferenceId: document.querySelector("#recommendedStudentReferenceId"),
   recommendedRegistryPreview: document.querySelector("#recommendedRegistryPreview"),
   recommendedReason: document.querySelector("#recommendedReason"),
@@ -946,6 +952,7 @@ async function loadCurrentRouteData(options = {}) {
   }
   if (route.module === "waitlist") {
     tasks.push(() => loadApplicationOptions());
+    tasks.push(() => loadBeneficiarySupportOptionsForRecommendations());
     tasks.push(() => loadRecommendedRecords());
   }
   if (route.module === "awards") {
@@ -1992,19 +1999,21 @@ function renderDashboardBeneficiarySection(dashboard) {
         <span class="detail-subcopy">Recommended students later moved into support</span>
       </article>
       <article class="metric-card dashboard-beneficiary-card dashboard-beneficiary-card--success fade-in">
-        <span class="metric-label">Current cohort</span>
+        <span class="metric-label">Continuing</span>
         <strong class="metric-value">${escapeHtml(cohortCounts.current ?? 0)}</strong>
-        <span class="detail-subcopy">Continuing beneficiaries in the current year</span>
+        <span class="detail-subcopy">Continuing beneficiaries in the current academic year</span>
       </article>
       <article class="metric-card dashboard-beneficiary-card dashboard-beneficiary-card--accent fade-in">
-        <span class="metric-label">New cohort</span>
+        <span class="metric-label">New</span>
         <strong class="metric-value">${escapeHtml(cohortCounts.new ?? 0)}</strong>
         <span class="detail-subcopy">Fresh beneficiaries added in the current year</span>
       </article>
       <article class="metric-card dashboard-beneficiary-card dashboard-beneficiary-card--info fade-in">
-        <span class="metric-label">Not tagged</span>
-        <strong class="metric-value">${escapeHtml(cohortCounts.untagged ?? 0)}</strong>
-        <span class="detail-subcopy">Imported without a cohort tag</span>
+        <span class="metric-label">Single Cycle</span>
+        <strong class="metric-value">${escapeHtml(
+          cohortCounts.singleCycle ?? cohortCounts.untagged ?? 0
+        )}</strong>
+        <span class="detail-subcopy">Support assigned only to one academic year</span>
       </article>
       <article class="metric-card dashboard-beneficiary-card dashboard-beneficiary-card--warning fade-in">
         <span class="metric-label">Carried forward</span>
@@ -2259,19 +2268,54 @@ function renderRecommendedPreview(rows = state.recommendedPreview?.rows || []) {
 }
 
 function renderRecommendedSchemeOptions() {
-  if (!elements.recommendedSchemeSelect) return;
   const activeSchemes = (state.schemes || []).filter(
     (item) => String(item.status || "").toLowerCase() === "active"
   );
-  elements.recommendedSchemeSelect.innerHTML = [
-    `<option value="">Choose a scheme</option>`,
-    ...activeSchemes.map(
-      (item) =>
-        `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} | ${escapeHtml(
-          item.academicYearLabel || item.cycleLabel || "No academic year"
-        )}</option>`
+  if (elements.recommendedSchemeSelect) {
+    elements.recommendedSchemeSelect.innerHTML = [
+      `<option value="">Choose a scheme</option>`,
+      ...activeSchemes.map(
+        (item) =>
+          `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} | ${escapeHtml(
+            item.academicYearLabel || item.cycleLabel || "No academic year"
+          )}</option>`
+      )
+    ].join("");
+  }
+  if (elements.recommendedCycleSelect) {
+    const activeCycles = (state.cycles || []).filter(
+      (item) => String(item.status || "active").toLowerCase() === "active"
+    );
+    elements.recommendedCycleSelect.innerHTML = [
+      `<option value="">Choose academic year</option>`,
+      ...activeCycles.map(
+        (item) =>
+          `<option value="${escapeHtml(item.id)}">${escapeHtml(
+            item.label || item.academicYearLabel || "No academic year"
+          )}</option>`
+      )
+    ].join("");
+  }
+}
+
+function renderRecommendedBeneficiarySupportOptions(selectedValue = elements.recommendedSupportName?.value || "") {
+  if (!elements.recommendedSupportName) return;
+  const supportNames = Array.from(
+    new Set(
+      [
+        ...(state.beneficiaryFilterOptions?.schemeNames || []),
+        selectedValue
+      ]
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
     )
+  ).sort((left, right) => left.localeCompare(right));
+
+  elements.recommendedSupportName.innerHTML = [
+    `<option value="">Choose beneficiary support</option>`,
+    ...supportNames.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`)
   ].join("");
+  elements.recommendedSupportName.value = supportNames.includes(selectedValue) ? selectedValue : "";
 }
 
 function renderRecommendedFilterOptions(filterOptions = state.recommendedFilterOptions) {
@@ -2672,6 +2716,8 @@ function resetSupportFoodBankForm(options = {}) {
 
 function renderRecommendedCreateFormState() {
   const isEditing = Boolean(state.recommendedEditingRecordId);
+  const targetType = elements.recommendedTargetType?.value || "application_scheme";
+  const isBeneficiarySupport = targetType === "beneficiary_support";
   if (elements.recommendedFormTitle) {
     elements.recommendedFormTitle.textContent = isEditing
       ? "Edit a recommended student"
@@ -2685,6 +2731,16 @@ function renderRecommendedCreateFormState() {
   if (elements.recommendedCancelButton) {
     elements.recommendedCancelButton.hidden = !isEditing;
   }
+  if (elements.recommendedSchemeField) {
+    elements.recommendedSchemeField.hidden = isBeneficiarySupport;
+  }
+  if (elements.recommendedCycleField) {
+    elements.recommendedCycleField.hidden = !isBeneficiarySupport;
+  }
+  if (elements.recommendedSupportNameField) {
+    elements.recommendedSupportNameField.hidden = !isBeneficiarySupport;
+  }
+  renderRecommendedBeneficiarySupportOptions();
 }
 
 function resetRecommendedCreateForm(options = {}) {
@@ -2696,6 +2752,10 @@ function resetRecommendedCreateForm(options = {}) {
   state.recommendedManualPreview = null;
   elements.recommendedCreateForm?.reset();
   renderRecommendedSchemeOptions();
+  renderRecommendedBeneficiarySupportOptions();
+  if (elements.recommendedSupportCohort) {
+    elements.recommendedSupportCohort.value = "single_cycle";
+  }
   renderRecommendedManualPreview();
   renderRecommendedCreateFormState();
   if (!options.preserveMessage) {
@@ -2801,9 +2861,13 @@ function renderRecommendedRecords(items = state.recommendedRecords) {
               class="action-button secondary"
               type="button"
               data-recommended-application="${escapeHtml(item.id)}"
-              ${item.linkedApplicationId ? "disabled" : ""}
+              ${item.linkedApplicationId || item.targetType === "beneficiary_support" || !item.schemeId ? "disabled" : ""}
             >
-              ${item.linkedApplicationId ? "Already in Applications" : "Add to Applications"}
+              ${item.linkedApplicationId
+                ? "Already in Applications"
+                : item.targetType === "beneficiary_support" || !item.schemeId
+                  ? "Beneficiary support only"
+                  : "Add to Applications"}
             </button>
             <button
               class="action-button ghost"
@@ -2888,11 +2952,25 @@ function getBeneficiaryPreviewProgrammeLabel(payload = {}) {
   return text || "";
 }
 
+function formatBeneficiaryStreamLabel(value) {
+  switch (String(value || "").trim()) {
+    case "current":
+      return "Continuing";
+    case "new":
+      return "New";
+    case "single_cycle":
+    default:
+      return "Single Cycle";
+  }
+}
+
 function getBeneficiaryCohortTotals(summary = {}) {
   return {
     current: Number(summary?.cohortTotals?.current || 0),
     new: Number(summary?.cohortTotals?.new || 0),
-    untagged: Number(summary?.cohortTotals?.untagged || 0),
+    singleCycle: Number(
+      summary?.cohortTotals?.singleCycle ?? summary?.cohortTotals?.untagged ?? 0
+    ),
     carriedForward: Number(summary?.cohortTotals?.carriedForward || 0)
   };
 }
@@ -2927,6 +3005,9 @@ function getBeneficiaryPreviewCategory(row = {}) {
   if (row?.payload?.beneficiaryCohort === "current") {
     return "current";
   }
+  if (row?.payload?.beneficiaryCohort === "single_cycle" || !row?.payload?.beneficiaryCohort) {
+    return "single_cycle";
+  }
   return "all";
 }
 
@@ -2948,7 +3029,7 @@ function getDuplicateReviewRows(rows = state.beneficiaryPreview?.rows || []) {
   });
 }
 
-/** Rows for the preview "issues" list: invalid rows always; when a cohort/duplicate filter is active, include valid rows that still have issues or warnings in that slice. */
+/** Rows for the preview "issues" list: invalid rows always; when a stream/duplicate filter is active, include valid rows that still have issues or warnings in that slice. */
 function getBeneficiaryPreviewIssueRows(rows = state.beneficiaryPreview?.rows || []) {
   const filtered = getFilteredBeneficiaryPreviewRows(rows);
   const selectedFilter = state.beneficiaryPreviewFilter || "all";
@@ -3011,7 +3092,7 @@ function renderBeneficiarySummary(summary = {}) {
           <strong class="metric-value">${escapeHtml(summary.crossScopeDuplicateRows ?? 0)}</strong>
         </article>
         <article class="metric-card">
-          <span class="metric-label">Cohort-tagged rows</span>
+          <span class="metric-label">Stream-selected rows</span>
           <strong class="metric-value">${escapeHtml(summary.cohortTaggedRows ?? 0)}</strong>
         </article>
     `;
@@ -3149,7 +3230,7 @@ function renderBeneficiaryValidRows(rows = []) {
                   ? `<div class="detail-subcopy">${escapeHtml(row.warnings.join(" "))}</div>`
                   : ""
             }</td>
-            <td>${escapeHtml(row.payload?.beneficiaryCohort || "not tagged")}</td>
+            <td>${escapeHtml(formatBeneficiaryStreamLabel(row.payload?.beneficiaryCohort))}</td>
           </tr>
         `
       )
@@ -3166,14 +3247,14 @@ function renderBeneficiaryImportResults(result = state.lastBeneficiaryImport) {
       <article class="metric-card"><span class="metric-label">Replaced existing</span><strong class="metric-value">${escapeHtml(
         result?.summary?.replacedRows ?? 0
       )}</strong></article>
-      <article class="metric-card"><span class="metric-label">Current</span><strong class="metric-value">${escapeHtml(
+      <article class="metric-card"><span class="metric-label">Continuing</span><strong class="metric-value">${escapeHtml(
         cohortTotals.current
       )}</strong></article>
       <article class="metric-card"><span class="metric-label">New</span><strong class="metric-value">${escapeHtml(
         cohortTotals.new
       )}</strong></article>
-      <article class="metric-card"><span class="metric-label">Not tagged</span><strong class="metric-value">${escapeHtml(
-        cohortTotals.untagged
+      <article class="metric-card"><span class="metric-label">Single Cycle</span><strong class="metric-value">${escapeHtml(
+        cohortTotals.singleCycle
       )}</strong></article>
       <article class="metric-card"><span class="metric-label">Carried forward</span><strong class="metric-value">${escapeHtml(
         cohortTotals.carriedForward
@@ -3207,8 +3288,8 @@ function renderBeneficiaryImportResults(result = state.lastBeneficiaryImport) {
               item.importMode || "historical_archive"
             )} | Duplicate action: ${escapeHtml(
               getBeneficiaryDuplicateStrategyLabel(result?.duplicateStrategy || state.beneficiaryDuplicateStrategy)
-            )} | Cohort: ${escapeHtml(item.beneficiaryCohort || "not tagged")}${
-              item.carriedForwardFromPriorYear ? " | Carried forward from prior-year new cohort" : ""
+            )} | Beneficiary stream: ${escapeHtml(formatBeneficiaryStreamLabel(item.beneficiaryCohort))}${
+              item.carriedForwardFromPriorYear ? " | Carried forward from prior-year New stream" : ""
             }</p>
             ${
               item.linkedWaitlistEntryId
@@ -3256,8 +3337,8 @@ function renderBeneficiaryRecords(items = state.beneficiaryRecords) {
             <p class="detail-subcopy">
               Reference: ${escapeHtml(item.studentReferenceId || "N/A")} | Index: ${escapeHtml(
                 item.indexNumber || "N/A"
-              )} | Import mode: ${escapeHtml(item.importMode || "historical_archive")} | Cohort: ${escapeHtml(
-                item.beneficiaryCohort || "not tagged"
+              )} | Import mode: ${escapeHtml(item.importMode || "historical_archive")} | Beneficiary stream: ${escapeHtml(
+                formatBeneficiaryStreamLabel(item.beneficiaryCohort)
               )}${item.carriedForwardFromPriorYear ? " | Carried forward" : ""}
             </p>
           ${
@@ -3309,7 +3390,7 @@ function renderBeneficiaryEditor(recordId = state.beneficiaryEditingRecordId) {
     elements.beneficiaryEditorAmountPaid.value = target?.amountPaid ?? "";
     elements.beneficiaryEditorCurrency.value = target?.currency || "GHS";
     elements.beneficiaryEditorSupportType.value = target?.supportType || "unknown";
-    elements.beneficiaryEditorCohort.value = target?.beneficiaryCohort || "";
+    elements.beneficiaryEditorCohort.value = target?.beneficiaryCohort || "single_cycle";
     elements.beneficiaryEditorRemarks.value = target?.remarks || "";
     elements.beneficiaryEditorReplaceExisting.checked = false;
     elements.beneficiaryEditorChangeReason.value = "";
@@ -3375,10 +3456,8 @@ function renderBeneficiaryRecordHistory(history = state.beneficiaryRecordHistory
                      minimumFractionDigits: 0,
                      maximumFractionDigits: 2
                    })}`
-                 )} | Cohort: ${escapeHtml(
-                   item.snapshot.beneficiaryCohort
-                     ? formatDecisionLabel(String(item.snapshot.beneficiaryCohort))
-                     : "Not tagged"
+                 )} | Beneficiary stream: ${escapeHtml(
+                   formatBeneficiaryStreamLabel(item.snapshot.beneficiaryCohort)
                  )}${item.snapshot.college ? ` | College: ${escapeHtml(item.snapshot.college)}` : ""}</p>`
               : ""
           }
@@ -3956,14 +4035,14 @@ function renderReportsBeneficiarySchemeReport(report = state.reportsBeneficiaryS
         report?.currencyTotals || [],
         report?.totalAmountPaidLabel || "GHS 0"
       )}</article>
-      <article class="metric-card"><span class="metric-label">Current</span><strong class="metric-value">${escapeHtml(
+      <article class="metric-card"><span class="metric-label">Continuing</span><strong class="metric-value">${escapeHtml(
         report?.cohortCounts?.current ?? 0
       )}</strong></article>
       <article class="metric-card"><span class="metric-label">New</span><strong class="metric-value">${escapeHtml(
         report?.cohortCounts?.new ?? 0
       )}</strong></article>
-      <article class="metric-card"><span class="metric-label">Not tagged</span><strong class="metric-value">${escapeHtml(
-        report?.cohortCounts?.untagged ?? 0
+      <article class="metric-card"><span class="metric-label">Single Cycle</span><strong class="metric-value">${escapeHtml(
+        report?.cohortCounts?.singleCycle ?? report?.cohortCounts?.untagged ?? 0
       )}</strong></article>
       <article class="metric-card"><span class="metric-label">Carried forward</span><strong class="metric-value">${escapeHtml(
         report?.cohortCounts?.carriedForward ?? 0
@@ -3985,12 +4064,12 @@ function renderReportsBeneficiarySchemeReport(report = state.reportsBeneficiaryS
     .map(
       (item) => `
         <tr>
-          <td>${escapeHtml(item.college || "Not tagged")}</td>
+          <td>${escapeHtml(item.college || "College not set")}</td>
           <td>${escapeHtml(item.beneficiaryCount ?? 0)}</td>
           <td>${escapeHtml(item.amountPaidLabel || "GHS 0")}</td>
           <td>${escapeHtml(item.cohortCounts?.current ?? 0)}</td>
           <td>${escapeHtml(item.cohortCounts?.new ?? 0)}</td>
-          <td>${escapeHtml(item.cohortCounts?.untagged ?? 0)}</td>
+          <td>${escapeHtml(item.cohortCounts?.singleCycle ?? item.cohortCounts?.untagged ?? 0)}</td>
           <td>${escapeHtml(item.cohortCounts?.carriedForward ?? 0)}</td>
         </tr>
       `
@@ -4141,7 +4220,7 @@ async function handleBeneficiaryPreview(event) {
           : "";
       const rolledForwardNote =
         Number(payload.summary?.rolledForwardRows || 0) > 0
-          ? ` ${payload.summary?.rolledForwardRows || 0} row(s) were carried forward into Current Beneficiaries because those students were tagged as new beneficiaries in the previous academic year.`
+          ? ` ${payload.summary?.rolledForwardRows || 0} row(s) were carried forward into Continuing because those students were in the New stream in the previous academic year.`
           : "";
       const duplicateNote =
         Number(payload.summary?.duplicateRows || 0) > 0
@@ -4202,7 +4281,7 @@ async function handleBeneficiaryImport() {
           : "";
       const rolledForwardNote =
         Number(payload.preview?.summary?.rolledForwardRows || 0) > 0
-          ? ` ${payload.preview?.summary?.rolledForwardRows || 0} row(s) were carried forward into Current Beneficiaries from the previous academic year's new cohort.`
+          ? ` ${payload.preview?.summary?.rolledForwardRows || 0} row(s) were carried forward into Continuing from the previous academic year's New stream.`
           : "";
       const duplicateNote =
         Number(payload.summary?.duplicateRows || 0) > 0
@@ -4218,9 +4297,9 @@ async function handleBeneficiaryImport() {
       setBeneficiaryImportMessage(
         `Beneficiary import complete. ${payload.summary?.importedRows || 0} row(s) were imported and ${
           payload.summary?.rejectedRows || 0
-        } row(s) were rejected. ${payload.summary?.replacedRows || 0} existing row(s) were replaced. Cohorts imported: ${cohortTotals.current} current, ${cohortTotals.new} new, ${
-          cohortTotals.untagged
-        } not tagged, ${cohortTotals.carriedForward} carried forward.${supportTypeNote}${rolledForwardNote}${duplicateNote}${crossScopeNote}`,
+        } row(s) were rejected. ${payload.summary?.replacedRows || 0} existing row(s) were replaced. Streams imported: ${cohortTotals.current} continuing, ${cohortTotals.new} new, ${
+          cohortTotals.singleCycle
+        } single cycle, ${cohortTotals.carriedForward} carried forward.${supportTypeNote}${rolledForwardNote}${duplicateNote}${crossScopeNote}`,
         payload.summary?.rejectedRows ? "warning" : "success"
       );
     setBeneficiaryDuplicateReviewMessage(
@@ -4273,6 +4352,7 @@ async function loadBeneficiaryRecords() {
         colleges: []
       };
       renderBeneficiaryFilterOptions(state.beneficiaryFilterOptions);
+      renderRecommendedBeneficiarySupportOptions();
       renderBeneficiaryRecords(state.beneficiaryRecords);
       renderBeneficiaryListPagination();
       if (
@@ -4322,6 +4402,40 @@ async function loadBeneficiaryRecords() {
       setBeneficiaryAuditMessage("Unable to load beneficiary lifecycle audit.", "error");
       setBeneficiaryListMessage(error.message, "error");
     }
+}
+
+async function loadBeneficiarySupportOptionsForRecommendations() {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    renderRecommendedBeneficiarySupportOptions();
+    return;
+  }
+
+  try {
+    const url = new URL(`${apiBaseUrl}/api/beneficiaries`);
+    url.searchParams.set("pageSize", "1");
+    const response = await fetch(url.toString(), {
+      headers: {
+        ...getAuthHeaders()
+      }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to load beneficiary support names.");
+    }
+
+    state.beneficiaryFilterOptions = {
+      ...state.beneficiaryFilterOptions,
+      ...(payload.filterOptions || {}),
+      academicYears:
+        payload.filterOptions?.academicYears || state.beneficiaryFilterOptions?.academicYears || [],
+      schemeNames: payload.filterOptions?.schemeNames || state.beneficiaryFilterOptions?.schemeNames || [],
+      colleges: payload.filterOptions?.colleges || state.beneficiaryFilterOptions?.colleges || []
+    };
+    renderRecommendedBeneficiarySupportOptions();
+  } catch {
+    renderRecommendedBeneficiarySupportOptions();
+  }
 }
 
 async function loadBeneficiaryDuplicates() {
@@ -5353,8 +5467,19 @@ function beginRecommendedEdit(recordId) {
   }
 
   state.recommendedEditingRecordId = String(record.id);
+  if (elements.recommendedTargetType) {
+    elements.recommendedTargetType.value = record.targetType || "application_scheme";
+  }
   if (elements.recommendedSchemeSelect) {
     elements.recommendedSchemeSelect.value = record.schemeId || "";
+  }
+  if (elements.recommendedCycleSelect) {
+    elements.recommendedCycleSelect.value = record.cycleId || "";
+  }
+  const supportName = record.supportName || record.schemeName || "";
+  renderRecommendedBeneficiarySupportOptions(supportName);
+  if (elements.recommendedSupportName) {
+    elements.recommendedSupportName.value = supportName;
   }
   if (elements.recommendedStudentReferenceId) {
     elements.recommendedStudentReferenceId.value = record.studentReferenceId || "";
@@ -5450,11 +5575,22 @@ async function handleRecommendedCreate(event) {
   }
 
   const schemeId = elements.recommendedSchemeSelect?.value || "";
+  const targetType = elements.recommendedTargetType?.value || "application_scheme";
+  const cycleId = elements.recommendedCycleSelect?.value || "";
+  const supportName = elements.recommendedSupportName?.value.trim() || "";
   const studentReferenceId = elements.recommendedStudentReferenceId?.value.trim() || "";
   const recommendationReason = elements.recommendedReason?.value.trim() || "";
   const notes = elements.recommendedNotes?.value.trim() || "";
-  if (!schemeId) {
-    setRecommendedCreateMessage("Choose an available scheme first.", "error");
+  if (targetType === "application_scheme" && !schemeId) {
+    setRecommendedCreateMessage("Choose an application scheme first.", "error");
+    return;
+  }
+  if (targetType === "beneficiary_support" && !cycleId) {
+    setRecommendedCreateMessage("Choose an academic year first.", "error");
+    return;
+  }
+  if (targetType === "beneficiary_support" && !supportName) {
+    setRecommendedCreateMessage("Choose an existing beneficiary support first.", "error");
     return;
   }
   if (!studentReferenceId) {
@@ -5482,8 +5618,10 @@ async function handleRecommendedCreate(event) {
           ...getAuthHeaders()
         },
         body: JSON.stringify({
+          targetType,
           schemeId,
-          cycleId: matchedScheme?.cycleId || "",
+          cycleId: targetType === "beneficiary_support" ? cycleId : matchedScheme?.cycleId || "",
+          supportName,
           studentReferenceId,
           recommendationReason,
           notes
@@ -6071,14 +6209,14 @@ function renderReportsOverview(summary = state.reportsOverview) {
       <article class="metric-card"><span class="metric-label">College-tagged records</span><strong class="metric-value">${escapeHtml(
         currentYear.collegeTaggedCount ?? 0
       )}</strong></article>
-      <article class="metric-card"><span class="metric-label">Current</span><strong class="metric-value">${escapeHtml(
+      <article class="metric-card"><span class="metric-label">Continuing</span><strong class="metric-value">${escapeHtml(
         cohortCounts.current ?? 0
       )}</strong></article>
       <article class="metric-card"><span class="metric-label">New</span><strong class="metric-value">${escapeHtml(
         cohortCounts.new ?? 0
       )}</strong></article>
-      <article class="metric-card"><span class="metric-label">Not tagged</span><strong class="metric-value">${escapeHtml(
-        cohortCounts.untagged ?? 0
+      <article class="metric-card"><span class="metric-label">Single Cycle</span><strong class="metric-value">${escapeHtml(
+        cohortCounts.singleCycle ?? cohortCounts.untagged ?? 0
       )}</strong></article>
       <article class="metric-card"><span class="metric-label">Carried forward</span><strong class="metric-value">${escapeHtml(
         cohortCounts.carriedForward ?? 0
@@ -6158,12 +6296,13 @@ function renderReportsOverview(summary = state.reportsOverview) {
                 <td>${escapeHtml(item.importedListsCount ?? 0)}</td>
                 <td>${escapeHtml(item.cohortCounts?.current ?? 0)}</td>
                 <td>${escapeHtml(item.cohortCounts?.new ?? 0)}</td>
+                <td>${escapeHtml(item.cohortCounts?.singleCycle ?? item.cohortCounts?.untagged ?? 0)}</td>
                 <td>${escapeHtml(item.cohortCounts?.carriedForward ?? 0)}</td>
               </tr>
             `
           )
           .join("")
-      : `<tr><td colspan="7" class="empty-cell">Beneficiary year comparison will appear here.</td></tr>`;
+      : `<tr><td colspan="8" class="empty-cell">Beneficiary year comparison will appear here.</td></tr>`;
   }
 }
 
@@ -14035,6 +14174,15 @@ function bindEvents() {
   });
   elements.recommendedCreateForm?.addEventListener("submit", (event) => {
     void handleRecommendedCreate(event);
+  });
+  elements.recommendedTargetType?.addEventListener("change", () => {
+    if (
+      elements.recommendedTargetType?.value === "beneficiary_support" &&
+      !(state.beneficiaryFilterOptions?.schemeNames || []).length
+    ) {
+      void loadBeneficiarySupportOptionsForRecommendations();
+    }
+    renderRecommendedCreateFormState();
   });
   elements.recommendedStudentReferenceId?.addEventListener("input", () => {
     scheduleRecommendedStudentPreviewLookup();

@@ -100,7 +100,7 @@ async function beneficiaryDashboardIncludesCohortCounts() {
       {
         academicYearLabel: "2026/2027 Academic Year",
         schemeName: "SRC KBN",
-        fullName: "Student Untagged",
+        fullName: "Student Single Cycle",
         studentReferenceId: "20260003",
         amountPaid: 1000,
         beneficiaryCohort: null,
@@ -117,7 +117,7 @@ async function beneficiaryDashboardIncludesCohortCounts() {
   assert.deepEqual(dashboard.currentYear.cohortCounts, {
     current: 1,
     new: 1,
-    untagged: 1,
+    singleCycle: 1,
     carriedForward: 0
   });
   assert.deepEqual(dashboard.currentYear.currencyTotals, [
@@ -127,6 +127,43 @@ async function beneficiaryDashboardIncludesCohortCounts() {
       amountLabel: "GHS 3,600"
     }
   ]);
+}
+
+async function explicitSingleCycleStreamIsCountedSeparatelyFromContinuingAndNew() {
+  const repositories = createRepositories();
+  const service = createBeneficiaryService({ repositories });
+
+  const result = await service.importRows(
+    {
+      importMode: "historical_archive",
+      duplicateStrategy: "skip",
+      beneficiaryCohort: "single_cycle",
+      fileName: "single-cycle-beneficiaries.xlsx",
+      rows: [
+        {
+          "Academic Year": "2026/2027",
+          "Scholarship Name or Support Name": "Single Cycle Support",
+          "Full Name": "Single Cycle Student",
+          "Student ID / Reference Number": "20269992",
+          "Amount Paid": "900",
+          "Support Type": "External"
+        }
+      ]
+    },
+    { userId: "user-admin" }
+  );
+
+  assert.equal(result.items[0].beneficiaryCohort, "single_cycle");
+  assert.deepEqual(result.summary.cohortTotals, {
+    current: 0,
+    new: 0,
+    singleCycle: 1,
+    carriedForward: 0
+  });
+
+  const filtered = await service.list({ beneficiaryCohort: "single_cycle" });
+  assert.equal(filtered.total, 1);
+  assert.equal(filtered.items[0].fullName, "Single Cycle Student");
 }
 
 async function previewUsesSelectedDefaultCurrencyWhenRowsDoNotIncludeOne() {
@@ -198,7 +235,7 @@ async function currentCycleImportLinksPromotedWaitlistEntries() {
   assert.deepEqual(result.summary.cohortTotals, {
     current: 0,
     new: 0,
-    untagged: 1,
+    singleCycle: 1,
     carriedForward: 0
   });
   assert.equal(result.items[0].linkedWaitlistEntryId, "waitlist-42");
@@ -905,6 +942,7 @@ async function duplicateDeclinationRequestCanBeCancelledBeforeAnotherAction() {
 
 async function main() {
   await beneficiaryDashboardIncludesCohortCounts();
+  await explicitSingleCycleStreamIsCountedSeparatelyFromContinuingAndNew();
   await previewUsesSelectedDefaultCurrencyWhenRowsDoNotIncludeOne();
   await currentCycleImportLinksPromotedWaitlistEntries();
   await previewDetectsCrossSchemeDuplicateStudentIds();

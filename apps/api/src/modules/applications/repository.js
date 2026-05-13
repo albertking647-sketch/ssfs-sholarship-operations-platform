@@ -1159,13 +1159,22 @@ function createPostgresRepository(database) {
     }
     if (filters.studentReferenceId) {
       params.push(filters.studentReferenceId);
+      const referenceParam = `$${params.length}`;
       conditions.push(`
-        EXISTS (
-          SELECT 1
-          FROM student_identifiers filter_identifier
-          WHERE filter_identifier.student_id = student.id
-            AND filter_identifier.identifier_type = 'student_reference_id'
-            AND filter_identifier.identifier_value = $${params.length}
+        (
+          EXISTS (
+            SELECT 1
+            FROM student_identifiers filter_identifier
+            WHERE filter_identifier.student_id = student.id
+              AND filter_identifier.identifier_type = 'student_reference_id'
+              AND filter_identifier.identifier_value = ${referenceParam}
+          )
+          OR CASE
+            WHEN a.reviewer_notes IS NOT NULL
+              AND a.reviewer_notes ~ '^\\s*\\{'
+            THEN a.reviewer_notes::jsonb ->> 'uploadedStudentReferenceId'
+            ELSE NULL
+          END = ${referenceParam}
         )
       `);
     }

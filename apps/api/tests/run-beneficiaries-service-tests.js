@@ -162,7 +162,7 @@ async function currentCycleImportLinksPromotedWaitlistEntries() {
             id: "waitlist-42",
             applicationId: "application-42",
             studentReferenceId: "20261234",
-            indexNumber: "ENG/24/001",
+            indexNumber: "8637723",
             schemeName: "SRC KBN",
             cycleLabel: "2026/2027 Academic Year",
             status: "promoted"

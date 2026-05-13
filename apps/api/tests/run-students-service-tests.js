@@ -53,7 +53,7 @@ async function importRollbackRestoresUpdatedAcademicHistoryRecord() {
       semesterLabel: "Final Results",
       rows: [
         {
-          "Index Number": "ENG/24/001",
+          "Index Number": "8637723",
           "Full Name": "Akosua Mensah",
           "Academic Year": "2031/2032 Academic Year",
           "Semester Label": "Final Results",
@@ -115,14 +115,14 @@ async function updateDeleteAndClearAcademicHistoryRecords() {
       semesterLabel: "First Semester",
       rows: [
         {
-          "Index Number": "ENG/24/001",
+          "Index Number": "8637723",
           "Full Name": "Akosua Mensah",
           "Academic Year": "2032/2033 Academic Year",
           "Semester Label": "First Semester",
           CWA: 75
         },
         {
-          "Index Number": "SCI/24/015",
+          "Index Number": "PG8637723",
           "Full Name": "Kwame Arthur",
           "Academic Year": "2032/2033 Academic Year",
           "Semester Label": "First Semester",
@@ -200,7 +200,7 @@ async function academicHistoryImportScopeOptionsGroupSemestersByAcademicYear() {
       semesterLabel: "First Semester",
       rows: [
         {
-          "Index Number": "ENG/24/001",
+          "Index Number": "8637723",
           "Full Name": "Akosua Mensah",
           CWA: 74
         }
@@ -216,7 +216,7 @@ async function academicHistoryImportScopeOptionsGroupSemestersByAcademicYear() {
       semesterLabel: "Final Results",
       rows: [
         {
-          "Index Number": "SCI/24/015",
+          "Index Number": "PG8637723",
           "Full Name": "Kwame Arthur",
           CWA: 68
         }
@@ -232,7 +232,7 @@ async function academicHistoryImportScopeOptionsGroupSemestersByAcademicYear() {
       semesterLabel: "Second Semester",
       rows: [
         {
-          "Index Number": "BUS/24/111",
+          "Index Number": "8637724",
           "Full Name": "Esi Boateng",
           CWA: 80
         }
@@ -258,10 +258,28 @@ async function academicHistoryImportScopeOptionsGroupSemestersByAcademicYear() {
   });
 }
 
+async function registrySearchMatchesNameWordsInAnyOrder() {
+  const { repositories } = createRepositories();
+  const service = createStudentService({ repositories });
+
+  const directOrder = await service.search({ q: "Akosua Mensah" });
+  const reverseOrder = await service.search({ q: "Mensah Akosua" });
+
+  assert.ok(
+    directOrder.some((item) => item.studentReferenceId === "20261234"),
+    "Expected direct-name search to find the registry student."
+  );
+  assert.ok(
+    reverseOrder.some((item) => item.studentReferenceId === "20261234"),
+    "Expected reordered-name search to find the same registry student."
+  );
+}
+
 async function main() {
   await importRollbackRestoresUpdatedAcademicHistoryRecord();
   await updateDeleteAndClearAcademicHistoryRecords();
   await academicHistoryImportScopeOptionsGroupSemestersByAcademicYear();
+  await registrySearchMatchesNameWordsInAnyOrder();
   console.log("students-service-tests: ok");
 }
 

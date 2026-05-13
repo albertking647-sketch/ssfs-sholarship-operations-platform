@@ -990,6 +990,7 @@ body[data-theme="dark"] .action-button.primary:hover {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
   padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -997,13 +998,46 @@ body[data-theme="dark"] .action-button.primary:hover {
   color: var(--text-secondary);
   font-size: 11.5px;
   font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .dashboard-currency-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
   margin-top: 10px;
+}
+
+.dashboard-beneficiary-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-beneficiary-card .detail-subcopy {
+  display: block;
+  margin-top: 8px;
+  max-width: 100%;
+}
+
+.dashboard-amount-total-value {
+  display: grid;
+  gap: 4px;
+  font-size: clamp(1rem, 3vw, 1.38rem);
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.dashboard-amount-total-value span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-amount-total-plus {
+  display: inline;
+  margin-right: 0.2em;
 }
 
 .search-result-card.is-selected {
@@ -1230,7 +1264,7 @@ body[data-theme="dark"] .action-button.primary:hover {
 .metric-value {
   display: block; font-family: var(--font-display);
   font-size: 1.7rem; line-height: 1; font-weight: 700;
-  color: var(--text); letter-spacing: -1px;
+  color: var(--text); letter-spacing: 0;
 }
 
 .table-wrap { overflow-x: auto; }

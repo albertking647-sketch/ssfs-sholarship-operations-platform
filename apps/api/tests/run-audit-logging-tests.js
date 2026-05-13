@@ -307,7 +307,7 @@ async function supportAndRecommendedFlowsWriteAuditEntries() {
             id: "student-1",
             fullName: "Akosua Mensah",
             studentReferenceId: "20261234",
-            indexNumber: "ENG/24/001",
+            indexNumber: "8637723",
             email: "akosua@example.test",
             college: "Engineering",
             program: "Computer Engineering",

@@ -34,8 +34,83 @@ function mapStudent(student) {
   };
 }
 
+function normalizeSearchText(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function tokenizeSearchQuery(value) {
+  return normalizeSearchText(value).split(" ").filter(Boolean);
+}
+
 function includesText(value, query) {
-  return String(value || "").toLowerCase().includes(query);
+  return normalizeSearchText(value).includes(normalizeSearchText(query));
+}
+
+function matchesTextSearch(values, query) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return true;
+  if (values.some((value) => includesText(value, normalizedQuery))) return true;
+
+  const searchableText = normalizeSearchText(values.filter(Boolean).join(" "));
+  const tokens = tokenizeSearchQuery(normalizedQuery);
+  return tokens.length > 1 && tokens.every((token) => searchableText.includes(token));
+}
+
+function buildStudentSearchPatternClause(paramIndex, options = {}) {
+  const profileClause =
+    options.profileMode === "direct"
+      ? `
+        OR profile.program_name ILIKE $${paramIndex}
+        OR profile.college ILIKE $${paramIndex}
+      `
+      : `
+        OR EXISTS (
+          SELECT 1
+          FROM academic_profiles any_profile
+          WHERE any_profile.student_id = s.id
+            AND (
+              any_profile.program_name ILIKE $${paramIndex}
+              OR any_profile.college ILIKE $${paramIndex}
+            )
+        )
+      `;
+
+  return `
+    (
+      s.full_name ILIKE $${paramIndex}
+      ${options.includeEmail === false ? "" : `OR s.email ILIKE $${paramIndex}`}
+      OR EXISTS (
+        SELECT 1
+        FROM student_identifiers any_identifier
+        WHERE any_identifier.student_id = s.id
+          AND any_identifier.identifier_value ILIKE $${paramIndex}
+      )
+      ${profileClause}
+    )
+  `;
+}
+
+function buildStudentTextSearchCondition(params, query, options = {}) {
+  const normalizedQuery = normalizeSearchText(query);
+  params.push(`%${normalizedQuery}%`);
+  const phraseClause = buildStudentSearchPatternClause(params.length, options);
+  const tokens = tokenizeSearchQuery(normalizedQuery);
+
+  if (tokens.length < 2) {
+    return phraseClause;
+  }
+
+  const tokenClauses = tokens.map((token) => {
+    params.push(`%${token}%`);
+    return buildStudentSearchPatternClause(params.length, options);
+  });
+
+  return `
+    (
+      ${phraseClause}
+      OR (${tokenClauses.join(" AND ")})
+    )
+  `;
 }
 
 function academicYearRank(label) {
@@ -225,14 +300,14 @@ function createSampleRepository() {
         if (studentReferenceId && student.studentReferenceId === studentReferenceId) return true;
         if (indexNumber && student.indexNumber?.toLowerCase() === indexNumber) return true;
         if (query) {
-          return [
+          return matchesTextSearch([
             student.fullName,
             student.studentReferenceId,
             student.indexNumber,
             student.program,
             student.college,
             student.email
-          ].some((value) => includesText(value, query));
+          ], query);
         }
 
         return !filters.id && !studentReferenceId && !indexNumber;
@@ -325,13 +400,13 @@ function createSampleRepository() {
         if (studentReferenceId && student.studentReferenceId === studentReferenceId) return true;
         if (indexNumber && student.indexNumber === indexNumber) return true;
         if (query) {
-          return [
+          return matchesTextSearch([
             student.fullName,
             student.studentReferenceId,
             student.indexNumber,
             student.program,
             student.college
-          ].some((value) => includesText(value, query));
+          ], query);
         }
         return !studentId && !studentReferenceId && !indexNumber && !query;
       });
@@ -857,28 +932,7 @@ function createPostgresRepository(database) {
     }
 
     if (filters.q) {
-      params.push(`%${filters.q}%`);
-      conditions.push(`
-        (
-          s.full_name ILIKE $${params.length}
-          OR s.email ILIKE $${params.length}
-          OR EXISTS (
-            SELECT 1
-            FROM student_identifiers any_identifier
-            WHERE any_identifier.student_id = s.id
-              AND any_identifier.identifier_value ILIKE $${params.length}
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM academic_profiles any_profile
-            WHERE any_profile.student_id = s.id
-              AND (
-                any_profile.program_name ILIKE $${params.length}
-                OR any_profile.college ILIKE $${params.length}
-              )
-          )
-        )
-      `);
+      conditions.push(buildStudentTextSearchCondition(params, filters.q));
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -1347,20 +1401,12 @@ function createPostgresRepository(database) {
         `);
       }
       if (filters.q) {
-        params.push(`%${filters.q}%`);
-        conditions.push(`
-          (
-            s.full_name ILIKE $${params.length}
-            OR EXISTS (
-              SELECT 1
-              FROM student_identifiers any_identifier
-              WHERE any_identifier.student_id = s.id
-                AND any_identifier.identifier_value ILIKE $${params.length}
-            )
-            OR profile.program_name ILIKE $${params.length}
-            OR profile.college ILIKE $${params.length}
-          )
-        `);
+        conditions.push(
+          buildStudentTextSearchCondition(params, filters.q, {
+            includeEmail: false,
+            profileMode: "direct"
+          })
+        );
       }
       if (filters.assessmentOnly) {
         conditions.push(buildAcademicResultPresenceClause("profile", profileMapping));

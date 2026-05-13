@@ -280,9 +280,6 @@ Required:
 - Full Name
 - Student ID / Reference Number
 - Amount Paid
-
-Strongly expected:
-
 - Support Type
 
 Conditionally required:
@@ -311,6 +308,7 @@ Currency note:
 - if a row already has a `Currency` value, the row value is used
 - if the file does not include currency, the selected batch currency is used
 - if neither is provided, the system defaults to `GHS`
+- supported currencies are `GHS`, `USD`, `EUR`, and `GBP`
 
 ### Food & Clothing Support import
 
@@ -436,7 +434,7 @@ before the recommendation is saved.
 
 ### Import flow
 
-Use Excel import when you already have a prepared list.
+Use import when you already have a prepared CSV or Excel list.
 
 Preview first before importing.
 
@@ -596,9 +594,9 @@ Restart the API when:
 
 ### Restart steps
 
-Open a terminal in:
+Open a terminal in the project root:
 
-- [scholarship-operations-platform-new](C:\Users\Lenovo\Documents\Code%20Space\student-verification-suite\scholarship-operations-platform-new)
+- `C:\Users\Lenovo\Documents\Code Space\ssfs-scholarship-operations-hub`
 
 Run:
 
@@ -803,9 +801,9 @@ After big imports:
 
 These are useful when maintaining the system:
 
-- [\.env.local](C:\Users\Lenovo\Documents\Code%20Space\student-verification-suite\scholarship-operations-platform-new\.env.local)
+- `.env.local`
 - the current TLS certificate and key delivered through your secure admin process
-- [templates/diagnostics/production-readiness-closeout.md](C:\Users\Lenovo\Documents\Code%20Space\student-verification-suite\scholarship-operations-platform-new\templates\diagnostics\production-readiness-closeout.md)
+- `templates/diagnostics/production-readiness-closeout.md`
 
 ## 24. Final note
 

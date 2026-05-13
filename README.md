@@ -1,36 +1,36 @@
 ﻿# SSFS Scholarship Operations Hub
 
-This is a fresh project scaffold for a centralized scholarship, bursary, and student support platform.
+This workspace contains the SSFS Scholarship Operations Hub, a centralized scholarship, bursary, and student support platform.
 
-It is designed to grow into a system that can:
+The system can:
 - maintain a canonical student registry
 - manage scholarship schemes, funders, and award cycles
 - import and score applications from uploaded Excel or CSV documents
 - track recommendations, waitlists, awards, renewals, and payments
 - generate management and donor reports
 - validate and format portal uploads
-- manage additional student support programs such as food bank workflows and an emergency support fund
+- manage additional student support programs such as food and clothing support workflows
 
 ## Workspace Layout
 
 - `apps/api`
-  - lightweight API prototype for core modules
+  - API services for authentication, imports, applications, beneficiaries, support, reporting, and audit workflows
 - `apps/web`
-  - lightweight web shell for the platform overview
+  - browser-based operations workspace for staff workflows
 - `packages/database`
-  - initial PostgreSQL schema draft and domain notes
+  - PostgreSQL schema, migrations, seed scripts, and database checks
 - `docs`
-  - blueprint and implementation roadmap
+  - user manual, blueprint, and implementation notes
 
 ## Current State
 
-This scaffold is intentionally dependency-light so it can run immediately without package installation.
+The app is intentionally dependency-light so it can run locally with the checked-in workspace packages.
 
 What is already included:
 - initial project blueprint
-- initial PostgreSQL schema
-- core API route skeletons
-- core web shell
+- PostgreSQL schema and migrations
+- modular API services
+- staff web workspace
 - waitlist-aware domain model
 - backend foundation milestone with migration scripts, optional PostgreSQL connectivity, and modular API services
 
@@ -60,7 +60,7 @@ The waitlist is intended for:
 
 The main source of student and applicant data is expected to be uploaded Excel or CSV files.
 
-The platform will normalize header variations such as:
+The platform normalizes header variations such as:
 - `Student ID`
 - `Reference Number`
 - `Ref No`
@@ -75,8 +75,7 @@ The API now includes the first spreadsheet import foundation for students:
 - `POST /api/students/import/preview`
 - `POST /api/students/import`
 
-These endpoints currently accept spreadsheet-style row objects in JSON so we can validate header mapping, row normalization, duplicate detection, and import logic before adding full binary `.xlsx` upload handling.
-They now also accept real multipart file uploads for `.csv` and `.xlsx` files.
+These endpoints accept spreadsheet-style row objects in JSON and real multipart file uploads for `.csv` and `.xlsx` files.
 
 ## Student Academic Data
 
@@ -93,24 +92,21 @@ The student registry now centers on:
 
 ## Quick Start
 
-Run the API prototype:
+Run the API:
 
 ```powershell
-cd scholarship-operations-platform
 npm run dev:api
 ```
 
-Run the web shell:
+Run the web app:
 
 ```powershell
-cd scholarship-operations-platform
 npm run dev:web
 ```
 
 Run the syntax checks for the whole workspace:
 
 ```powershell
-cd scholarship-operations-platform
 npm run check
 ```
 
@@ -128,7 +124,6 @@ The API now has a production-oriented backend foundation with different expectat
 Useful commands:
 
 ```powershell
-cd scholarship-operations-platform
 npm run db:status
 npm run db:migrate
 npm run db:seed
@@ -152,9 +147,8 @@ On first startup, the API creates that admin account with a PBKDF2 password hash
 
 1. Replace the remaining sample-backed modules with database implementations.
 2. Expand audit review and reporting workflows on top of the standardized audit spine.
-3. Add more operational dashboards for administrators, reviewers, and auditors.
-4. Add Excel import and export jobs for application intake and reporting.
-5. Build the next production workflows:
+3. Expand role-specific dashboards for administrators, reviewers, and auditors.
+4. Continue hardening production workflows:
    - student registry
    - applications
    - scoring

@@ -8,7 +8,7 @@ function createStudentRecord(overrides = {}) {
     id: "student-1",
     fullName: "Sample Student",
     studentReferenceId: "20260001",
-    indexNumber: "IDX-1",
+    indexNumber: "8637723",
     email: "sample@example.com",
     college: "Engineering",
     program: "BSc. Engineering",

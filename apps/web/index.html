@@ -500,7 +500,7 @@
             <p class="hero-kicker">Intake Flow</p>
             <h3>Upload, preview, validate, and import student records in one place.</h3>
             <p class="lede">
-              This first live workspace handles registry intake. Upload one or more college class-list workbooks,
+              This workspace handles registry intake. Upload one or more college class-list files,
               review the merged rows and issues, then import only the valid records into the student registry.
             </p>
             <div class="hero-pills">
@@ -547,8 +547,8 @@
 
                 <label class="upload-zone" for="studentFile">
                   <input id="studentFile" name="studentFile" type="file" accept=".csv,.xlsx" multiple />
-                  <span class="upload-title">Choose class-list workbooks</span>
-                  <span class="upload-subtitle">Upload one or more college class-list files in .xlsx format</span>
+                  <span class="upload-title">Choose class-list files</span>
+                  <span class="upload-subtitle">Upload one or more college class-list files in .csv or .xlsx format</span>
                   <span class="upload-file-name" id="selectedFileName">No file selected yet</span>
                 </label>
 
@@ -560,7 +560,7 @@
               </form>
 
               <div class="inline-note" id="formMessage">
-                Upload one or more class-list workbooks to preview the merged registry rows before importing them.
+                Upload one or more class-list files to preview the merged registry rows before importing them.
               </div>
             </section>
 
@@ -578,7 +578,7 @@
                 </div>
                   <div class="guidance-card">
                     <strong>Core required fields</strong>
-                    <p>Academic year, support name, full name, student reference ID, amount paid, and support type should be present on every row. If the list is categorized into colleges, include college too.</p>
+                    <p>Full name, student reference ID, college, program, and year are required on every row. Index number, contact details, CWA, and WASSCE aggregate can be included when available.</p>
                   </div>
                 <div class="guidance-card">
                   <strong>Academic performance</strong>
@@ -586,7 +586,7 @@
                 </div>
                 <div class="guidance-card">
                   <strong>Merge safety</strong>
-                  <p>The preview merges rows from multiple class-list workbooks and flags duplicates or existing students.</p>
+                  <p>The preview merges rows from multiple class-list files and flags duplicates or existing students.</p>
                 </div>
               </div>
             </section>
@@ -733,7 +733,7 @@
               <form id="searchForm" class="import-form">
                 <label class="field">
                   <span>Reference ID or name</span>
-                  <input id="searchQuery" name="searchQuery" type="text" placeholder="Akosua Mensah or 20261234" />
+                  <input id="searchQuery" name="searchQuery" type="text" placeholder="Akosua Mensah, Mensah Akosua, or 20261234" />
                 </label>
                 <label class="field">
                   <span>Student reference ID</span>
@@ -741,7 +741,7 @@
                 </label>
                 <label class="field">
                   <span>Index number</span>
-                  <input id="searchIndexNumber" name="searchIndexNumber" type="text" placeholder="ENG/24/001" />
+                  <input id="searchIndexNumber" name="searchIndexNumber" type="text" placeholder="8637723 or PG8637723" />
                 </label>
                 <div class="action-row">
                   <button id="searchButton" class="action-button primary" type="submit">Search records</button>
@@ -750,7 +750,7 @@
               </form>
 
               <div class="inline-note" id="searchMessage">
-                Search by name, student reference ID, or index number to find individual student records.
+                Search by name words in any order, student reference ID, or index number to find individual student records.
               </div>
             </section>
 
@@ -974,7 +974,7 @@
                   </label>
                   <label class="field">
                     <span>Index number</span>
-                    <input id="academicHistorySearchIndexNumber" type="text" placeholder="ENG/24/001" />
+                    <input id="academicHistorySearchIndexNumber" type="text" placeholder="8637723 or PG8637723" />
                   </label>
                 </div>
                 <div class="action-row">
@@ -2392,7 +2392,7 @@
               <label class="upload-zone" for="recommendedFile">
                 <input id="recommendedFile" name="recommendedFile" type="file" accept=".csv,.xlsx" multiple />
                 <span class="upload-title">Choose recommended-students files</span>
-                <span class="upload-subtitle">Required fields: Academic Year, Scheme Name, and Student ID / Reference Number. Full Name, Index Number, Recommendation Reason, and Notes are optional.</span>
+                <span class="upload-subtitle">Required fields: Academic Year, Scheme Name, and Student ID / Reference Number or Index Number. Full Name, Recommendation Reason, and Notes are optional.</span>
                 <span class="upload-file-name" id="selectedRecommendedFileName">No file selected yet</span>
               </label>
               <div class="action-row">
@@ -2565,6 +2565,7 @@
                         <option value="GHS">GHS</option>
                         <option value="USD">USD</option>
                         <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
                       </select>
                       <small class="detail-subcopy">Use this when the uploaded list does not include a currency column and the whole batch is in one currency.</small>
                     </label>
@@ -2585,7 +2586,7 @@
                     <label class="upload-zone" for="beneficiaryFile">
                       <input id="beneficiaryFile" name="beneficiaryFile" type="file" accept=".csv,.xlsx" multiple />
                       <span class="upload-title">Choose beneficiary list files</span>
-                      <span class="upload-subtitle">Upload one or more .csv or .xlsx beneficiary/support lists with academic year, support name, full name, student reference ID, amount paid, support type, and optional currency.</span>
+                      <span class="upload-subtitle">Upload one or more .csv or .xlsx beneficiary/support lists with academic year, support name, full name, student reference ID, amount paid, support type, and optional currency. Support type is required and must be Internal or External.</span>
                       <span class="upload-file-name" id="selectedBeneficiaryFileName">No file selected yet</span>
                     </label>
 
@@ -2848,7 +2849,6 @@
                     <select id="beneficiaryEditorSupportType">
                       <option value="internal">Internal</option>
                       <option value="external">External</option>
-                      <option value="unknown">Unknown / other</option>
                     </select>
                   </label>
                   <label class="field">

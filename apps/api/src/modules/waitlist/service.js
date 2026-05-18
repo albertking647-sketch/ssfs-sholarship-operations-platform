@@ -6,6 +6,26 @@ import {
   buildRecommendedStudentsExportFileName
 } from "./exportWorkbook.js";
 
+function emitImportProgress(progress, event = {}) {
+  if (typeof progress !== "function") {
+    return;
+  }
+  const processedRows = Math.max(0, Number(event.processedRows || 0));
+  const totalRows = Math.max(0, Number(event.totalRows || 0));
+  progress({
+    phase: event.phase || "importing",
+    processedRows,
+    totalRows,
+    percent:
+      event.percent !== undefined
+        ? Math.max(0, Math.min(100, Math.round(Number(event.percent || 0))))
+        : totalRows > 0
+          ? Math.max(0, Math.min(100, Math.round((processedRows / totalRows) * 100)))
+          : 0,
+    message: event.message || "Importing recommended students..."
+  });
+}
+
 function assertRequiredString(value, label) {
   if (!String(value || "").trim()) {
     throw new ValidationError(`${label} is required.`);
@@ -594,13 +614,32 @@ export function createWaitlistService({ repositories, services }) {
       return { removedId: String(entryId) };
     },
 
-    async previewImport(payload) {
-      return buildImportAssessment(repositories, payload);
+    async previewImport(payload, progress) {
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        message: "Checking recommended-student rows..."
+      });
+      const assessment = await buildImportAssessment(repositories, payload);
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: assessment.summary.totalRows,
+        totalRows: assessment.summary.totalRows,
+        message: "Recommended-student preview ready."
+      });
+      return assessment;
     },
 
-    async importRows(payload, actor) {
-      const assessment = await buildImportAssessment(repositories, payload);
+    async importRows(payload, actor, progress) {
+      const assessment = await this.previewImport(payload, progress);
       const validRows = assessment.rows.filter((row) => row.status === "valid");
+      emitImportProgress(progress, {
+        phase: "importing",
+        processedRows: 0,
+        totalRows: validRows.length,
+        message: "Importing recommended students..."
+      });
       const imported = await repositories.waitlist.importRows(
         {
           items: validRows.map((row) => ({
@@ -612,6 +651,12 @@ export function createWaitlistService({ repositories, services }) {
         },
         actor
       );
+      emitImportProgress(progress, {
+        phase: "importing",
+        processedRows: imported.items.length,
+        totalRows: validRows.length,
+        message: "Recommended students imported."
+      });
       await recordAuditEvent(repositories.audit, {
         actor,
         actionCode: "recommended_student.imported",

@@ -1,5 +1,37 @@
-import { readJsonBody, sendJson } from "../../lib/http.js";
+import {
+  createImportProgressReporter,
+  readJsonBody,
+  sendJson,
+  wantsNdjsonProgress
+} from "../../lib/http.js";
 import { resolveRecommendedImportPayload } from "./upload.js";
+
+async function sendImportResponse({ req, res, statusCode = 200, resolvePayload, run, buildResponse }) {
+  if (!wantsNdjsonProgress(req)) {
+    const payload = await resolvePayload();
+    const result = await run(payload);
+    return sendJson(res, statusCode, buildResponse(payload, result));
+  }
+
+  const reporter = createImportProgressReporter(res);
+  try {
+    reporter.start();
+    reporter.progress({ phase: "uploading", message: "Reading uploaded workbook data..." });
+    const payload = await resolvePayload();
+    reporter.progress({
+      phase: "parsing",
+      processedRows: 0,
+      totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+      message: "Workbook rows parsed. Preparing import..."
+    });
+    const result = await run(payload, (event) => reporter.progress(event));
+    reporter.complete(buildResponse(payload, result));
+    return undefined;
+  } catch (error) {
+    reporter.fail(error);
+    return undefined;
+  }
+}
 
 export function createWaitlistRoutes({ config, services }) {
   return [
@@ -93,15 +125,18 @@ export function createWaitlistRoutes({ config, services }) {
       auth: "required",
       roles: ["admin"],
       async handler({ req, res }) {
-        const payload = await resolveRecommendedImportPayload(req, config.limits.jsonBodyBytes);
-        const result = await services.waitlist.previewImport(payload);
-
-        return sendJson(res, 200, {
-          ok: true,
-          source: payload.source,
-          fileName: payload.fileName,
-          fileType: payload.fileType,
-          ...result
+        return sendImportResponse({
+          req,
+          res,
+          resolvePayload: () => resolveRecommendedImportPayload(req, config.limits.jsonBodyBytes),
+          run: (payload, progress) => services.waitlist.previewImport(payload, progress),
+          buildResponse: (payload, result) => ({
+            ok: true,
+            source: payload.source,
+            fileName: payload.fileName,
+            fileType: payload.fileType,
+            ...result
+          })
         });
       }
     },
@@ -111,15 +146,19 @@ export function createWaitlistRoutes({ config, services }) {
       auth: "required",
       roles: ["admin"],
       async handler({ actor, req, res }) {
-        const payload = await resolveRecommendedImportPayload(req, config.limits.jsonBodyBytes);
-        const result = await services.waitlist.importRows(payload, actor);
-
-        return sendJson(res, 201, {
-          ok: true,
-          source: payload.source,
-          fileName: payload.fileName,
-          fileType: payload.fileType,
-          ...result
+        return sendImportResponse({
+          req,
+          res,
+          statusCode: 201,
+          resolvePayload: () => resolveRecommendedImportPayload(req, config.limits.jsonBodyBytes),
+          run: (payload, progress) => services.waitlist.importRows(payload, actor, progress),
+          buildResponse: (payload, result) => ({
+            ok: true,
+            source: payload.source,
+            fileName: payload.fileName,
+            fileType: payload.fileType,
+            ...result
+          })
         });
       }
     },

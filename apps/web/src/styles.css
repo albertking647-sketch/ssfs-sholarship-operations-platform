@@ -675,6 +675,59 @@ body[data-theme="dark"] .action-button.primary:hover {
 .inline-note.tone-warning { background: var(--warning-bg); color: var(--warning-text); border-color: var(--warning-border); }
 .inline-note.tone-error   { background: var(--error-bg);   color: var(--error-text);   border-color: var(--error-border); }
 
+.import-progress {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--text);
+  font-size: 12px;
+}
+
+.import-progress.is-error {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.import-progress-top,
+.import-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.import-progress-top strong {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.import-progress-meta {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.import-progress-track {
+  overflow: hidden;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.import-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--success-text));
+  transition: width 160ms ease-out;
+}
+
 .guidance-card, .issue-card, .result-card, .session-card,
 .metric-card, .search-result-card, .student-detail-card, .duplicate-case-card {
   border-radius: var(--radius-md);

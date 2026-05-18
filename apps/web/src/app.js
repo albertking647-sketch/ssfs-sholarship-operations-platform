@@ -74,10 +74,14 @@ const DASHBOARD_BENEFICIARY_HISTORICAL_HIDDEN_KEY =
 const APPLICATION_CWA_COVERAGE_HIDDEN_KEY = "ssfs-application-cwa-coverage-hidden";
 const APPLICATION_BULK_INTERVIEW_HIDDEN_KEY = "ssfs-application-bulk-interview-hidden";
 const APPLICATION_REVIEW_RESULTS_HIDDEN_KEY = "ssfs-application-review-results-hidden";
+const ACADEMIC_HISTORY_TIMELINE_HIDDEN_KEY = "ssfs-academic-history-timeline-hidden";
 const API_URL_KEY = "ssfs-api-url";
 const AUTH_USERNAME_KEY = "ssfs-auth-username";
 const DEFAULT_API_URL = deriveDefaultApiUrl(globalThis.location, "http://127.0.0.1:4400");
 const ENABLE_SPA_ROUTER = safeLocalStorageGet(SPA_ROUTER_FLAG_KEY, "true") !== "false";
+const BASELINE_ACADEMIC_HISTORY_YEARS = ["2024/2025"];
+const LOGIN_REQUEST_TIMEOUT_MS = 15000;
+const ACADEMIC_HISTORY_ROLLBACK_TIMEOUT_MS = 30000;
 
 const MODULE_META = {
   dashboard: {
@@ -330,11 +334,14 @@ const state = {
   academicHistoryPreview: null,
   lastAcademicHistoryImport: null,
   academicHistoryList: [],
+  academicHistoryTimelineHidden:
+    safeLocalStorageGet(ACADEMIC_HISTORY_TIMELINE_HIDDEN_KEY, "false") === "true",
   academicHistoryImportScopeOptions: {
     totalAcademicYears: 0,
     items: []
   },
   academicHistoryImportHistory: [],
+  academicHistoryClearConfirmation: null,
   academicHistoryEditingRecordId: null,
   session: null,
   sessionRestorePending: false,
@@ -754,7 +761,9 @@ const elements = {
   selectedFileName: document.querySelector("#selectedFileName"),
   academicHistoryImportForm: document.querySelector("#academicHistoryImportForm"),
   academicHistorySemesterLabel: document.querySelector("#academicHistorySemesterLabel"),
-  academicHistoryAcademicYearOverride: document.querySelector("#academicHistoryAcademicYearOverride"),
+  academicHistoryAcademicYearSelect: document.querySelector("#academicHistoryAcademicYearSelect"),
+  academicHistoryAcademicYearManualField: document.querySelector("#academicHistoryAcademicYearManualField"),
+  academicHistoryAcademicYearManualInput: document.querySelector("#academicHistoryAcademicYearManualInput"),
   academicHistoryFile: document.querySelector("#academicHistoryFile"),
   selectedAcademicHistoryFileName: document.querySelector("#selectedAcademicHistoryFileName"),
   academicHistoryPreviewButton: document.querySelector("#academicHistoryPreviewButton"),
@@ -763,6 +772,8 @@ const elements = {
   academicHistorySummaryCards: document.querySelector("#academicHistorySummaryCards"),
   academicHistoryValidRowsTable: document.querySelector("#academicHistoryValidRowsTable"),
   academicHistoryIssueList: document.querySelector("#academicHistoryIssueList"),
+  academicHistoryTimelineToggleButton: document.querySelector("#academicHistoryTimelineToggleButton"),
+  academicHistoryTimelineBody: document.querySelector("#academicHistoryTimelineBody"),
   academicHistoryResultsList: document.querySelector("#academicHistoryResultsList"),
   academicHistoryImportedRowsList: document.querySelector("#academicHistoryImportedRowsList"),
   academicHistoryRejectedRowsList: document.querySelector("#academicHistoryRejectedRowsList"),
@@ -929,6 +940,7 @@ async function loadCurrentRouteData(options = {}) {
   if (route.module === "registry") {
     tasks.push(() => loadRegistryStats());
     if (route.registrySection === "history") {
+      tasks.push(() => loadApplicationOptions());
       tasks.push(() => loadAcademicHistoryImportScopeOptions());
     }
   }
@@ -987,6 +999,10 @@ function persistPanelState() {
   safeLocalStorageSet(
     APPLICATION_CWA_COVERAGE_HIDDEN_KEY,
     state.applicationCwaCoverageHidden
+  );
+  safeLocalStorageSet(
+    ACADEMIC_HISTORY_TIMELINE_HIDDEN_KEY,
+    state.academicHistoryTimelineHidden
   );
 }
 
@@ -1447,12 +1463,15 @@ async function handleAccessAction(button) {
 async function handleLoginSubmit(event) {
   event.preventDefault();
 
-  const apiBaseUrl = String(elements.loginApiUrl?.value || "").trim().replace(/\/$/, "");
+  const apiBaseUrl = getLoginApiBaseUrl();
   const username = String(elements.loginUsername?.value || "").trim();
   const password = String(elements.loginPassword?.value || "");
 
   state.sessionRestorePending = false;
   elements.apiUrl.value = apiBaseUrl;
+  if (elements.loginApiUrl) {
+    elements.loginApiUrl.value = apiBaseUrl;
+  }
   persistConnectionState();
 
   if (!apiBaseUrl) {
@@ -1472,7 +1491,7 @@ async function handleLoginSubmit(event) {
   setLoginMessage("Signing in...", "warning");
 
   try {
-    const response = await fetch(
+    const { response, payload } = await fetchJsonWithTimeout(
       `${apiBaseUrl}/api/auth/login`,
       buildCookieSessionFetchOptions({
         method: "POST",
@@ -1480,9 +1499,10 @@ async function handleLoginSubmit(event) {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ username, password })
-      })
+      }),
+      LOGIN_REQUEST_TIMEOUT_MS,
+      "Sign-in is taking too long. Check the API connection and try again."
     );
-    const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(payload.message || "Unable to sign in.");
     }
@@ -4173,20 +4193,14 @@ async function postBeneficiaryImport(endpoint) {
     formData.append("files", file);
   }
 
-  const response = await fetch(`${apiBaseUrl}${endpoint}`, {
-    method: "POST",
+  return postImportWithProgress(`${apiBaseUrl}${endpoint}`, {
     headers: {
       ...getAuthHeaders()
     },
-    body: formData
+    body: formData,
+    messageElement: elements.beneficiaryImportMessage,
+    errorMessage: "The beneficiary import request failed."
   });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.message || "The beneficiary import request failed.");
-  }
-
-  return payload;
 }
 
 async function handleBeneficiaryPreview(event) {
@@ -4929,18 +4943,14 @@ async function postRecommendedImport(endpoint) {
     formData.append("files", file);
   }
 
-  const response = await fetch(`${apiBaseUrl}${endpoint}`, {
-    method: "POST",
+  return postImportWithProgress(`${apiBaseUrl}${endpoint}`, {
     headers: {
       ...getAuthHeaders()
     },
-    body: formData
+    body: formData,
+    messageElement: elements.recommendedImportMessage,
+    errorMessage: "The recommended-students import request failed."
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.message || "The recommended-students import request failed.");
-  }
-  return payload;
 }
 
 async function loadRecommendedRecords() {
@@ -5259,17 +5269,14 @@ async function handleSupportFoodBankPreview(event) {
     for (const file of files) {
       formData.append("file", file);
     }
-    const response = await fetch(`${apiBaseUrl}/api/food-bank/import/preview`, {
-      method: "POST",
+    const payload = await postImportWithProgress(`${apiBaseUrl}/api/food-bank/import/preview`, {
       headers: {
         ...getAuthHeaders()
       },
-      body: formData
+      body: formData,
+      messageElement: elements.supportFoodBankImportMessage,
+      errorMessage: "Unable to preview the support registration import."
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload.message || "Unable to preview the support registration import.");
-    }
 
     state.supportFoodBankPreview = payload;
     renderSupportFoodBankPreviewSummary();
@@ -5319,17 +5326,14 @@ async function handleSupportFoodBankImport() {
     for (const file of files) {
       formData.append("file", file);
     }
-    const response = await fetch(`${apiBaseUrl}/api/food-bank/import`, {
-      method: "POST",
+    const payload = await postImportWithProgress(`${apiBaseUrl}/api/food-bank/import`, {
       headers: {
         ...getAuthHeaders()
       },
-      body: formData
+      body: formData,
+      messageElement: elements.supportFoodBankImportMessage,
+      errorMessage: "Unable to import support registrations."
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload.message || "Unable to import support registrations.");
-    }
 
     state.lastSupportFoodBankImport = payload;
     setSupportFoodBankImportMessage(
@@ -7576,8 +7580,179 @@ function getApiBaseUrl() {
   return elements.apiUrl.value.trim().replace(/\/$/, "");
 }
 
+function getLoginApiBaseUrl() {
+  return deriveDefaultApiUrl(globalThis.location, DEFAULT_API_URL).replace(/\/$/, "");
+}
+
 function getAuthHeaders() {
   return {};
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 30000, timeoutMessage = "The request timed out.") {
+  const controller = new AbortController();
+  const timer = globalThis.setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    const payload = await response.json().catch(() => ({}));
+    return { response, payload };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(timeoutMessage);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timer);
+  }
+}
+
+function getImportProgressElement(messageElement) {
+  if (!messageElement) return null;
+  const nextElement = messageElement.nextElementSibling;
+  if (nextElement?.classList?.contains("import-progress")) {
+    return nextElement;
+  }
+
+  const progressElement = document.createElement("div");
+  progressElement.className = "import-progress";
+  progressElement.setAttribute("role", "status");
+  progressElement.setAttribute("aria-live", "polite");
+  messageElement.insertAdjacentElement("afterend", progressElement);
+  return progressElement;
+}
+
+function renderImportProgress(messageElement, event = {}) {
+  const progressElement = getImportProgressElement(messageElement);
+  if (!progressElement) return;
+  const percent = Math.max(0, Math.min(100, Math.round(Number(event.percent || 0))));
+  const processedRows = Number(event.processedRows || 0);
+  const totalRows = Number(event.totalRows || 0);
+  const rowText = totalRows > 0 ? `${processedRows.toLocaleString()} of ${totalRows.toLocaleString()} rows` : "";
+  const message = event.message || "Preparing import...";
+
+  progressElement.className = `import-progress ${event.phase === "failed" ? "is-error" : ""}`;
+  progressElement.innerHTML = `
+    <div class="import-progress-top">
+      <span>${escapeHtml(message)}</span>
+      <strong>${escapeHtml(`${percent}%`)}</strong>
+    </div>
+    <div class="import-progress-track" aria-hidden="true">
+      <span class="import-progress-fill" style="width: ${percent}%"></span>
+    </div>
+    <div class="import-progress-meta">${escapeHtml(rowText || formatImportProgressPhase(event.phase))}</div>
+  `;
+}
+
+function clearImportProgress(messageElement) {
+  const nextElement = messageElement?.nextElementSibling;
+  if (nextElement?.classList?.contains("import-progress")) {
+    nextElement.remove();
+  }
+}
+
+function formatImportProgressPhase(phase) {
+  switch (String(phase || "").trim().toLowerCase()) {
+    case "uploading":
+      return "Uploading workbook";
+    case "parsing":
+      return "Reading workbook rows";
+    case "validating":
+      return "Checking rows";
+    case "importing":
+      return "Importing rows";
+    case "refreshing":
+      return "Refreshing workspace";
+    case "completed":
+      return "Import complete";
+    case "failed":
+      return "Import failed";
+    default:
+      return "Working";
+  }
+}
+
+async function postImportWithProgress(url, options = {}) {
+  const {
+    body,
+    headers = {},
+    messageElement = null,
+    errorMessage = "The import request failed."
+  } = options;
+  renderImportProgress(messageElement, {
+    phase: "uploading",
+    percent: 0,
+    message: body instanceof FormData ? "Uploading workbook..." : "Sending preview rows..."
+  });
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Accept": "application/x-ndjson",
+        ...headers
+      },
+      body
+    });
+    const contentType = response.headers.get("Content-Type") || "";
+    if (contentType.toLowerCase().includes("application/x-ndjson") && response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalPayload = null;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.type === "complete") {
+            finalPayload = event.payload;
+            renderImportProgress(messageElement, event);
+            continue;
+          }
+          if (event.type === "failed") {
+            renderImportProgress(messageElement, event);
+            throw new Error(event.error?.message || event.message || errorMessage);
+          }
+          renderImportProgress(messageElement, event);
+        }
+
+        if (done) break;
+      }
+
+      if (!finalPayload) {
+        throw new Error(errorMessage);
+      }
+      return finalPayload;
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || errorMessage);
+    }
+    renderImportProgress(messageElement, {
+      phase: "completed",
+      percent: 100,
+      message: "Import complete."
+    });
+    return payload;
+  } catch (error) {
+    renderImportProgress(messageElement, {
+      phase: "failed",
+      percent: 100,
+      message: error.message || errorMessage
+    });
+    throw error;
+  }
 }
 
 async function fetchSessionPayload(apiBaseUrl) {
@@ -7825,6 +8000,12 @@ function resetAcademicHistoryWorkspace() {
   state.academicHistoryImportHistory = [];
   state.academicHistoryEditingRecordId = null;
   elements.academicHistoryFile.value = "";
+  if (elements.academicHistoryAcademicYearSelect) {
+    elements.academicHistoryAcademicYearSelect.value = "";
+  }
+  if (elements.academicHistoryAcademicYearManualInput) {
+    elements.academicHistoryAcademicYearManualInput.value = "";
+  }
   elements.selectedAcademicHistoryFileName.textContent = "No CWA workbook selected yet";
   elements.academicHistoryImportButton.disabled = true;
   if (elements.academicHistoryScopeAcademicYear) {
@@ -7848,6 +8029,7 @@ function resetAcademicHistoryWorkspace() {
   renderAcademicHistoryImportResults(null);
   renderAcademicHistoryEditor();
   renderAcademicHistoryScopeSelectors();
+  syncAcademicHistoryAcademicYearMode();
   syncAcademicHistoryControls();
 }
 
@@ -7873,6 +8055,84 @@ function renderApplicationSelectors() {
   elements.applicationSchemeSelect.innerHTML = schemeOptions;
   elements.applicationCycleSelect.innerHTML = cycleOptions;
   elements.schemeAcademicYearSelect.innerHTML = schemeCycleOptions;
+  renderAcademicHistoryAcademicYearOptions();
+}
+
+function getCycleAcademicYearValue(item = {}) {
+  return item.academicYearLabel || item.label || item.code || "";
+}
+
+function getAcademicHistoryAcademicYearOptions() {
+  const labels = new Set(BASELINE_ACADEMIC_HISTORY_YEARS);
+  for (const item of state.cycles || []) {
+    const value = getCycleAcademicYearValue(item).trim();
+    if (value) {
+      labels.add(value);
+    }
+  }
+  for (const item of state.academicHistoryImportScopeOptions.items || []) {
+    const value = String(item.academicYearLabel || "").trim();
+    if (value) {
+      labels.add(value);
+    }
+  }
+
+  return Array.from(labels).sort((left, right) =>
+    right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" })
+  );
+}
+
+function renderAcademicHistoryAcademicYearOptions() {
+  if (!elements.academicHistoryAcademicYearSelect) {
+    return;
+  }
+
+  const currentValue = elements.academicHistoryAcademicYearSelect.value;
+  const cycleOptions = getAcademicHistoryAcademicYearOptions()
+    .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(formatAcademicYearLabel(value))}</option>`)
+    .join("");
+
+  elements.academicHistoryAcademicYearSelect.innerHTML = `
+    <option value="">Use workbook year if present</option>
+    ${cycleOptions}
+    <option value="__manual__">Type academic year manually</option>
+  `;
+
+  if (
+    currentValue &&
+    Array.from(elements.academicHistoryAcademicYearSelect.options).some(
+      (option) => option.value === currentValue
+    )
+  ) {
+    elements.academicHistoryAcademicYearSelect.value = currentValue;
+  }
+  syncAcademicHistoryAcademicYearMode();
+}
+
+function syncAcademicHistoryAcademicYearMode() {
+  if (
+    !elements.academicHistoryAcademicYearSelect ||
+    !elements.academicHistoryAcademicYearManualField ||
+    !elements.academicHistoryAcademicYearManualInput
+  ) {
+    return;
+  }
+
+  const isManual = elements.academicHistoryAcademicYearSelect.value === "__manual__";
+  elements.academicHistoryAcademicYearManualField.hidden = !isManual;
+  elements.academicHistoryAcademicYearManualInput.disabled = !isManual;
+}
+
+function getAcademicHistoryAcademicYearLabel() {
+  if (!elements.academicHistoryAcademicYearSelect) {
+    return "";
+  }
+
+  if (elements.academicHistoryAcademicYearSelect.value === "__manual__") {
+    return elements.academicHistoryAcademicYearManualInput?.value.trim() || "";
+  }
+
+  return elements.academicHistoryAcademicYearSelect.value.trim();
 }
 
 function syncApplicationCycleToSelectedScheme() {
@@ -8075,6 +8335,22 @@ function renderDashboardActivityVisibility() {
   persistPanelState();
 }
 
+function renderAcademicHistoryTimelineVisibility() {
+  if (!elements.academicHistoryTimelineBody || !elements.academicHistoryTimelineToggleButton) {
+    return;
+  }
+
+  elements.academicHistoryTimelineBody.hidden = state.academicHistoryTimelineHidden;
+  elements.academicHistoryTimelineToggleButton.textContent = state.academicHistoryTimelineHidden
+    ? "Show timeline"
+    : "Hide timeline";
+  elements.academicHistoryTimelineToggleButton.setAttribute(
+    "aria-expanded",
+    state.academicHistoryTimelineHidden ? "false" : "true"
+  );
+  persistPanelState();
+}
+
 function syncApplicationReviewResultsActions() {
   elements.applicationReviewResultsTopButton.hidden =
     state.applicationReviewResultsHidden || !state.applicationReviewResults.length;
@@ -8193,6 +8469,9 @@ function syncAcademicHistoryControls() {
   }
   if (elements.academicHistoryClearButton) {
     elements.academicHistoryClearButton.disabled = !canManageLifecycle || !hasSelectedScope;
+    if (!hasSelectedScope) {
+      elements.academicHistoryClearButton.textContent = "Clear selected scope";
+    }
   }
   if (elements.academicHistoryEditorAcademicYear) {
     elements.academicHistoryEditorAcademicYear.disabled = !canManageLifecycle || !hasSelectedRecord;
@@ -10586,7 +10865,7 @@ function renderAcademicHistoryValidRows(rows) {
           <td>${escapeHtml(payload.indexNumber || "")}</td>
           <td>${escapeHtml(payload.fullName || "")}</td>
           <td>${escapeHtml(row.matchedStudent?.fullName || "No registry match")}</td>
-          <td>${escapeHtml(payload.program || row.matchedStudent?.program || "")}</td>
+          <td>${escapeHtml(payload.program || "")}</td>
           <td>${escapeHtml(payload.academicYearLabel || "")}</td>
           <td>${escapeHtml(payload.semesterLabel || "")}</td>
           <td>${escapeHtml(payload.cwa ?? "")}</td>
@@ -10715,7 +10994,10 @@ function renderAcademicHistoryImportHistory(history = state.academicHistoryImpor
     "[data-academic-history-rollback]"
   )) {
     button.addEventListener("click", () => {
-      void handleAcademicHistoryRollback(button.getAttribute("data-academic-history-rollback"));
+      void handleAcademicHistoryRollback(
+        button.getAttribute("data-academic-history-rollback"),
+        button
+      );
     });
   }
 }
@@ -10992,37 +11274,56 @@ async function postImport(endpoint) {
   }
   formData.append("importMode", elements.studentImportMode.value || "strict_new_only");
 
-  const response = await fetch(`${apiBaseUrl}${endpoint}`, {
-    method: "POST",
+  return postImportWithProgress(`${apiBaseUrl}${endpoint}`, {
     headers: {
       ...getAuthHeaders()
     },
-    body: formData
+    body: formData,
+    messageElement: elements.formMessage,
+    errorMessage: "The import request failed."
   });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.message || "The import request failed.");
-  }
-
-  return payload;
 }
 
-async function postAcademicHistoryImport(endpoint) {
+async function postAcademicHistoryImport(endpoint, options = {}) {
   const apiBaseUrl = getApiBaseUrl();
   const files = Array.from(elements.academicHistoryFile.files || []);
+  const usePreviewRows = Boolean(options.usePreviewRows);
+  const previewImportRows = Array.isArray(state.academicHistoryPreview?.importRows)
+    ? state.academicHistoryPreview.importRows
+    : [];
 
   if (!apiBaseUrl) {
     throw new Error("Enter the API URL first.");
   }
-  if (!files.length) {
+  if (usePreviewRows && !previewImportRows.length) {
+    throw new Error("Run a fresh CWA preview before importing so the app can reuse parsed rows.");
+  }
+  if (!files.length && !(usePreviewRows && previewImportRows.length)) {
     throw new Error("Choose one or more CWA workbooks before continuing.");
   }
 
-  const formData = new FormData();
   const semesterLabel = elements.academicHistorySemesterLabel.value.trim();
-  const academicYearLabel = elements.academicHistoryAcademicYearOverride.value.trim();
+  const academicYearLabel = getAcademicHistoryAcademicYearLabel();
 
+  if (usePreviewRows && previewImportRows.length) {
+    return postImportWithProgress(`${apiBaseUrl}${endpoint}`, {
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({
+        fileName: state.academicHistoryPreview?.fileName || "previewed-cwa-import.json",
+        fileType: "json",
+        semesterLabel,
+        academicYearLabel,
+        rows: previewImportRows
+      }),
+      messageElement: elements.academicHistoryMessage,
+      errorMessage: "The academic history import request failed."
+    });
+  }
+
+  const formData = new FormData();
   for (const file of files) {
     formData.append("files", file);
   }
@@ -11034,20 +11335,14 @@ async function postAcademicHistoryImport(endpoint) {
     formData.append("academicYearLabel", academicYearLabel);
   }
 
-  const response = await fetch(`${apiBaseUrl}${endpoint}`, {
-    method: "POST",
+  return postImportWithProgress(`${apiBaseUrl}${endpoint}`, {
     headers: {
       ...getAuthHeaders()
     },
-    body: formData
+    body: formData,
+    messageElement: elements.academicHistoryMessage,
+    errorMessage: "The academic history import request failed."
   });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.message || "The academic history import request failed.");
-  }
-
-  return payload;
 }
 
 async function loadApplicationOptions() {
@@ -11978,20 +12273,14 @@ async function postApplicationInterviewImport(endpoint) {
     formData.append("files", file);
   }
 
-  const response = await fetch(`${apiBaseUrl}${endpoint}`, {
-    method: "POST",
+  return postImportWithProgress(`${apiBaseUrl}${endpoint}`, {
     headers: {
       ...getAuthHeaders()
     },
-    body: formData
+    body: formData,
+    messageElement: elements.applicationInterviewImportMessage,
+    errorMessage: "The interview import request failed."
   });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error || payload.message || "The interview import request failed.");
-  }
-
-  return payload;
 }
 
 async function handleApplicationInterviewPreview(event) {
@@ -12988,20 +13277,14 @@ async function postApplicationsImport(endpoint) {
     formData.append("files", file);
   }
 
-  const response = await fetch(`${apiBaseUrl}${endpoint}`, {
-    method: "POST",
+  return postImportWithProgress(`${apiBaseUrl}${endpoint}`, {
     headers: {
       ...getAuthHeaders()
     },
-    body: formData
+    body: formData,
+    messageElement: elements.applicationsFormMessage,
+    errorMessage: "The applications import request failed."
   });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.message || "The applications import request failed.");
-  }
-
-  return payload;
 }
 
 function buildAcademicHistorySearchUrl() {
@@ -13033,6 +13316,18 @@ async function loadAcademicHistory(event) {
   state.activeModule = "registry";
   state.activeSection = "history";
   renderModuleShell();
+
+  if (!hasAcademicHistorySearchCriteria()) {
+    state.academicHistoryList = [];
+    state.academicHistoryEditingRecordId = null;
+    renderAcademicHistoryList([]);
+    renderAcademicHistoryEditor();
+    setAcademicHistorySearchMessage(
+      "Enter a student name, reference ID, or index number before searching academic history.",
+      "warning"
+    );
+    return;
+  }
 
   elements.academicHistorySearchButton.disabled = true;
   setAcademicHistorySearchMessage("Loading academic history records...", "warning");
@@ -13082,6 +13377,30 @@ function resetAcademicHistorySearch() {
   renderAcademicHistoryEditor();
   setAcademicHistorySearchMessage(
     "Academic history search reset. Enter a student name, reference ID, or index number to search again.",
+    "warning"
+  );
+}
+
+function hasAcademicHistorySearchCriteria() {
+  return Boolean(
+    elements.academicHistorySearchQuery.value.trim() ||
+      elements.academicHistorySearchReferenceId.value.trim() ||
+      elements.academicHistorySearchIndexNumber.value.trim()
+  );
+}
+
+async function refreshAcademicHistorySearchAfterMutation() {
+  if (hasAcademicHistorySearchCriteria()) {
+    await loadAcademicHistory();
+    return;
+  }
+
+  state.academicHistoryList = [];
+  state.academicHistoryEditingRecordId = null;
+  renderAcademicHistoryList([]);
+  renderAcademicHistoryEditor();
+  setAcademicHistorySearchMessage(
+    "Academic history changed. Enter a student name, reference ID, or index number to search current records.",
     "warning"
   );
 }
@@ -13155,6 +13474,13 @@ function getAcademicHistoryScopeSelection() {
   };
 }
 
+function resetAcademicHistoryClearConfirmation() {
+  state.academicHistoryClearConfirmation = null;
+  if (elements.academicHistoryClearButton) {
+    elements.academicHistoryClearButton.textContent = "Clear selected scope";
+  }
+}
+
 async function loadAcademicHistoryImportScopeOptions(selection = {}) {
   const apiBaseUrl = getApiBaseUrl();
   if (!elements.academicHistoryScopeAcademicYear || !elements.academicHistoryScopeSemester) {
@@ -13181,7 +13507,7 @@ async function loadAcademicHistoryImportScopeOptions(selection = {}) {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload.message || "Unable to load academic history import scopes.");
+      throw new Error(payload.message || "Unable to load academic history scopes.");
     }
 
     state.academicHistoryImportScopeOptions = normalizeAcademicHistoryImportScopeOptions(payload);
@@ -13192,7 +13518,7 @@ async function loadAcademicHistoryImportScopeOptions(selection = {}) {
       state.academicHistoryImportHistory = [];
       renderAcademicHistoryImportHistory({ items: [] });
       setAcademicHistoryImportHistoryMessage(
-        "No imported academic history scopes are available yet. Import CWA history first.",
+        "No academic history scopes are available yet. Import CWA history first.",
         "warning"
       );
     }
@@ -13236,7 +13562,7 @@ async function loadAcademicHistoryImportHistory() {
     return;
   }
 
-  setAcademicHistoryImportHistoryMessage("Loading academic history import batches...", "warning");
+  setAcademicHistoryImportHistoryMessage("Loading academic history scope details...", "warning");
   try {
     const url = new URL(`${apiBaseUrl}/api/students/history/import-history`);
     url.searchParams.set("academicYearLabel", academicYearLabel);
@@ -13251,12 +13577,54 @@ async function loadAcademicHistoryImportHistory() {
       throw new Error(payload.message || "Unable to load academic history import batches.");
     }
 
-    state.academicHistoryImportHistory = payload;
-    renderAcademicHistoryImportHistory(payload);
-    setAcademicHistoryImportHistoryMessage(
-      `Loaded ${payload.total || 0} academic history import batch(es).`,
-      payload.total ? "success" : "warning"
-    );
+    let recordsPayload = { total: 0, items: [] };
+    if (!payload.total && Number(payload.scopeRecordCount || 0) > 0) {
+      const recordsUrl = new URL(`${apiBaseUrl}/api/students/history`);
+      recordsUrl.searchParams.set("includeProfiles", "true");
+      recordsUrl.searchParams.set("academicYearLabel", academicYearLabel);
+      recordsUrl.searchParams.set("semesterLabel", semesterLabel);
+      const recordsResponse = await fetch(recordsUrl.toString(), {
+        headers: {
+          ...getAuthHeaders()
+        }
+      });
+      recordsPayload = await recordsResponse.json().catch(() => ({}));
+      if (!recordsResponse.ok) {
+        throw new Error(recordsPayload.message || "Unable to load academic history records.");
+      }
+    }
+
+    const scopeRecordTotal = Number(payload.scopeRecordCount || recordsPayload.total || 0);
+    const scopePayload = {
+      ...payload,
+      academicYearLabel,
+      semesterLabel,
+      scopeRecordTotal,
+      scopeRecords: Array.isArray(recordsPayload.items) ? recordsPayload.items : []
+    };
+    state.academicHistoryImportHistory = scopePayload;
+    renderAcademicHistoryImportHistory(scopePayload);
+
+    if (payload.total) {
+      setAcademicHistoryImportHistoryMessage(
+        `Loaded ${payload.total || 0} academic history import batch(es).`,
+        "success"
+      );
+    } else if (scopeRecordTotal > 0) {
+      const manualEntryNote =
+        semesterLabel === "Manual review entry"
+          ? " Manual review entry means these records were saved from application review or manual academic-standing updates, not from a workbook batch."
+          : "";
+      setAcademicHistoryImportHistoryMessage(
+        `No import batch log exists for this scope, but ${scopeRecordTotal} academic history record(s) are available to clear.${manualEntryNote}`,
+        "success"
+      );
+    } else {
+      setAcademicHistoryImportHistoryMessage(
+        "No academic history records or import batches match the selected scope.",
+        "warning"
+      );
+    }
   } catch (error) {
     state.academicHistoryImportHistory = [];
     renderAcademicHistoryImportHistory({ items: [] });
@@ -13397,7 +13765,7 @@ async function handleAcademicHistoryDelete(recordId) {
   }
 }
 
-async function handleAcademicHistoryRollback(batchReference) {
+async function handleAcademicHistoryRollback(batchReference, triggerButton = null) {
   const apiBaseUrl = getApiBaseUrl();
   if (!canManageAcademicHistoryLifecycle()) {
     setAcademicHistoryImportHistoryMessage("Only admins can roll back academic history batches.", "error");
@@ -13412,40 +13780,46 @@ async function handleAcademicHistoryRollback(batchReference) {
     return;
   }
 
-  const reason = window.prompt(
-    "Enter a short reason for rolling back this academic history import batch.",
-    "Imported the wrong CWA workbook"
-  );
-  if (!reason?.trim()) {
-    setAcademicHistoryImportHistoryMessage("Academic history rollback cancelled.", "warning");
-    return;
+  const previousButtonText = triggerButton?.textContent || "";
+  if (triggerButton) {
+    triggerButton.disabled = true;
+    triggerButton.textContent = "Deleting...";
   }
-
-  setAcademicHistoryImportHistoryMessage("Rolling back academic history batch...", "warning");
+  setAcademicHistoryImportHistoryMessage("Deleting academic history batch records...", "warning");
   try {
-    const response = await fetch(`${apiBaseUrl}/api/students/history/rollback`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...getAuthHeaders()
+    const { response, payload } = await fetchJsonWithTimeout(
+      `${apiBaseUrl}/api/students/history/rollback`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({
+          batchReference,
+          reason: `Deleted records from academic history import batch ${batchReference}`
+        })
       },
-      body: JSON.stringify({
-        batchReference,
-        reason: reason.trim()
-      })
-    });
-    const payload = await response.json().catch(() => ({}));
+      ACADEMIC_HISTORY_ROLLBACK_TIMEOUT_MS,
+      "Academic history batch deletion timed out. The database may still be working; reload import history before trying again."
+    );
     if (!response.ok) {
       throw new Error(payload.message || "Unable to roll back academic history batch.");
     }
 
     setAcademicHistoryImportHistoryMessage(payload.message || "Academic history batch rolled back.", "success");
-    await loadAcademicHistory();
     await loadRegistryStats();
-    await loadAcademicHistoryImportScopeOptions();
+    const scopeSelection = getAcademicHistoryScopeSelection();
+    await loadAcademicHistoryImportScopeOptions(scopeSelection);
     await loadAcademicHistoryImportHistory();
+    await refreshAcademicHistorySearchAfterMutation();
   } catch (error) {
     setAcademicHistoryImportHistoryMessage(error.message, "error");
+  } finally {
+    if (triggerButton?.isConnected) {
+      triggerButton.disabled = false;
+      triggerButton.textContent = previousButtonText;
+    }
   }
 }
 
@@ -13462,34 +13836,30 @@ async function handleAcademicHistoryClear() {
 
   const { academicYearLabel, semesterLabel } = getAcademicHistoryScopeSelection();
   if (!academicYearLabel || !semesterLabel) {
+    resetAcademicHistoryClearConfirmation();
     setAcademicHistoryImportHistoryMessage("Choose both the academic year and semester before clearing.", "error");
     return;
   }
 
-  const confirmation = window.prompt(
-    `Type CLEAR ACADEMIC HISTORY to remove imported academic history rows for ${semesterLabel} in ${academicYearLabel}.`
-  );
-  if (confirmation === null) {
-    setAcademicHistoryImportHistoryMessage("Academic history clear cancelled.", "warning");
-    return;
-  }
-  if (confirmation.trim().toUpperCase() !== "CLEAR ACADEMIC HISTORY") {
+  const pendingConfirmation = state.academicHistoryClearConfirmation;
+  const isConfirmed =
+    pendingConfirmation?.academicYearLabel === academicYearLabel &&
+    pendingConfirmation?.semesterLabel === semesterLabel;
+  if (!isConfirmed) {
+    state.academicHistoryClearConfirmation = {
+      academicYearLabel,
+      semesterLabel
+    };
+    const recordCount = Number(state.academicHistoryImportHistory?.scopeRecordTotal || 0);
+    elements.academicHistoryClearButton.textContent = "Confirm clear scope";
     setAcademicHistoryImportHistoryMessage(
-      "Academic history clear cancelled because the confirmation text did not match.",
-      "error"
+      `Click Confirm clear scope to remove ${recordCount || "the selected"} academic history record(s) for ${semesterLabel} in ${academicYearLabel}.`,
+      "warning"
     );
     return;
   }
 
-  const reason = window.prompt(
-    "Enter a short reason for clearing this imported academic history scope.",
-    `Clearing imported academic history for ${semesterLabel}`
-  );
-  if (!reason?.trim()) {
-    setAcademicHistoryImportHistoryMessage("Academic history clear cancelled.", "warning");
-    return;
-  }
-
+  resetAcademicHistoryClearConfirmation();
   setAcademicHistoryImportHistoryMessage("Clearing imported academic history...", "warning");
   try {
     const response = await fetch(`${apiBaseUrl}/api/students/history/clear`, {
@@ -13501,7 +13871,7 @@ async function handleAcademicHistoryClear() {
       body: JSON.stringify({
         academicYearLabel,
         semesterLabel,
-        reason: reason.trim()
+        reason: `Cleared selected academic history scope for ${semesterLabel} in ${academicYearLabel}`
       })
     });
     const payload = await response.json().catch(() => ({}));
@@ -13509,7 +13879,7 @@ async function handleAcademicHistoryClear() {
       throw new Error(payload.message || "Unable to clear imported academic history.");
     }
 
-    setAcademicHistoryImportHistoryMessage(payload.message || "Imported academic history cleared.", "success");
+    setAcademicHistoryImportHistoryMessage(payload.message || "Academic history scope cleared.", "success");
     await loadAcademicHistory();
     await loadRegistryStats();
     await loadAcademicHistoryImportScopeOptions({
@@ -13530,6 +13900,7 @@ async function handleAcademicHistoryPreview(event) {
 
   elements.academicHistoryPreviewButton.disabled = true;
   elements.academicHistoryImportButton.disabled = true;
+  clearImportProgress(elements.academicHistoryMessage);
   setAcademicHistoryMessage("Generating CWA import preview...", "warning");
 
   try {
@@ -13565,10 +13936,13 @@ async function handleAcademicHistoryImport() {
 
   elements.academicHistoryPreviewButton.disabled = true;
   elements.academicHistoryImportButton.disabled = true;
+  clearImportProgress(elements.academicHistoryMessage);
   setAcademicHistoryMessage("Importing matched CWA rows into academic history...", "warning");
 
   try {
-    const payload = await postAcademicHistoryImport("/api/students/history/import");
+    const payload = await postAcademicHistoryImport("/api/students/history/import", {
+      usePreviewRows: true
+    });
     state.lastAcademicHistoryImport = payload;
     renderAcademicHistoryImportResults(payload);
     renderAcademicHistorySummary({
@@ -14100,6 +14474,15 @@ function bindEvents() {
     renderAcademicHistoryIssues([]);
     renderAcademicHistoryImportResults(null);
   });
+  elements.academicHistoryAcademicYearSelect?.addEventListener("change", () => {
+    syncAcademicHistoryAcademicYearMode();
+    state.academicHistoryPreview = null;
+    elements.academicHistoryImportButton.disabled = true;
+    setAcademicHistoryMessage(
+      "Academic year selection updated. Preview the CWA workbooks again before importing.",
+      "warning"
+    );
+  });
 
   elements.importForm.addEventListener("submit", handlePreview);
   elements.importButton.addEventListener("click", () => {
@@ -14112,6 +14495,7 @@ function bindEvents() {
     void handleAcademicHistoryImport();
   });
   elements.academicHistoryScopeAcademicYear?.addEventListener("change", () => {
+    resetAcademicHistoryClearConfirmation();
     renderAcademicHistoryScopeSelectors({
       academicYearLabel: elements.academicHistoryScopeAcademicYear.value,
       semesterLabel: ""
@@ -14119,10 +14503,12 @@ function bindEvents() {
     syncAcademicHistoryControls();
   });
   elements.academicHistoryScopeSemester?.addEventListener("change", () => {
+    resetAcademicHistoryClearConfirmation();
     syncAcademicHistoryControls();
   });
   elements.academicHistoryImportHistoryForm?.addEventListener("submit", (event) => {
     event.preventDefault();
+    resetAcademicHistoryClearConfirmation();
     void loadAcademicHistoryImportHistory();
   });
   elements.academicHistoryClearButton?.addEventListener("click", () => {
@@ -15173,6 +15559,10 @@ function bindEvents() {
     state.dashboardActivityHidden = !state.dashboardActivityHidden;
     renderDashboardActivityVisibility();
   });
+  elements.academicHistoryTimelineToggleButton?.addEventListener("click", () => {
+    state.academicHistoryTimelineHidden = !state.academicHistoryTimelineHidden;
+    renderAcademicHistoryTimelineVisibility();
+  });
 
     elements.apiUrl.addEventListener("change", () => {
       if (elements.loginApiUrl) {
@@ -15421,7 +15811,7 @@ function init() {
     "warning"
   );
   setAcademicHistoryMessage(
-    "Upload CWA workbooks to preview index-number matches, name mismatches, and the semester results that are ready to update academic history.",
+    "Upload SIS-style CWA workbooks to preview reference-number and index-number matches, name mismatches, and semester results. Select or type an academic year when the workbook does not include one.",
     "warning"
   );
   setAcademicHistorySearchMessage(
@@ -15429,7 +15819,7 @@ function init() {
     "warning"
   );
   setAcademicHistoryImportHistoryMessage(
-    "Choose an academic year and semester to review imported academic history batches or clear that imported scope.",
+    "Choose an academic year and semester to review academic history batches or clear that selected scope.",
     "warning"
   );
   setApplicationIssueEditorMessage(
@@ -15439,6 +15829,7 @@ function init() {
   syncApplicationCriteriaControls();
   syncApplicationReviewControls();
   syncSchemeControls();
+  renderAcademicHistoryAcademicYearOptions();
   renderAcademicHistoryScopeSelectors();
   syncAcademicHistoryControls();
   initializePasswordToggle(elements.loginPassword, elements.loginPasswordToggle);
@@ -15453,6 +15844,7 @@ function init() {
   renderApplicationCwaCoverageVisibility();
   renderApplicationReviewVisibility();
   renderDashboardActivityVisibility();
+  renderAcademicHistoryTimelineVisibility();
   bindEvents();
   setupProgressiveDisclosure();
   resetSchemeForm();

@@ -1,0 +1,6 @@
+
+> @sop/api@0.1.0 start
+> node src/server.js
+
+Scholarship Operations Platform API running at http://0.0.0.0:4300 using postgres data source
+API local network allowlist enabled for: 127.0.0.1/32, ::1/128, 192.168.42.0/24

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 import {
   renderAcademicHistoryImportHistoryMarkup,
@@ -85,12 +86,73 @@ function importHistoryMarkupShowsRollbackAvailability() {
   });
 
   assert.match(markup, /data-academic-history-rollback="batch-1"/);
+  assert.match(markup, /Delete batch records/);
   assert.doesNotMatch(markup, /data-academic-history-rollback="batch-2"/);
   assert.match(markup, /Wrong workbook/);
+}
+
+function importHistoryMarkupExplainsScopeRecordsWithoutBatchLogs() {
+  const markup = renderAcademicHistoryImportHistoryMarkup({
+    total: 0,
+    academicYearLabel: "2025/2026",
+    semesterLabel: "Manual review entry",
+    scopeRecordTotal: 32,
+    scopeRecords: [
+      {
+        studentName: "Akosua Mensah",
+        indexNumber: "8637723",
+        cwa: 76
+      }
+    ],
+    items: []
+  });
+
+  assert.match(markup, /32 academic history record/);
+  assert.match(markup, /No batch log/);
+  assert.match(markup, /Manual review entry means/);
+  assert.match(markup, /Clear selected scope/);
+}
+
+function academicHistoryClearUsesInlineConfirmation() {
+  const appSource = fs.readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+
+  assert.match(appSource, /academicHistoryClearConfirmation/u);
+  assert.match(appSource, /Confirm clear scope/u);
+  assert.doesNotMatch(appSource, /Type CLEAR ACADEMIC HISTORY/u);
+}
+
+function academicHistoryBatchDeleteDoesNotDependOnPrompt() {
+  const appSource = fs.readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const rollbackHandlerMatch = appSource.match(
+    /async function handleAcademicHistoryRollback\(batchReference[\s\S]*?\n\}/u
+  );
+
+  assert.ok(rollbackHandlerMatch, "Expected academic history rollback handler.");
+  assert.doesNotMatch(rollbackHandlerMatch[0], /window\.prompt/u);
+  assert.match(rollbackHandlerMatch[0], /Deleted records from academic history import batch/u);
+  assert.match(appSource, /ACADEMIC_HISTORY_ROLLBACK_TIMEOUT_MS/u);
+  assert.match(rollbackHandlerMatch[0], /fetchJsonWithTimeout/u);
+  assert.doesNotMatch(rollbackHandlerMatch[0], /await loadAcademicHistory\(\)/u);
+}
+
+function academicHistoryTimelineCanBeCollapsed() {
+  const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const appSource = fs.readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+
+  assert.match(html, /id="academicHistoryTimelineToggleButton"/);
+  assert.match(html, /id="academicHistoryTimelineBody"/);
+  assert.match(appSource, /ACADEMIC_HISTORY_TIMELINE_HIDDEN_KEY/);
+  assert.match(appSource, /function renderAcademicHistoryTimelineVisibility/);
+  assert.match(appSource, /Show timeline/);
+  assert.match(appSource, /Hide timeline/);
 }
 
 adminMarkupIncludesLifecycleActions();
 readOnlyMarkupOmitsLifecycleActions();
 importHistoryMarkupShowsRollbackAvailability();
+importHistoryMarkupExplainsScopeRecordsWithoutBatchLogs();
+academicHistoryClearUsesInlineConfirmation();
+academicHistoryBatchDeleteDoesNotDependOnPrompt();
+academicHistoryTimelineCanBeCollapsed();
 
 console.log("academic-history-lifecycle-tests: ok");

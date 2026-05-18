@@ -127,13 +127,13 @@ function semesterRank(label) {
     case "second semester":
     case "semester 2":
       return 2;
-    case "third semester":
-    case "semester 3":
-      return 3;
     case "final results":
     case "full year":
     case "annual":
-      return 4;
+      return 0;
+    case "third semester":
+    case "semester 3":
+      return 0;
     default:
       return 0;
   }
@@ -386,14 +386,30 @@ function createSampleRepository() {
     async countAll() {
       return students.length;
     },
-    async countAcademicHistory() {
-      return academicHistory.length;
+    async countAcademicHistory(filters = {}) {
+      const academicYearLabel = String(filters.academicYearLabel || "").trim();
+      const semesterLabel = String(filters.semesterLabel || "").trim();
+      return academicHistory.filter(
+        (entry) =>
+          (!academicYearLabel || String(entry.academicYearLabel || "") === academicYearLabel) &&
+          (!semesterLabel || String(entry.semesterLabel || "") === semesterLabel)
+      ).length;
+    },
+    async listAcademicHistoryScopes() {
+      return academicHistory
+        .filter((entry) => entry.academicYearLabel && entry.semesterLabel)
+        .map((entry) => ({
+          academicYearLabel: entry.academicYearLabel,
+          semesterLabel: entry.semesterLabel
+        }));
     },
     async listAcademicHistory(filters = {}) {
       const query = String(filters.q || "").trim().toLowerCase();
       const studentReferenceId = String(filters.studentReferenceId || "").trim();
       const indexNumber = String(filters.indexNumber || "").trim();
       const studentId = String(filters.studentId || "").trim();
+      const academicYearLabel = String(filters.academicYearLabel || "").trim();
+      const semesterLabel = String(filters.semesterLabel || "").trim();
 
       const matchedStudents = students.filter((student) => {
         if (studentId && student.id === studentId) return true;
@@ -415,6 +431,11 @@ function createSampleRepository() {
       return sortAcademicHistoryEntries(
         academicHistory
           .filter((entry) => ids.has(entry.studentId))
+          .filter(
+            (entry) =>
+              (!academicYearLabel || String(entry.academicYearLabel || "") === academicYearLabel) &&
+              (!semesterLabel || String(entry.semesterLabel || "") === semesterLabel)
+          )
           .map((entry) =>
             mapAcademicHistoryRecord(
               entry,
@@ -464,6 +485,25 @@ function createSampleRepository() {
 
       const current = existing || academicHistory[academicHistory.length - 1];
       return mapAcademicHistoryRecord(current, student);
+    },
+    async upsertAcademicHistoryEntries(inputs = []) {
+      const results = [];
+      for (const input of inputs) {
+        const previousEntry = findAcademicHistoryEntryForScope(input);
+        const previousRecord = previousEntry
+          ? mapAcademicHistoryRecord(
+              previousEntry,
+              students.find((student) => student.id === previousEntry.studentId) || null
+            )
+          : null;
+        const item = await this.upsertAcademicHistoryEntry(input);
+        results.push({
+          item,
+          previousRecord,
+          actionType: previousRecord ? "updated" : "created"
+        });
+      }
+      return results;
     },
     async updateAcademicHistoryRecord(id, input = {}) {
       const entry = findAcademicHistoryEntryById(String(id));
@@ -628,7 +668,6 @@ function createSampleRepository() {
       const semesterLabel = String(filters.semesterLabel || "").trim();
       const removable = academicHistory.filter(
         (entry) =>
-          entry.importBatchReference &&
           (!academicYearLabel || String(entry.academicYearLabel || "") === academicYearLabel) &&
           (!semesterLabel || String(entry.semesterLabel || "") === semesterLabel)
       );
@@ -702,6 +741,14 @@ function normalizeNumeric(value) {
 
   const parsed = Number(value);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+function chunkArray(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function mapCreatedStudentFromInput(id, input) {
@@ -1356,16 +1403,56 @@ function createPostgresRepository(database) {
       const result = await database.query(`SELECT COUNT(*)::int AS count FROM students`);
       return Number(result.rows[0]?.count || 0);
     },
-    async countAcademicHistory() {
+    async countAcademicHistory(filters = {}) {
       const profileMapping = await getAcademicProfileMapping();
+      const params = [];
+      const conditions = [buildAcademicResultPresenceClause("academic_profiles", profileMapping)];
+
+      if (filters.academicYearLabel && profileMapping.academicYearLabelColumn) {
+        params.push(String(filters.academicYearLabel || "").trim());
+        conditions.push(`COALESCE(${profileMapping.academicYearLabelColumn}, '') = COALESCE($${params.length}, '')`);
+      }
+      if (filters.semesterLabel && profileMapping.semesterColumn) {
+        params.push(String(filters.semesterLabel || "").trim());
+        conditions.push(`COALESCE(${profileMapping.semesterColumn}, '') = COALESCE($${params.length}, '')`);
+      }
+
       const result = await database.query(
         `
           SELECT COUNT(*)::int AS count
           FROM academic_profiles
-          WHERE ${buildAcademicResultPresenceClause("academic_profiles", profileMapping)}
-        `
+          WHERE ${conditions.join(" AND ")}
+        `,
+        params
       );
       return Number(result.rows[0]?.count || 0);
+    },
+    async listAcademicHistoryScopes() {
+      const profileMapping = await getAcademicProfileMapping();
+      const academicYearColumn = profileMapping.academicYearLabelColumn;
+      const semesterColumn = profileMapping.semesterColumn;
+
+      if (!academicYearColumn || !semesterColumn) {
+        return [];
+      }
+
+      const result = await database.query(
+        `
+          SELECT DISTINCT
+            ${academicYearColumn} AS academic_year_label,
+            ${semesterColumn} AS semester_label
+          FROM academic_profiles
+          WHERE COALESCE(${academicYearColumn}, '') <> ''
+            AND COALESCE(${semesterColumn}, '') <> ''
+            AND ${buildAcademicResultPresenceClause("academic_profiles", profileMapping)}
+          ORDER BY academic_year_label DESC, semester_label ASC
+        `
+      );
+
+      return result.rows.map((row) => ({
+        academicYearLabel: row.academic_year_label,
+        semesterLabel: row.semester_label
+      }));
     },
     async listAcademicHistory(filters = {}) {
       const profileMapping = await getAcademicProfileMapping();
@@ -1407,6 +1494,14 @@ function createPostgresRepository(database) {
             profileMode: "direct"
           })
         );
+      }
+      if (filters.academicYearLabel && profileMapping.academicYearLabelColumn) {
+        params.push(String(filters.academicYearLabel || "").trim());
+        conditions.push(`COALESCE(profile.${profileMapping.academicYearLabelColumn}, '') = COALESCE($${params.length}, '')`);
+      }
+      if (filters.semesterLabel && profileMapping.semesterColumn) {
+        params.push(String(filters.semesterLabel || "").trim());
+        conditions.push(`COALESCE(profile.${profileMapping.semesterColumn}, '') = COALESCE($${params.length}, '')`);
       }
       if (filters.assessmentOnly) {
         conditions.push(buildAcademicResultPresenceClause("profile", profileMapping));
@@ -1692,6 +1787,223 @@ function createPostgresRepository(database) {
       const rows = await this.listAcademicHistory({ studentId: input.studentId });
       return rows.find((item) => item.id === result) || null;
     },
+    async upsertAcademicHistoryEntries(inputs = []) {
+      if (!inputs.length) {
+        return [];
+      }
+
+      const profileMapping = await getAcademicProfileMapping();
+      const inputKeys = inputs.map((input) => ({
+        studentId: String(input.studentId || ""),
+        academicYearLabel: input.academicYearLabel || "",
+        semesterLabel: input.semesterLabel || "",
+        program: input.program || ""
+      }));
+      const existingResult = await database.query(
+        `
+          WITH requested AS (
+            SELECT *
+            FROM jsonb_to_recordset($1::jsonb) AS item(
+              ord int,
+              student_id text,
+              academic_year_label text,
+              semester_label text,
+              program_name text
+            )
+          ),
+          ranked AS (
+            SELECT
+              requested.ord,
+              profile.id::text AS id,
+              ROW_NUMBER() OVER (
+                PARTITION BY requested.ord
+                ORDER BY profile.updated_at DESC, profile.id DESC
+              ) AS rank
+            FROM requested
+            INNER JOIN academic_profiles profile
+              ON profile.student_id::text = requested.student_id
+             AND COALESCE(profile.academic_year_label, '') = COALESCE(requested.academic_year_label, '')
+             AND COALESCE(profile.semester_label, '') = COALESCE(requested.semester_label, '')
+             AND COALESCE(profile.program_name, '') = COALESCE(requested.program_name, '')
+          )
+          SELECT ord, id
+          FROM ranked
+          WHERE rank = 1
+        `,
+        [
+          JSON.stringify(
+            inputKeys.map((item, index) => ({
+              ord: index,
+              student_id: item.studentId,
+              academic_year_label: item.academicYearLabel,
+              semester_label: item.semesterLabel,
+              program_name: item.program
+            }))
+          )
+        ]
+      );
+      const existingIdsByIndex = new Map(
+        existingResult.rows.map((row) => [Number(row.ord), String(row.id)])
+      );
+      const previousRecords = await Promise.all(
+        inputs.map((input, index) =>
+          existingIdsByIndex.has(index)
+            ? this.findAcademicHistoryRecord({
+                studentId: input.studentId,
+                academicYearLabel: input.academicYearLabel,
+                semesterLabel: input.semesterLabel,
+                program: input.program
+              })
+            : null
+        )
+      );
+
+      const savedIds = await database.withTransaction(async (transaction) => {
+        const ids = [];
+        for (let index = 0; index < inputs.length; index += 1) {
+          const input = inputs[index];
+          const existingId = existingIdsByIndex.get(index);
+          if (existingId) {
+            const params = [
+              input.cycleId || "",
+              input.college || null,
+              input.program || null
+            ];
+            const updates = [
+              `cycle_id = NULLIF($1, '')::BIGINT`,
+              `college = $2`,
+              `program_name = $3`
+            ];
+            let paramIndex = params.length;
+
+            if (profileMapping.yearColumn) {
+              paramIndex += 1;
+              params.push(input.year || null);
+              updates.push(`${profileMapping.yearColumn} = $${paramIndex}`);
+            }
+            if (profileMapping.academicYearLabelColumn) {
+              paramIndex += 1;
+              params.push(input.academicYearLabel || null);
+              updates.push(`${profileMapping.academicYearLabelColumn} = $${paramIndex}`);
+            }
+            if (profileMapping.semesterColumn) {
+              paramIndex += 1;
+              params.push(input.semesterLabel || null);
+              updates.push(`${profileMapping.semesterColumn} = $${paramIndex}`);
+            }
+            if (profileMapping.cwaColumn) {
+              paramIndex += 1;
+              params.push(normalizeNumeric(input.cwa));
+              updates.push(`${profileMapping.cwaColumn} = $${paramIndex}`);
+            }
+            if (profileMapping.wassceAggregateColumn) {
+              paramIndex += 1;
+              params.push(normalizeNumeric(input.wassceAggregate));
+              updates.push(`${profileMapping.wassceAggregateColumn} = $${paramIndex}`);
+            }
+            if (input.importBatchReference !== undefined) {
+              paramIndex += 1;
+              params.push(input.importBatchReference || null);
+              updates.push(`import_batch_reference = $${paramIndex}`);
+            }
+            if (input.sourceFileName !== undefined) {
+              paramIndex += 1;
+              params.push(input.sourceFileName || null);
+              updates.push(`source_file_name = $${paramIndex}`);
+            }
+
+            params.push(existingId);
+            await transaction.query(
+              `
+                UPDATE academic_profiles
+                SET
+                  ${updates.join(",\n                  ")},
+                  updated_at = NOW()
+                WHERE id::text = $${params.length}
+              `,
+              params
+            );
+            ids.push(existingId);
+            continue;
+          }
+
+          const profileColumns = ["student_id", "cycle_id", "college", "program_name"];
+          const profileValues = ["NULLIF($1, '')::BIGINT", "NULLIF($2, '')::BIGINT", "$3", "$4"];
+          const params = [input.studentId, input.cycleId || "", input.college || null, input.program || null];
+          let paramIndex = params.length;
+
+          if (profileMapping.yearColumn) {
+            paramIndex += 1;
+            profileColumns.push(profileMapping.yearColumn);
+            profileValues.push(`$${paramIndex}`);
+            params.push(input.year || null);
+          }
+          if (profileMapping.academicYearLabelColumn) {
+            paramIndex += 1;
+            profileColumns.push(profileMapping.academicYearLabelColumn);
+            profileValues.push(`$${paramIndex}`);
+            params.push(input.academicYearLabel || null);
+          }
+          if (profileMapping.semesterColumn) {
+            paramIndex += 1;
+            profileColumns.push(profileMapping.semesterColumn);
+            profileValues.push(`$${paramIndex}`);
+            params.push(input.semesterLabel || null);
+          }
+          if (profileMapping.cwaColumn) {
+            paramIndex += 1;
+            profileColumns.push(profileMapping.cwaColumn);
+            profileValues.push(`$${paramIndex}`);
+            params.push(normalizeNumeric(input.cwa));
+          }
+          if (profileMapping.wassceAggregateColumn) {
+            paramIndex += 1;
+            profileColumns.push(profileMapping.wassceAggregateColumn);
+            profileValues.push(`$${paramIndex}`);
+            params.push(normalizeNumeric(input.wassceAggregate));
+          }
+          if (input.importBatchReference !== undefined) {
+            paramIndex += 1;
+            profileColumns.push("import_batch_reference");
+            profileValues.push(`$${paramIndex}`);
+            params.push(input.importBatchReference || null);
+          }
+          if (input.sourceFileName !== undefined) {
+            paramIndex += 1;
+            profileColumns.push("source_file_name");
+            profileValues.push(`$${paramIndex}`);
+            params.push(input.sourceFileName || null);
+          }
+
+          const created = await transaction.query(
+            `
+              INSERT INTO academic_profiles (
+                ${profileColumns.join(",\n                ")}
+              )
+              VALUES (${profileValues.join(", ")})
+              RETURNING id::text AS id
+            `,
+            params
+          );
+          ids.push(created.rows[0].id);
+        }
+        return ids;
+      });
+
+      const uniqueStudentIds = Array.from(new Set(inputs.map((input) => input.studentId)));
+      const allRows = (
+        await Promise.all(
+          uniqueStudentIds.map((studentId) => this.listAcademicHistory({ studentId }))
+        )
+      ).flat();
+      const rowsById = new Map(allRows.map((item) => [String(item.id), item]));
+
+      return savedIds.map((id, index) => ({
+        item: rowsById.get(String(id)) || null,
+        previousRecord: previousRecords[index] || null,
+        actionType: previousRecords[index] ? "updated" : "created"
+      }));
+    },
     async updateAcademicHistoryRecord(id, input = {}) {
       const profileMapping = await getAcademicProfileMapping();
       const existing = await this.getAcademicHistoryRecordById(id);
@@ -1939,35 +2251,120 @@ function createPostgresRepository(database) {
         return null;
       }
 
-      let deletedRows = 0;
-      let restoredRows = 0;
-      for (const change of [...(batch.changes || [])].reverse()) {
-        if (change.actionType === "created" && change.nextRecord?.id) {
-          const deleted = await this.deleteAcademicHistoryRecord(change.nextRecord.id);
-          if (deleted) {
-            deletedRows += 1;
-          }
-          continue;
-        }
-
-        if (change.actionType === "updated" && change.previousRecord?.id) {
-          const restored = await this.updateAcademicHistoryRecord(change.previousRecord.id, {
-            cycleId: change.previousRecord.cycleId,
-            college: change.previousRecord.college,
-            program: change.previousRecord.program,
-            year: change.previousRecord.year,
-            academicYearLabel: change.previousRecord.academicYearLabel,
-            semesterLabel: change.previousRecord.semesterLabel,
-            cwa: change.previousRecord.cwa,
-            wassceAggregate: change.previousRecord.wassceAggregate,
-            importBatchReference: change.previousRecord.importBatchReference,
-            sourceFileName: change.previousRecord.sourceFileName
-          });
-          if (restored) {
-            restoredRows += 1;
-          }
+      const profileMapping = await getAcademicProfileMapping();
+      const createdIds = [
+        ...new Set(
+          (batch.changes || [])
+            .filter((change) => change.actionType === "created" && change.nextRecord?.id)
+            .map((change) => String(change.nextRecord.id))
+            .filter((id) => /^\d+$/u.test(id))
+        )
+      ];
+      const createdIdSet = new Set(createdIds);
+      const restoreById = new Map();
+      for (const change of batch.changes || []) {
+        const previousRecord = change.previousRecord || null;
+        if (
+          change.actionType === "updated" &&
+          previousRecord?.id &&
+          !createdIdSet.has(String(previousRecord.id)) &&
+          !restoreById.has(String(previousRecord.id))
+        ) {
+          restoreById.set(String(previousRecord.id), previousRecord);
         }
       }
+
+      const { deletedRows, restoredRows } = await database.withTransaction(async (transaction) => {
+        let deletedCount = 0;
+        let restoredCount = 0;
+
+        for (const ids of chunkArray(createdIds, 1000)) {
+          const result = await transaction.query(
+            `
+              DELETE FROM academic_profiles
+              WHERE id = ANY($1::BIGINT[])
+            `,
+            [ids]
+          );
+          deletedCount += Number(result.rowCount || 0);
+        }
+
+        const restoreRows = Array.from(restoreById.values());
+        const updateAssignments = [
+          "cycle_id = NULLIF(input.cycle_id, '')::BIGINT",
+          "college = input.college",
+          "program_name = input.program",
+          profileMapping.yearColumn ? `${profileMapping.yearColumn} = input.year_of_study` : "",
+          profileMapping.academicYearLabelColumn
+            ? `${profileMapping.academicYearLabelColumn} = input.academic_year_label`
+            : "",
+          profileMapping.semesterColumn ? `${profileMapping.semesterColumn} = input.semester_label` : "",
+          profileMapping.cwaColumn ? `${profileMapping.cwaColumn} = NULLIF(input.cwa, '')::NUMERIC` : "",
+          profileMapping.wassceAggregateColumn
+            ? `${profileMapping.wassceAggregateColumn} = NULLIF(input.wassce_aggregate, '')::NUMERIC`
+            : "",
+          "import_batch_reference = input.import_batch_reference",
+          "source_file_name = input.source_file_name",
+          "updated_at = NOW()"
+        ].filter(Boolean);
+
+        for (const rows of chunkArray(restoreRows, 500)) {
+          const params = [];
+          const values = rows
+            .map((record) => {
+              const placeholders = [
+                record.id,
+                record.cycleId || "",
+                record.college || null,
+                record.program || null,
+                record.year || null,
+                record.academicYearLabel || null,
+                record.semesterLabel || null,
+                record.cwa === undefined || record.cwa === null ? "" : String(record.cwa),
+                record.wassceAggregate === undefined || record.wassceAggregate === null
+                  ? ""
+                  : String(record.wassceAggregate),
+                record.importBatchReference || null,
+                record.sourceFileName || null
+              ].map((value) => {
+                params.push(value);
+                return `$${params.length}`;
+              });
+              return `(${placeholders.join(", ")})`;
+            })
+            .join(", ");
+
+          const result = await transaction.query(
+            `
+              UPDATE academic_profiles AS profile
+              SET ${updateAssignments.join(",\n                  ")}
+              FROM (
+                VALUES ${values}
+              ) AS input(
+                id,
+                cycle_id,
+                college,
+                program,
+                year_of_study,
+                academic_year_label,
+                semester_label,
+                cwa,
+                wassce_aggregate,
+                import_batch_reference,
+                source_file_name
+              )
+              WHERE profile.id = NULLIF(input.id, '')::BIGINT
+            `,
+            params
+          );
+          restoredCount += Number(result.rowCount || 0);
+        }
+
+        return {
+          deletedRows: deletedCount,
+          restoredRows: restoredCount
+        };
+      });
 
       await this.saveAcademicHistoryImportBatch({
         ...batch,
@@ -1987,7 +2384,7 @@ function createPostgresRepository(database) {
     },
     async clearAcademicHistoryScope(filters = {}) {
       const params = [];
-      const conditions = [`import_batch_reference IS NOT NULL`];
+      const conditions = [];
 
       if (filters.academicYearLabel) {
         params.push(String(filters.academicYearLabel || "").trim());
@@ -2124,8 +2521,8 @@ export function createStudentRepository({ database }) {
     async countAll() {
       return sampleRepository.countAll();
     },
-    async countAcademicHistory() {
-      return sampleRepository.countAcademicHistory();
+    async countAcademicHistory(filters = {}) {
+      return sampleRepository.countAcademicHistory(filters);
     },
     async createMany(inputs = []) {
       return sampleRepository.createMany(inputs);

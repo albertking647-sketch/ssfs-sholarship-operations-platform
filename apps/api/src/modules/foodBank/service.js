@@ -2,6 +2,26 @@ import { NotFoundError, ValidationError } from "../../lib/errors.js";
 import { recordAuditEvent } from "../../lib/audit.js";
 import { buildFoodBankImportPreview } from "./import.js";
 
+function emitImportProgress(progress, event = {}) {
+  if (typeof progress !== "function") {
+    return;
+  }
+  const processedRows = Math.max(0, Number(event.processedRows || 0));
+  const totalRows = Math.max(0, Number(event.totalRows || 0));
+  progress({
+    phase: event.phase || "importing",
+    processedRows,
+    totalRows,
+    percent:
+      event.percent !== undefined
+        ? Math.max(0, Math.min(100, Math.round(Number(event.percent || 0))))
+        : totalRows > 0
+          ? Math.max(0, Math.min(100, Math.round((processedRows / totalRows) * 100)))
+          : 0,
+    message: event.message || "Importing support registrations..."
+  });
+}
+
 function normalizeAcademicYearLabel(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -334,16 +354,28 @@ export function createFoodBankService({ repositories }) {
       });
       return hydrateRecord(repositories, item);
     },
-    async previewImport(payload) {
+    async previewImport(payload, progress) {
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        message: "Checking food and clothing support rows..."
+      });
       const existingKeys = buildExistingKeys(await repositories.foodBank.list({}));
       const preview = buildFoodBankImportPreview(payload.rows, {
         studentLookup: await buildStudentBatchLookup(repositories, payload.rows || []),
         existingKeys
       });
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: preview.summary.totalRows,
+        totalRows: preview.summary.totalRows,
+        message: "Food and clothing support preview ready."
+      });
       return preview;
     },
-    async importRows(payload, actor) {
-      const preview = await this.previewImport(payload);
+    async importRows(payload, actor, progress) {
+      const preview = await this.previewImport(payload, progress);
       const itemsToCreate = preview.rows
         .filter((row) => row.status === "valid" && row.matchedStudent)
         .map((row) => ({
@@ -355,6 +387,12 @@ export function createFoodBankService({ repositories }) {
           supportTypes: row.payload.supportTypes || [],
           status: "registered"
         }));
+      emitImportProgress(progress, {
+        phase: "importing",
+        processedRows: 0,
+        totalRows: itemsToCreate.length,
+        message: "Importing food and clothing support registrations..."
+      });
 
       const result = await repositories.foodBank.importRows(
         {
@@ -363,6 +401,12 @@ export function createFoodBankService({ repositories }) {
         },
         actor
       );
+      emitImportProgress(progress, {
+        phase: "importing",
+        processedRows: result.items.length,
+        totalRows: itemsToCreate.length,
+        message: "Food and clothing support registrations imported."
+      });
       await recordAuditEvent(repositories.audit, {
         actor,
         actionCode: "food_bank.imported",

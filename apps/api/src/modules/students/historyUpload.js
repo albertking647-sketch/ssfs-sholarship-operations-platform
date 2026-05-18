@@ -88,7 +88,16 @@ function normalizeHeaderName(value) {
 }
 
 function cleanProgramLabel(value) {
-  return collapseLine(value).replace(/\.+$/, "").trim();
+  return collapseLine(value)
+    .replace(/\s*\(\s*\d+\s+students?\s*\)\s*$/i, "")
+    .replace(/\.+$/, "")
+    .trim();
+}
+
+function findColumn(normalized, aliases = []) {
+  return normalized.findIndex((value) =>
+    aliases.some((alias) => value === alias || value.includes(alias))
+  );
 }
 
 function extractAcademicYearLabel(text) {
@@ -97,13 +106,37 @@ function extractAcademicYearLabel(text) {
 }
 
 function extractCollegeContext(fileName, lines) {
+  const collegeLabels = [
+    "College of Art and Built Environment",
+    "College of Agriculture and Natural Resources",
+    "College of Health Sciences",
+    "College of Humanities and Social Sciences",
+    "College of Engineering",
+    "College of Science",
+    "Institute of Distance Learning"
+  ];
+  const combinedText = [fileName, ...lines].join(" ");
+
+  for (const label of collegeLabels) {
+    if (combinedText.toLowerCase().includes(label.toLowerCase())) {
+      return label;
+    }
+  }
+
   for (const line of lines) {
     if (/^(college of|institute of)/i.test(line)) {
       return cleanProgramLabel(line);
     }
+
+    const embeddedMatch = line.match(
+      /\b((?:college|institute) of .+?)(?:\s+undergraduate|\s+postgraduate|\s+students with|\s+with cwa|$)/i
+    );
+    if (embeddedMatch) {
+      return cleanProgramLabel(embeddedMatch[1]);
+    }
   }
 
-  const combined = fileName.toUpperCase();
+  const combined = combinedText.toUpperCase();
   const match = combined.match(/\b(CABE|CANR|CHS|COE|COHSS|COS|IDL)\b/);
   if (!match) {
     return "";
@@ -120,40 +153,64 @@ function extractCollegeContext(fileName, lines) {
   }[match[1]] || match[1];
 }
 
-function extractProgramContext(lines) {
-  let program = "";
+function extractYearContext(fileName) {
+  const match = String(fileName || "").match(/\bYear\s*([1-9]\d*)\b/i);
+  return match ? `Year ${match[1]}` : "";
+}
 
+function extractProgramContext(lines) {
   for (const rawLine of lines) {
     const line = collapseLine(rawLine);
     if (!line) continue;
-    if (/^(college of|institute of|faculty of|department of)/i.test(line)) continue;
+    if (/^(kwame nkrumah university|college of|institute of|faculty of|department of)/i.test(line)) continue;
     if (/final results for the academic year/i.test(line)) break;
     if (/^the following/i.test(line)) continue;
-    if (/^(sn|index no|name|cwa)\b/i.test(line)) continue;
-    program = cleanProgramLabel(line);
+    if (/^(sn|studentid|student id|index no|name|gender|cwa)\b/i.test(line)) continue;
+    if (/student\s*id/i.test(line) && /index\s*no/i.test(line) && /\bcwa\b/i.test(line)) continue;
+    if (/\b\d{4,}\b.*\b\d{2,}(?:\.\d+)?$/.test(line)) continue;
+
+    const programHeading = line.match(/^(.+?)\s*\(\s*\d+\s+students?\s*\)$/i);
+    if (programHeading) {
+      return cleanProgramLabel(programHeading[1]);
+    }
+
+    if (/\b(b\.?\s?sc|b\.?\s?a|b\.?\s?ed|bba|llb|msc|m\.?\s?phil|phd|diploma|certificate)\b/i.test(line)) {
+      return cleanProgramLabel(line);
+    }
   }
 
-  return program;
+  return "";
 }
 
 function detectCwaHeader(row) {
   const normalized = (row || []).map((value) => normalizeHeaderName(value));
-  const indexNumberColumn = normalized.findIndex(
-    (value) => value === "indexno" || value === "indexnumber" || value.includes("indexno")
-  );
-  const fullNameColumn = normalized.findIndex(
-    (value) =>
-      value === "name" || value === "fullname" || value.includes("studentname") || value.includes("name")
-  );
-  const cwaColumn = normalized.findIndex((value) => value === "cwa" || value.includes("cwa"));
+  const studentReferenceColumn = findColumn(normalized, [
+    "studentid",
+    "studentreferenceid",
+    "referencenumber",
+    "referenceno",
+    "refno"
+  ]);
+  const indexNumberColumn = findColumn(normalized, ["indexno", "indexnumber"]);
+  const fullNameColumn = findColumn(normalized, ["name", "fullname", "studentname"]);
+  const programColumn = findColumn(normalized, ["programmeofstudy", "programofstudy", "programme", "program"]);
+  const yearColumn = findColumn(normalized, ["currentyear", "year", "level"]);
+  const cwaColumn = findColumn(normalized, ["cwa"]);
 
-  if (indexNumberColumn === -1 || fullNameColumn === -1 || cwaColumn === -1) {
+  if (
+    (studentReferenceColumn === -1 && indexNumberColumn === -1) ||
+    fullNameColumn === -1 ||
+    cwaColumn === -1
+  ) {
     return null;
   }
 
   return {
+    studentReferenceColumn,
     indexNumberColumn,
     fullNameColumn,
+    programColumn,
+    yearColumn,
     cwaColumn
   };
 }
@@ -177,6 +234,7 @@ function mapCwaRowsFromSheet(sheet, sheetName, fileName, context = {}) {
 
   const college = extractCollegeContext(fileName, firstLines);
   const program = extractProgramContext(firstLines);
+  const year = extractYearContext(fileName);
   const academicYearLabel =
     firstLines.map(extractAcademicYearLabel).find(Boolean) || context.academicYearLabel || null;
   const semesterLabel = context.semesterLabel || "Final Results";
@@ -200,8 +258,17 @@ function mapCwaRowsFromSheet(sheet, sheetName, fileName, context = {}) {
       continue;
     }
 
-    const indexNumber = collapseLine(row[header.indexNumberColumn]);
+    const studentReferenceId =
+      header.studentReferenceColumn === -1
+        ? ""
+        : collapseLine(row[header.studentReferenceColumn]);
+    const indexNumber =
+      header.indexNumberColumn === -1 ? "" : collapseLine(row[header.indexNumberColumn]);
     const fullName = collapseLine(row[header.fullNameColumn]);
+    const rowProgram =
+      header.programColumn === -1 ? "" : cleanProgramLabel(row[header.programColumn]);
+    const rowYear =
+      header.yearColumn === -1 ? "" : collapseLine(row[header.yearColumn]);
     const cwa = collapseLine(row[header.cwaColumn]);
 
     if (!indexNumber && !fullName) {
@@ -213,13 +280,15 @@ function mapCwaRowsFromSheet(sheet, sheetName, fileName, context = {}) {
     }
 
     rows.push({
+      "Reference Number": studentReferenceId,
       "Index Number": indexNumber,
       "Full Name": fullName,
       CWA: cwa,
       "Academic Year": academicYearLabel,
       "Semester Label": semesterLabel,
       College: college,
-      "Programme of Study": program,
+      "Programme of Study": rowProgram || program,
+      Year: rowYear || year,
       Notes: `${fileName} / ${sheetName}`
     });
   }

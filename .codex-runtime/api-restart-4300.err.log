@@ -1,0 +1,7 @@
+npm error Lifecycle script `start` failed with error:
+npm error code 1
+npm error path C:\Users\Lenovo\Documents\Code Space\ssfs-scholarship-operations-hub\apps\api
+npm error workspace @sop/api@0.1.0
+npm error location C:\Users\Lenovo\Documents\Code Space\ssfs-scholarship-operations-hub\apps\api
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c node src/server.js

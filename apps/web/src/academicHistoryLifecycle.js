@@ -82,7 +82,52 @@ export function renderAcademicHistoryResultsMarkup(items = [], options = {}) {
 
 export function renderAcademicHistoryImportHistoryMarkup(history = {}) {
   const items = Array.isArray(history.items) ? history.items : [];
+  const scopeRecordTotal = Number(history.scopeRecordTotal || 0);
   if (!items.length) {
+    if (scopeRecordTotal > 0) {
+      const academicYearLabel = history.academicYearLabel || "the selected academic year";
+      const semesterLabel = history.semesterLabel || "the selected semester";
+      const scopeRecords = Array.isArray(history.scopeRecords) ? history.scopeRecords : [];
+      const sampleMarkup = scopeRecords.length
+        ? `
+          <div class="search-meta">
+            ${scopeRecords
+              .slice(0, 6)
+              .map(
+                (item) =>
+                  `<span class="meta-pill">${escapeHtml(item.studentName || "Student")} | ${escapeHtml(
+                    item.indexNumber || item.studentReferenceId || "No identifier"
+                  )} | CWA: ${escapeHtml(item.cwa ?? "N/A")}</span>`
+              )
+              .join("")}
+          </div>
+        `
+        : "";
+
+      return `
+        <article class="search-result-card fade-in">
+          <div class="search-result-top">
+            <div>
+              <strong>${escapeHtml(scopeRecordTotal)} academic history record(s) in this scope</strong>
+              <p class="detail-subcopy">${escapeHtml(academicYearLabel)} | ${escapeHtml(
+                semesterLabel
+              )}</p>
+            </div>
+            <span class="flag-pill warning">No batch log</span>
+          </div>
+          <p class="detail-subcopy">
+            These records exist in academic history, but no workbook import batch was recorded for this scope. You can still use Clear selected scope to remove the selected academic year and semester.
+          </p>
+          ${
+            semesterLabel === "Manual review entry"
+              ? `<p class="detail-subcopy">Manual review entry means the CWA or WASSCE value was saved from an application review or manual academic-standing update, not from a workbook batch.</p>`
+              : ""
+          }
+          ${sampleMarkup}
+        </article>
+      `;
+    }
+
     return `<p class="empty-state">No academic history import batches match the current academic year and semester yet.</p>`;
   }
 
@@ -101,7 +146,7 @@ export function renderAcademicHistoryImportHistoryMarkup(history = {}) {
               item.status === "completed"
                 ? `<button class="action-button tertiary" type="button" data-academic-history-rollback="${escapeHtml(
                     item.batchReference
-                  )}">Roll back batch</button>`
+                  )}">Delete batch records</button>`
                 : `<span class="flag-pill warning">Rolled back</span>`
             }
           </div>

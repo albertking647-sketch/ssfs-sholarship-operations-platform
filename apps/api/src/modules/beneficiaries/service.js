@@ -14,6 +14,26 @@ const DECLINATION_MESSAGE_SIGNATURE = [
   "KNUST"
 ];
 
+function emitImportProgress(progress, event = {}) {
+  if (typeof progress !== "function") {
+    return;
+  }
+  const processedRows = Math.max(0, Number(event.processedRows || 0));
+  const totalRows = Math.max(0, Number(event.totalRows || 0));
+  progress({
+    phase: event.phase || "importing",
+    processedRows,
+    totalRows,
+    percent:
+      event.percent !== undefined
+        ? Math.max(0, Math.min(100, Math.round(Number(event.percent || 0))))
+        : totalRows > 0
+          ? Math.max(0, Math.min(100, Math.round((processedRows / totalRows) * 100)))
+          : 0,
+    message: event.message || "Importing beneficiary rows..."
+  });
+}
+
 function normalizeImportMode(value) {
   const mode = String(value || "").trim().toLowerCase() || "historical_archive";
   if (!VALID_IMPORT_MODES.has(mode)) {
@@ -869,7 +889,7 @@ export function createBeneficiaryService({ repositories, messaging = defaultDupl
       return updated;
     },
 
-    async previewImport(payload) {
+    async previewImport(payload, progress) {
       const importMode = normalizeImportMode(payload.importMode);
       const duplicateStrategy = normalizeDuplicateStrategy(
         payload.duplicateStrategy,
@@ -885,6 +905,12 @@ export function createBeneficiaryService({ repositories, messaging = defaultDupl
       if (!rows.length) {
         throw new ValidationError("Upload a beneficiary file before generating a preview.");
       }
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: rows.length,
+        message: "Checking beneficiary rows..."
+      });
       const previewSeed = buildBeneficiaryImportPreview(rows, {
         importMode,
         categorizedByCollege: Boolean(payload.categorizedByCollege),
@@ -916,7 +942,7 @@ export function createBeneficiaryService({ repositories, messaging = defaultDupl
             )
           : new Set();
 
-      return buildBeneficiaryImportPreview(rows, {
+      const preview = buildBeneficiaryImportPreview(rows, {
         importMode,
         categorizedByCollege: Boolean(payload.categorizedByCollege),
         defaultBeneficiaryCohort: payload.beneficiaryCohort || "",
@@ -929,9 +955,16 @@ export function createBeneficiaryService({ repositories, messaging = defaultDupl
         uploadDuplicateKeys,
         priorYearNewBeneficiaryKeys
       });
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: preview.summary.totalRows,
+        totalRows: preview.summary.totalRows,
+        message: "Beneficiary preview ready."
+      });
+      return preview;
     },
 
-    async importRows(payload, actor) {
+    async importRows(payload, actor, progress) {
       const importMode = normalizeImportMode(payload.importMode);
       const duplicateStrategy = normalizeDuplicateStrategy(
         payload.duplicateStrategy,
@@ -943,12 +976,15 @@ export function createBeneficiaryService({ repositories, messaging = defaultDupl
           normalizeDuplicateStrategy(value, false)
         ])
       );
-      const preview = await this.previewImport({
-        ...payload,
-        importMode,
-        duplicateStrategy,
-        duplicateRowActions
-      });
+      const preview = await this.previewImport(
+        {
+          ...payload,
+          importMode,
+          duplicateStrategy,
+          duplicateRowActions
+        },
+        progress
+      );
       const validRows = preview.rows.filter((row) => row.status === "valid");
       const rejectedRows = preview.rows.filter((row) => row.status !== "valid");
 
@@ -976,6 +1012,12 @@ export function createBeneficiaryService({ repositories, messaging = defaultDupl
           linkedWaitlistEntryId: promotedWaitlistEntry?.id || null
         };
       });
+      emitImportProgress(progress, {
+        phase: "importing",
+        processedRows: 0,
+        totalRows: importItems.length,
+        message: "Importing beneficiary rows..."
+      });
 
       const result = await repositories.beneficiaries.importRows({
         items: importItems,
@@ -987,6 +1029,12 @@ export function createBeneficiaryService({ repositories, messaging = defaultDupl
         duplicateStrategy,
         duplicateRowActions,
         actor
+      });
+      emitImportProgress(progress, {
+        phase: "importing",
+        processedRows: result.items.length,
+        totalRows: importItems.length,
+        message: "Beneficiary rows imported."
       });
       await recordAuditEvent(repositories.audit, {
         actor,

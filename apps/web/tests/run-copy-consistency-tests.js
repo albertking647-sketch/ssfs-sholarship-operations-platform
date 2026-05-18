@@ -61,6 +61,51 @@ function alignsRecommendedStudentIdentifierGuidance() {
   assert.match(html, /Required fields: Academic Year, Scheme Name, and Student ID \/ Reference Number or Index Number/u);
 }
 
+function documentsCwaImportRequirementsAndUpdateBehavior() {
+  assert.match(html, /Required workbook fields: Student ID or Index Number, Name or Full Name, and CWA/u);
+  assert.match(html, /SIS-style files require selecting or typing an academic year/u);
+  assert.match(html, /Existing CWA for the same student, academic year, semester, and program is updated/u);
+}
+
+function cwaImportOffersAcademicYearSelectAndManualEntry() {
+  assert.match(html, /<select id="academicHistoryAcademicYearSelect" class="select-field">/u);
+  assert.match(html, /<option value="__manual__">Type academic year manually<\/option>/u);
+  assert.match(html, /id="academicHistoryAcademicYearManualInput"/u);
+  assert.match(appJs, /function renderAcademicHistoryAcademicYearOptions/u);
+  assert.match(appJs, /academicHistoryAcademicYearManualInput/u);
+  assert.match(appJs, /2024\/2025/u);
+}
+
+function cwaImportUsesFirstAndSecondSemesterOnlyWithSecondAsDefault() {
+  const selectMatch = html.match(
+    /<select id="academicHistorySemesterLabel" class="select-field">([\s\S]*?)<\/select>/u
+  );
+  assert.ok(selectMatch, "Academic history semester select should exist.");
+  const optionMatches = [...selectMatch[1].matchAll(/<option value="([^"]+)"([^>]*)>/gu)];
+
+  assert.deepEqual(
+    optionMatches.map((match) => match[1]),
+    ["First Semester", "Second Semester"]
+  );
+  assert.match(optionMatches[1][2], /\bselected\b/u);
+}
+
+function cwaImportPreviewDoesNotFallbackToRegistryProgram() {
+  const functionMatch = appJs.match(
+    /function renderAcademicHistoryValidRows\(rows\) \{[\s\S]*?\n\}/u
+  );
+  assert.ok(functionMatch, "Academic history preview row renderer should exist.");
+  assert.doesNotMatch(functionMatch[0], /payload\.program \|\| row\.matchedStudent\?\.program/u);
+}
+
+function registryHistoryRouteLoadsAcademicYearOptions() {
+  const routeLoadMatch = appJs.match(
+    /if \(route\.module === "registry"\) \{[\s\S]*?if \(route\.module === "applications"\)/u
+  );
+  assert.ok(routeLoadMatch, "Registry route data loader should exist.");
+  assert.match(routeLoadMatch[0], /loadApplicationOptions\(\)/u);
+}
+
 function alignsBeneficiarySupportTypeAndCurrencyGuidance() {
   assert.match(html, /Support type is required and must be Internal or External/u);
   assert.match(html, /<option value="GBP">GBP<\/option>/u);
@@ -103,6 +148,11 @@ describesActiveModulesInPresentTense();
 documentsStudentImportRequirementsAccurately();
 usesRealisticIndexNumberExamples();
 alignsRecommendedStudentIdentifierGuidance();
+documentsCwaImportRequirementsAndUpdateBehavior();
+cwaImportOffersAcademicYearSelectAndManualEntry();
+cwaImportUsesFirstAndSecondSemesterOnlyWithSecondAsDefault();
+cwaImportPreviewDoesNotFallbackToRegistryProgram();
+registryHistoryRouteLoadsAcademicYearOptions();
 alignsBeneficiarySupportTypeAndCurrencyGuidance();
 usesBeneficiaryStreamLanguage();
 letsRecommendedBeneficiarySupportUseAvailableSupportOptions();

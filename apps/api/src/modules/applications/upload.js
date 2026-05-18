@@ -148,7 +148,14 @@ function rowsFromSheet(sheet, fileName, sheetName) {
       "reference number",
       "reference no",
       "ref no",
-      "student id"
+      "student id",
+      "studentid",
+      "student reference id"
+    ]);
+    const indexNumber = getMappedValue(normalizedHeaders, row, [
+      "index number",
+      "index no",
+      "indexno"
     ]);
     const fullName = getMappedValue(normalizedHeaders, row, [
       "full name",
@@ -156,12 +163,13 @@ function rowsFromSheet(sheet, fileName, sheetName) {
       "name"
     ]);
 
-    if (!studentReferenceId && !fullName) {
+    if (!studentReferenceId && !indexNumber && !fullName) {
       continue;
     }
 
     rows.push({
       "Reference Number": studentReferenceId,
+      "Index Number": indexNumber,
       "Full Name": fullName,
       "Email Address": getMappedValue(normalizedHeaders, row, [
         "email address",

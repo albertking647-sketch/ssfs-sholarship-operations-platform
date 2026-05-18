@@ -856,19 +856,26 @@
                 <label class="field">
                   <span>Semester label</span>
                   <select id="academicHistorySemesterLabel" class="select-field">
-                    <option value="Final Results">Final Results</option>
                     <option value="First Semester">First Semester</option>
-                    <option value="Second Semester">Second Semester</option>
-                    <option value="Special Semester">Special Semester</option>
+                    <option value="Second Semester" selected>Second Semester</option>
                   </select>
                 </label>
 
                 <label class="field">
-                  <span>Academic year override (optional)</span>
+                  <span>Academic year</span>
+                  <select id="academicHistoryAcademicYearSelect" class="select-field">
+                    <option value="">Use workbook year if present</option>
+                    <option value="__manual__">Type academic year manually</option>
+                  </select>
+                  <small class="detail-subcopy">SIS-style files require selecting or typing an academic year before preview.</small>
+                </label>
+
+                <label class="field" id="academicHistoryAcademicYearManualField" hidden>
+                  <span>Manual academic year</span>
                   <input
-                    id="academicHistoryAcademicYearOverride"
+                    id="academicHistoryAcademicYearManualInput"
                     type="text"
-                    placeholder="Leave blank to use the workbook year, for example 2024/2025"
+                    placeholder="For example 2026/2027"
                   />
                 </label>
 
@@ -878,6 +885,10 @@
                   <span class="upload-subtitle">Upload one or more CWA Excel workbooks and match them to the registry by index number</span>
                   <span class="upload-file-name" id="selectedAcademicHistoryFileName">No CWA workbook selected yet</span>
                 </label>
+
+                <div class="inline-note">
+                  Required workbook fields: Student ID or Index Number, Name or Full Name, and CWA. SIS-style files require selecting or typing an academic year; the selected semester label is applied to every imported row. Existing CWA for the same student, academic year, semester, and program is updated, with the previous value kept in batch history for rollback.
+                </div>
 
                 <div class="action-row">
                   <button id="academicHistoryPreviewButton" class="action-button primary" type="submit">Preview CWA import</button>
@@ -1038,9 +1049,12 @@
                   <p class="panel-eyebrow">Academic Timeline</p>
                   <h3>Imported CWA history records</h3>
                 </div>
+                <button id="academicHistoryTimelineToggleButton" class="action-button tertiary" type="button">Hide timeline</button>
               </div>
-              <div id="academicHistoryResultsList" class="result-list">
-                <p class="empty-state">Academic history search results will appear here.</p>
+              <div id="academicHistoryTimelineBody">
+                <div id="academicHistoryResultsList" class="result-list">
+                  <p class="empty-state">Academic history search results will appear here.</p>
+                </div>
               </div>
             </section>
 
@@ -1094,12 +1108,12 @@
                 </div>
                 <div class="action-row">
                   <button id="academicHistoryImportHistoryButton" class="action-button tertiary" type="submit">Load import history</button>
-                  <button id="academicHistoryClearButton" class="action-button danger" type="button">Clear imported scope</button>
+                  <button id="academicHistoryClearButton" class="action-button danger" type="button">Clear selected scope</button>
                 </div>
               </form>
 
               <div class="inline-note" id="academicHistoryImportHistoryMessage">
-                Choose an academic year and semester to review imported academic history batches or clear that imported scope.
+                Choose an academic year and semester to review academic history batches or clear that selected scope.
               </div>
 
               <div id="academicHistoryImportHistoryList" class="result-list">

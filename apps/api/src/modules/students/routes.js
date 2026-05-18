@@ -1,6 +1,41 @@
-import { readJsonBody, sendJson } from "../../lib/http.js";
+import {
+  createImportProgressReporter,
+  readJsonBody,
+  sendJson,
+  wantsNdjsonProgress
+} from "../../lib/http.js";
 import { resolveStudentHistoryImportPayload } from "./historyUpload.js";
 import { resolveStudentImportPayload } from "./upload.js";
+
+async function sendImportResponse({ req, res, statusCode = 200, resolvePayload, run, buildResponse }) {
+  if (!wantsNdjsonProgress(req)) {
+    const payload = await resolvePayload();
+    const result = await run(payload);
+    return sendJson(res, statusCode, buildResponse(payload, result));
+  }
+
+  const reporter = createImportProgressReporter(res);
+  try {
+    reporter.start();
+    reporter.progress({
+      phase: "uploading",
+      message: "Reading uploaded workbook data..."
+    });
+    const payload = await resolvePayload();
+    reporter.progress({
+      phase: "parsing",
+      processedRows: 0,
+      totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+      message: "Workbook rows parsed. Preparing import..."
+    });
+    const result = await run(payload, (event) => reporter.progress(event));
+    reporter.complete(buildResponse(payload, result));
+    return undefined;
+  } catch (error) {
+    reporter.fail(error);
+    return undefined;
+  }
+}
 
 export function createStudentRoutes({ config, services }) {
   return [
@@ -51,6 +86,8 @@ export function createStudentRoutes({ config, services }) {
           studentId: url.searchParams.get("studentId") || "",
           studentReferenceId: url.searchParams.get("studentReferenceId") || "",
           indexNumber: url.searchParams.get("indexNumber") || "",
+          academicYearLabel: url.searchParams.get("academicYearLabel") || "",
+          semesterLabel: url.searchParams.get("semesterLabel") || "",
           includeProfiles: url.searchParams.get("includeProfiles") || ""
         });
         return sendJson(res, 200, {
@@ -66,17 +103,20 @@ export function createStudentRoutes({ config, services }) {
       auth: "required",
       roles: ["admin"],
       async handler({ req, res }) {
-        const payload = await resolveStudentHistoryImportPayload(req, config.limits.jsonBodyBytes);
-        const result = await services.students.previewAcademicHistoryImport(payload);
-
-        return sendJson(res, 200, {
-          ok: true,
-          source: payload.source,
-          fileName: payload.fileName,
-          fileType: payload.fileType,
-          semesterLabel: payload.semesterLabel,
-          academicYearLabel: payload.academicYearLabel,
-          ...result
+        return sendImportResponse({
+          req,
+          res,
+          resolvePayload: () => resolveStudentHistoryImportPayload(req, config.limits.jsonBodyBytes),
+          run: (payload, progress) => services.students.previewAcademicHistoryImport(payload, progress),
+          buildResponse: (payload, result) => ({
+            ok: true,
+            source: payload.source,
+            fileName: payload.fileName,
+            fileType: payload.fileType,
+            semesterLabel: payload.semesterLabel,
+            academicYearLabel: payload.academicYearLabel,
+            ...result
+          })
         });
       }
     },
@@ -86,17 +126,21 @@ export function createStudentRoutes({ config, services }) {
       auth: "required",
       roles: ["admin"],
       async handler({ actor, req, res }) {
-        const payload = await resolveStudentHistoryImportPayload(req, config.limits.jsonBodyBytes);
-        const result = await services.students.importAcademicHistoryRows(payload, actor);
-
-        return sendJson(res, 201, {
-          ok: true,
-          source: payload.source,
-          fileName: payload.fileName,
-          fileType: payload.fileType,
-          semesterLabel: payload.semesterLabel,
-          academicYearLabel: payload.academicYearLabel,
-          ...result
+        return sendImportResponse({
+          req,
+          res,
+          statusCode: 201,
+          resolvePayload: () => resolveStudentHistoryImportPayload(req, config.limits.jsonBodyBytes),
+          run: (payload, progress) => services.students.importAcademicHistoryRows(payload, actor, progress),
+          buildResponse: (payload, result) => ({
+            ok: true,
+            source: payload.source,
+            fileName: payload.fileName,
+            fileType: payload.fileType,
+            semesterLabel: payload.semesterLabel,
+            academicYearLabel: payload.academicYearLabel,
+            ...result
+          })
         });
       }
     },
@@ -219,15 +263,18 @@ export function createStudentRoutes({ config, services }) {
       auth: "required",
       roles: ["admin"],
       async handler({ req, res }) {
-        const payload = await resolveStudentImportPayload(req, config.limits.jsonBodyBytes);
-        const result = await services.students.previewImport(payload);
-
-        return sendJson(res, 200, {
-          ok: true,
-          source: payload.source,
-          fileName: payload.fileName,
-          fileType: payload.fileType,
-          ...result
+        return sendImportResponse({
+          req,
+          res,
+          resolvePayload: () => resolveStudentImportPayload(req, config.limits.jsonBodyBytes),
+          run: (payload, progress) => services.students.previewImport(payload, progress),
+          buildResponse: (payload, result) => ({
+            ok: true,
+            source: payload.source,
+            fileName: payload.fileName,
+            fileType: payload.fileType,
+            ...result
+          })
         });
       }
     },
@@ -237,15 +284,19 @@ export function createStudentRoutes({ config, services }) {
       auth: "required",
       roles: ["admin"],
       async handler({ actor, req, res }) {
-        const payload = await resolveStudentImportPayload(req, config.limits.jsonBodyBytes);
-        const result = await services.students.importRows(payload, actor);
-
-        return sendJson(res, 201, {
-          ok: true,
-          source: payload.source,
-          fileName: payload.fileName,
-          fileType: payload.fileType,
-          ...result
+        return sendImportResponse({
+          req,
+          res,
+          statusCode: 201,
+          resolvePayload: () => resolveStudentImportPayload(req, config.limits.jsonBodyBytes),
+          run: (payload, progress) => services.students.importRows(payload, actor, progress),
+          buildResponse: (payload, result) => ({
+            ok: true,
+            source: payload.source,
+            fileName: payload.fileName,
+            fileType: payload.fileType,
+            ...result
+          })
         });
       }
     },

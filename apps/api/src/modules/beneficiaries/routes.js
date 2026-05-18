@@ -1,5 +1,37 @@
-import { readJsonBody, sendJson } from "../../lib/http.js";
+import {
+  createImportProgressReporter,
+  readJsonBody,
+  sendJson,
+  wantsNdjsonProgress
+} from "../../lib/http.js";
 import { resolveBeneficiaryImportPayload } from "./upload.js";
+
+async function sendImportResponse({ req, res, statusCode = 200, resolvePayload, run, buildResponse }) {
+  if (!wantsNdjsonProgress(req)) {
+    const payload = await resolvePayload();
+    const result = await run(payload);
+    return sendJson(res, statusCode, buildResponse(payload, result));
+  }
+
+  const reporter = createImportProgressReporter(res);
+  try {
+    reporter.start();
+    reporter.progress({ phase: "uploading", message: "Reading uploaded workbook data..." });
+    const payload = await resolvePayload();
+    reporter.progress({
+      phase: "parsing",
+      processedRows: 0,
+      totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+      message: "Workbook rows parsed. Preparing import..."
+    });
+    const result = await run(payload, (event) => reporter.progress(event));
+    reporter.complete(buildResponse(payload, result));
+    return undefined;
+  } catch (error) {
+    reporter.fail(error);
+    return undefined;
+  }
+}
 
 export function createBeneficiaryRoutes({ config, services }) {
   return [
@@ -47,22 +79,25 @@ export function createBeneficiaryRoutes({ config, services }) {
       auth: "required",
       roles: ["admin"],
       async handler({ req, res }) {
-        const payload = await resolveBeneficiaryImportPayload(req, config.limits.jsonBodyBytes);
-        const result = await services.beneficiaries.previewImport(payload);
-
-        return sendJson(res, 200, {
-          ok: true,
-          source: payload.source,
-          fileName: payload.fileName,
-          fileType: payload.fileType,
-          importMode: payload.importMode,
-          categorizedByCollege: payload.categorizedByCollege,
-          beneficiaryCohort: payload.beneficiaryCohort || "",
-          defaultCurrency: payload.defaultCurrency || "",
-          duplicateStrategy: payload.duplicateStrategy || "skip",
-          duplicateRowActions: payload.duplicateRowActions || {},
-          allowDuplicates: Boolean(payload.allowDuplicates),
-          ...result
+        return sendImportResponse({
+          req,
+          res,
+          resolvePayload: () => resolveBeneficiaryImportPayload(req, config.limits.jsonBodyBytes),
+          run: (payload, progress) => services.beneficiaries.previewImport(payload, progress),
+          buildResponse: (payload, result) => ({
+            ok: true,
+            source: payload.source,
+            fileName: payload.fileName,
+            fileType: payload.fileType,
+            importMode: payload.importMode,
+            categorizedByCollege: payload.categorizedByCollege,
+            beneficiaryCohort: payload.beneficiaryCohort || "",
+            defaultCurrency: payload.defaultCurrency || "",
+            duplicateStrategy: payload.duplicateStrategy || "skip",
+            duplicateRowActions: payload.duplicateRowActions || {},
+            allowDuplicates: Boolean(payload.allowDuplicates),
+            ...result
+          })
         });
       }
     },
@@ -72,22 +107,26 @@ export function createBeneficiaryRoutes({ config, services }) {
       auth: "required",
       roles: ["admin"],
       async handler({ actor, req, res }) {
-        const payload = await resolveBeneficiaryImportPayload(req, config.limits.jsonBodyBytes);
-        const result = await services.beneficiaries.importRows(payload, actor);
-
-        return sendJson(res, 201, {
-          ok: true,
-          source: payload.source,
-          fileName: payload.fileName,
-          fileType: payload.fileType,
-          importMode: payload.importMode,
-          categorizedByCollege: payload.categorizedByCollege,
-          beneficiaryCohort: payload.beneficiaryCohort || "",
-          defaultCurrency: payload.defaultCurrency || "",
-          duplicateStrategy: payload.duplicateStrategy || "skip",
-          duplicateRowActions: payload.duplicateRowActions || {},
-          allowDuplicates: Boolean(payload.allowDuplicates),
-          ...result
+        return sendImportResponse({
+          req,
+          res,
+          statusCode: 201,
+          resolvePayload: () => resolveBeneficiaryImportPayload(req, config.limits.jsonBodyBytes),
+          run: (payload, progress) => services.beneficiaries.importRows(payload, actor, progress),
+          buildResponse: (payload, result) => ({
+            ok: true,
+            source: payload.source,
+            fileName: payload.fileName,
+            fileType: payload.fileType,
+            importMode: payload.importMode,
+            categorizedByCollege: payload.categorizedByCollege,
+            beneficiaryCohort: payload.beneficiaryCohort || "",
+            defaultCurrency: payload.defaultCurrency || "",
+            duplicateStrategy: payload.duplicateStrategy || "skip",
+            duplicateRowActions: payload.duplicateRowActions || {},
+            allowDuplicates: Boolean(payload.allowDuplicates),
+            ...result
+          })
         });
       }
     },

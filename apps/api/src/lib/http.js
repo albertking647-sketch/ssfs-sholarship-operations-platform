@@ -26,6 +26,138 @@ export function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload, null, 2));
 }
 
+function clampPercent(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizeProgressEvent(event = {}, type = "progress") {
+  const processedRows = Math.max(0, Number(event.processedRows || 0));
+  const totalRows = Math.max(0, Number(event.totalRows || 0));
+  const percent =
+    event.percent !== undefined
+      ? clampPercent(Number(event.percent))
+      : totalRows > 0
+        ? clampPercent((processedRows / totalRows) * 100)
+        : type === "complete"
+          ? 100
+          : 0;
+
+  return {
+    type,
+    phase: event.phase || (type === "complete" ? "completed" : "importing"),
+    processedRows,
+    totalRows,
+    percent,
+    message: event.message || (type === "complete" ? "Import complete." : "Working...")
+  };
+}
+
+export function formatImportProgressEvent(event = {}) {
+  return `${JSON.stringify(normalizeProgressEvent(event, event.type || "progress"))}\n`;
+}
+
+export function wantsNdjsonProgress(req) {
+  return String(req?.headers?.accept || "")
+    .split(",")
+    .map((item) => item.split(";")[0].trim().toLowerCase())
+    .includes("application/x-ndjson");
+}
+
+export function createImportProgressReporter(res) {
+  let started = false;
+  let closed = false;
+
+  function markClosed() {
+    closed = true;
+  }
+
+  if (typeof res.on === "function") {
+    res.on("close", markClosed);
+    res.on("error", markClosed);
+  }
+
+  function isClosed() {
+    return closed || Boolean(res.writableEnded || res.destroyed);
+  }
+
+  function start(statusCode = 200) {
+    if (started) return !isClosed();
+    if (isClosed()) return false;
+    started = true;
+    try {
+      res.writeHead(statusCode, buildSecurityHeaders({
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "X-Accel-Buffering": "no"
+      }));
+      return true;
+    } catch {
+      markClosed();
+      return false;
+    }
+  }
+
+  function write(event, type = "progress") {
+    if (!start()) {
+      return false;
+    }
+    const normalized = normalizeProgressEvent(event, type);
+    if (type === "complete" && event.payload !== undefined) {
+      normalized.payload = event.payload;
+    }
+    if (type === "failed" && event.error !== undefined) {
+      normalized.error = event.error;
+    }
+    try {
+      res.write(`${JSON.stringify(normalized)}\n`);
+      return true;
+    } catch {
+      markClosed();
+      return false;
+    }
+  }
+
+  function end() {
+    if (isClosed()) return;
+    try {
+      res.end();
+    } catch {
+      markClosed();
+    }
+  }
+
+  return {
+    start,
+    isClosed,
+    progress(event) {
+      write(event, "progress");
+    },
+    complete(payload) {
+      if (write({ type: "complete", phase: "completed", percent: 100, payload }, "complete")) {
+        end();
+      }
+    },
+    fail(error) {
+      if (write(
+        {
+          type: "failed",
+          phase: "failed",
+          percent: 100,
+          message: error?.message || "Import failed.",
+          error: {
+            message: error?.message || "Import failed."
+          }
+        },
+        "failed"
+      )) {
+        end();
+      }
+    }
+  };
+}
+
 export function notFound(res) {
   sendJson(res, 404, {
     ok: false,

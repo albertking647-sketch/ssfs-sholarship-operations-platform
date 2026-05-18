@@ -6,6 +6,11 @@ const HEADER_ALIASES = new Map([
   ["reference no", "studentReferenceId"],
   ["ref no", "studentReferenceId"],
   ["student id", "studentReferenceId"],
+  ["studentid", "studentReferenceId"],
+  ["student reference id", "studentReferenceId"],
+  ["index number", "indexNumber"],
+  ["index no", "indexNumber"],
+  ["index no ", "indexNumber"],
   ["phone number", "phoneNumber"],
   ["phone no", "phoneNumber"],
   ["phone", "phoneNumber"],
@@ -90,6 +95,7 @@ export function buildApplicationImportPreview(rows, context) {
     const issues = [];
     const payload = {
       studentReferenceId: trimString(normalized.studentReferenceId),
+      indexNumber: trimString(normalized.indexNumber),
       fullName: trimString(normalized.fullName),
       phoneNumber: trimString(normalized.phoneNumber),
       applicantEmail: trimString(normalized.applicantEmail),
@@ -103,8 +109,8 @@ export function buildApplicationImportPreview(rows, context) {
       importMode: context.importMode
     };
 
-    if (!payload.studentReferenceId) {
-      issues.push("Student reference ID is required.");
+    if (!payload.studentReferenceId && !payload.indexNumber) {
+      issues.push("Student reference ID or index number is required.");
     }
 
     if (!payload.fullName) {

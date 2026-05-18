@@ -6,6 +6,28 @@ import { buildStudentImportPreview } from "./import.js";
 const PREVIEW_DISPLAY_LIMIT = 160;
 const IMPORT_RESULT_DISPLAY_LIMIT = 60;
 const STUDENT_IMPORT_BATCH_SIZE = 1000;
+const ACADEMIC_HISTORY_IMPORT_BATCH_SIZE = 5000;
+
+function emitImportProgress(progress, event = {}) {
+  if (typeof progress !== "function") {
+    return;
+  }
+  const processedRows = Math.max(0, Number(event.processedRows || 0));
+  const totalRows = Math.max(0, Number(event.totalRows || 0));
+  const percent =
+    event.percent !== undefined
+      ? Math.max(0, Math.min(100, Math.round(Number(event.percent || 0))))
+      : totalRows > 0
+        ? Math.max(0, Math.min(100, Math.round((processedRows / totalRows) * 100)))
+        : 0;
+  progress({
+    phase: event.phase || "importing",
+    processedRows,
+    totalRows,
+    percent,
+    message: event.message || "Importing rows..."
+  });
+}
 
 function assertRequiredString(value, field, label) {
   if (!String(value || "").trim()) {
@@ -29,6 +51,17 @@ function normalizeNumber(value, field, label) {
 function normalizeText(value) {
   const text = String(value || "").trim();
   return text || null;
+}
+
+function buildAcademicHistoryImportKey(input = {}) {
+  return [
+    input.studentId,
+    input.academicYearLabel,
+    input.semesterLabel,
+    input.program || ""
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .join("\u001f");
 }
 
 function normalizeEmail(value) {
@@ -140,18 +173,22 @@ export function createStudentService({ repositories }) {
     return "";
   }
 
-  function buildAcademicHistoryPreviewResponse(preview) {
+  function buildAcademicHistoryPreviewResponse(preview, options = {}) {
     const rows = limitRowsByStatus(preview.rows, {
       validLimit: PREVIEW_DISPLAY_LIMIT / 2,
       invalidLimit: PREVIEW_DISPLAY_LIMIT / 2
     });
 
-    return {
+    const response = {
       summary: preview.summary,
       rows,
       returnedRows: rows.length,
       truncated: rows.length < preview.rows.length
     };
+    if (options.includeImportRows) {
+      response.importRows = preview.rows.map((row) => row.payload);
+    }
+    return response;
   }
 
   async function resolveCycleIdForAcademicYearLabel(academicYearLabel) {
@@ -182,9 +219,11 @@ export function createStudentService({ repositories }) {
     };
   }
 
-  function buildAcademicHistoryImportScopeOptions(history = {}) {
+  function buildAcademicHistoryImportScopeOptions(...sources) {
     const grouped = new Map();
-    const items = Array.isArray(history.items) ? history.items : [];
+    const items = sources.flatMap((source) =>
+      Array.isArray(source?.items) ? source.items : Array.isArray(source) ? source : []
+    );
 
     for (const item of items) {
       const academicYearLabel = normalizeText(item?.academicYearLabel);
@@ -218,10 +257,74 @@ export function createStudentService({ repositories }) {
     };
   }
 
+  function cleanAcademicHistoryProgramLabel(value) {
+    let text = normalizeText(value);
+    if (!text) {
+      return null;
+    }
+
+    const degreeMatch = text.match(
+      /\b((?:B\.?\s?SC|B\.?\s?A|B\.?\s?ED|BBA|LLB|MSC|M\.?\s?PHIL|PHD|DIPLOMA|CERTIFICATE)\.?.*)$/i
+    );
+    if (degreeMatch) {
+      text = degreeMatch[1];
+    }
+
+    text = text
+      .replace(/\s*\(\s*\d+\s+students?\s*\)\s*$/i, "")
+      .replace(/\s+\d{1,3}(?:\.\d+)?$/u, "")
+      .replace(/\.+$/u, "")
+      .trim();
+
+    return text || null;
+  }
+
+  function getSingleIdentifierMatch(matches, issues, label) {
+    if (!matches.length) {
+      return null;
+    }
+    if (matches.length > 1) {
+      issues.push(`This ${label} matched more than one registry student.`);
+      return null;
+    }
+    return matches[0];
+  }
+
+  function resolveAcademicHistoryMatchedStudent(row, lookup) {
+    const issues = [...row.issues];
+    const referenceMatches = row.payload.studentReferenceId
+      ? lookup.byReferenceId.get(row.payload.studentReferenceId) || []
+      : [];
+    const indexMatches = row.payload.indexNumber
+      ? lookup.byIndexNumber.get(row.payload.indexNumber) || []
+      : [];
+    const referenceStudent = getSingleIdentifierMatch(referenceMatches, issues, "student reference ID");
+    const indexStudent = getSingleIdentifierMatch(indexMatches, issues, "index number");
+
+    if (referenceStudent && indexStudent && String(referenceStudent.id) !== String(indexStudent.id)) {
+      issues.push("Student reference ID and index number matched different registry students.");
+      return { issues, matchedStudent: null };
+    }
+
+    const matchedStudent = referenceStudent || indexStudent || null;
+    if (!matchedStudent && !issues.length) {
+      issues.push("No registry student matched this student reference ID or index number.");
+    }
+
+    return { issues, matchedStudent };
+  }
+
   async function assessAcademicHistoryPreview(payload) {
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     const previewRows = rows.map((rawRow, index) => {
       const issues = [];
+      const studentReferenceId =
+        normalizeText(rawRow.studentReferenceId) ||
+        normalizeText(rawRow["Reference Number"]) ||
+        normalizeText(rawRow["Student Reference ID"]) ||
+        normalizeText(rawRow["Student ID"]) ||
+        normalizeText(rawRow.STUDENTID) ||
+        null;
       const indexNumber =
         normalizeText(rawRow.indexNumber) ||
         normalizeText(rawRow["Index Number"]) ||
@@ -244,8 +347,8 @@ export function createStudentService({ repositories }) {
       const cwaRaw = rawRow.cwa ?? rawRow.CWA ?? null;
       let cwa = null;
 
-      if (!indexNumber) {
-        issues.push("Index number is required.");
+      if (!studentReferenceId && !indexNumber) {
+        issues.push("Student reference ID or index number is required.");
       }
       if (cwaRaw === undefined || cwaRaw === null || String(cwaRaw).trim() === "") {
         issues.push("CWA is required.");
@@ -266,16 +369,16 @@ export function createStudentService({ repositories }) {
         issues,
         warnings: [],
         payload: {
+          studentReferenceId,
           indexNumber,
           fullName,
           academicYearLabel,
           semesterLabel,
           cwa,
           college: normalizeText(rawRow.college || rawRow.College) || null,
-          program:
-            normalizeText(rawRow.program) ||
-            normalizeText(rawRow["Programme of Study"]) ||
-            null,
+          program: cleanAcademicHistoryProgramLabel(
+            rawRow.program || rawRow["Programme of Study"] || ""
+          ),
           year: normalizeText(rawRow.year || rawRow.Year) || null,
           notes: normalizeText(rawRow.notes || rawRow.Notes) || null
         }
@@ -283,7 +386,10 @@ export function createStudentService({ repositories }) {
     });
 
     const lookup = await repositories.students.findExistingByIdentifierBatch({
-      studentReferenceIds: [],
+      studentReferenceIds: previewRows
+        .filter((row) => row.status === "valid")
+        .map((row) => row.payload.studentReferenceId)
+        .filter(Boolean),
       indexNumbers: previewRows
         .filter((row) => row.status === "valid")
         .map((row) => row.payload.indexNumber)
@@ -298,17 +404,8 @@ export function createStudentService({ repositories }) {
         };
       }
 
-      const matches = lookup.byIndexNumber.get(row.payload.indexNumber) || [];
       const warnings = [...row.warnings];
-      const issues = [...row.issues];
-
-      if (!matches.length) {
-        issues.push("No registry student matched this index number.");
-      } else if (matches.length > 1) {
-        issues.push("This index number matched more than one registry student.");
-      }
-
-      const matchedStudent = matches.length === 1 ? matches[0] : null;
+      const { issues, matchedStudent } = resolveAcademicHistoryMatchedStudent(row, lookup);
       if (matchedStudent && hasNameMismatch(row.payload.fullName, matchedStudent.fullName)) {
         warnings.push("Possible name mismatch between the CWA row and the registry record.");
       }
@@ -483,24 +580,58 @@ export function createStudentService({ repositories }) {
         phoneNumber: payload.phoneNumber === undefined ? undefined : String(payload.phoneNumber || "").trim() || null
       });
     },
-    async listAcademicHistory(filters) {
-      return repositories.students.listAcademicHistory({
+    async listAcademicHistory(filters = {}) {
+      const normalizedFilters = {
         q: (filters.q || "").trim(),
         studentId: (filters.studentId || "").trim(),
         studentReferenceId: (filters.studentReferenceId || "").trim(),
         indexNumber: (filters.indexNumber || "").trim(),
+        academicYearLabel: (filters.academicYearLabel || "").trim(),
+        semesterLabel: (filters.semesterLabel || "").trim()
+      };
+      if (!Object.values(normalizedFilters).some(Boolean)) {
+        return [];
+      }
+
+      return repositories.students.listAcademicHistory({
+        ...normalizedFilters,
         assessmentOnly: String(filters.includeProfiles || "").toLowerCase() !== "true"
       });
     },
     async getAcademicHistoryImportHistory(filters = {}) {
-      return repositories.students.listAcademicHistoryImportHistory({
-        academicYearLabel: (filters.academicYearLabel || "").trim(),
-        semesterLabel: (filters.semesterLabel || "").trim()
+      const academicYearLabel = (filters.academicYearLabel || "").trim();
+      const semesterLabel = (filters.semesterLabel || "").trim();
+      const history = await repositories.students.listAcademicHistoryImportHistory({
+        academicYearLabel,
+        semesterLabel
       });
+      const scopeRecordCount =
+        academicYearLabel && semesterLabel && repositories.students.countAcademicHistory
+          ? await repositories.students.countAcademicHistory({ academicYearLabel, semesterLabel })
+          : 0;
+
+      return {
+        ...history,
+        academicYearLabel,
+        semesterLabel,
+        scopeRecordCount
+      };
     },
     async getAcademicHistoryImportScopeOptions() {
       const history = await repositories.students.listAcademicHistoryImportHistory({});
-      return buildAcademicHistoryImportScopeOptions(history);
+      let existingScopes = repositories.students.listAcademicHistoryScopes
+        ? await repositories.students.listAcademicHistoryScopes()
+        : await repositories.students.listAcademicHistory({});
+      if (!existingScopes.length && repositories.students.countAcademicHistory) {
+        const count = await repositories.students.countAcademicHistory();
+        if (count > 0 && repositories.students.listAcademicHistory) {
+          existingScopes = await repositories.students.listAcademicHistory({
+            assessmentOnly: true,
+            includeProfiles: "true"
+          });
+        }
+      }
+      return buildAcademicHistoryImportScopeOptions(history, existingScopes);
     },
     async clearRegistry(actor) {
       const cleared = await repositories.students.clearRegistry();
@@ -521,17 +652,41 @@ export function createStudentService({ repositories }) {
     async getStats() {
       return getRegistryStats();
     },
-    async previewImport(payload) {
+    async previewImport(payload, progress) {
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        message: "Checking student registry rows..."
+      });
       const preview = await assessImportPreview(payload);
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: preview.summary.totalRows,
+        totalRows: preview.summary.totalRows,
+        message: "Student registry preview ready."
+      });
       return buildPreviewResponse(preview);
     },
-    async importRows(payload, actor) {
+    async importRows(payload, actor, progress) {
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        message: "Checking student registry rows before import..."
+      });
       const preview = await assessImportPreview(payload);
       const importableRows = [];
       const rejectedRows = [];
       const skippedRows = [];
       const validRows = [];
       const importMode = normalizeImportMode(payload.importMode);
+      emitImportProgress(progress, {
+        phase: "importing",
+        processedRows: 0,
+        totalRows: preview.summary.validRows,
+        message: "Importing valid student registry rows..."
+      });
 
       for (const row of preview.rows) {
         if (row.status !== "valid") {
@@ -590,6 +745,12 @@ export function createStudentService({ repositories }) {
               item: createdItems[index]
             });
           }
+          emitImportProgress(progress, {
+            phase: "importing",
+            processedRows: importableRows.length + skippedRows.length,
+            totalRows: validRows.length,
+            message: "Importing valid student registry rows..."
+          });
         } catch {
           for (const row of rowsToCreate) {
             try {
@@ -606,6 +767,12 @@ export function createStudentService({ repositories }) {
                 issues: [error.message]
               });
             }
+            emitImportProgress(progress, {
+              phase: "importing",
+              processedRows: importableRows.length + rejectedRows.length + skippedRows.length,
+              totalRows: preview.summary.totalRows,
+              message: "Importing valid student registry rows..."
+            });
           }
         }
       }
@@ -638,17 +805,37 @@ export function createStudentService({ repositories }) {
       });
       return result;
     },
-    async previewAcademicHistoryImport(payload) {
+    async previewAcademicHistoryImport(payload, progress) {
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        message: "Matching CWA rows to registry students..."
+      });
       const preview = await assessAcademicHistoryPreview(payload);
-      return buildAcademicHistoryPreviewResponse(preview);
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: preview.summary.totalRows,
+        totalRows: preview.summary.totalRows,
+        message: "CWA preview ready."
+      });
+      return buildAcademicHistoryPreviewResponse(preview, { includeImportRows: true });
     },
-    async importAcademicHistoryRows(payload, actor) {
+    async importAcademicHistoryRows(payload, actor, progress) {
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        message: "Matching CWA rows to registry students..."
+      });
       const preview = await assessAcademicHistoryPreview(payload);
       const importedRows = [];
       const rejectedRows = [];
       const batchReference = createId("academic-history-batch");
       const batchChanges = [];
       let updatedRows = 0;
+      const importCandidates = [];
+      const cycleIdByAcademicYear = new Map();
 
       for (const row of preview.rows) {
         if (row.status !== "valid" || !row.matchedStudent) {
@@ -662,41 +849,27 @@ export function createStudentService({ repositories }) {
         }
 
         try {
-          const cycleId = await resolveCycleIdForAcademicYearLabel(row.payload.academicYearLabel);
-          const previousRecord = repositories.students.findAcademicHistoryRecord
-            ? await repositories.students.findAcademicHistoryRecord({
-                studentId: row.matchedStudent.id,
-                academicYearLabel: row.payload.academicYearLabel,
-                semesterLabel: row.payload.semesterLabel,
-                program: row.payload.program || row.matchedStudent.program || null
-              })
-            : null;
-          const item = await repositories.students.upsertAcademicHistoryEntry({
-            studentId: row.matchedStudent.id,
-            cycleId,
-            college: row.payload.college || row.matchedStudent.college || null,
-            program: row.payload.program || row.matchedStudent.program || null,
-            year: row.payload.year || row.matchedStudent.year || null,
-            academicYearLabel: row.payload.academicYearLabel,
-            semesterLabel: row.payload.semesterLabel,
-            cwa: row.payload.cwa,
-            wassceAggregate: row.matchedStudent.wassceAggregate ?? null,
-            importBatchReference: batchReference,
-            sourceFileName: payload.fileName || null
-          });
-
-          importedRows.push({
-            rowNumber: row.rowNumber,
-            item
-          });
-          if (previousRecord) {
-            updatedRows += 1;
+          if (!cycleIdByAcademicYear.has(row.payload.academicYearLabel)) {
+            cycleIdByAcademicYear.set(
+              row.payload.academicYearLabel,
+              await resolveCycleIdForAcademicYearLabel(row.payload.academicYearLabel)
+            );
           }
-          batchChanges.push({
-            profileId: item?.id || null,
-            actionType: previousRecord ? "updated" : "created",
-            previousRecord,
-            nextRecord: item
+          importCandidates.push({
+            row,
+            input: {
+              studentId: row.matchedStudent.id,
+              cycleId: cycleIdByAcademicYear.get(row.payload.academicYearLabel),
+              college: row.payload.college || row.matchedStudent.college || null,
+              program: row.payload.program || row.matchedStudent.program || null,
+              year: row.payload.year || row.matchedStudent.year || null,
+              academicYearLabel: row.payload.academicYearLabel,
+              semesterLabel: row.payload.semesterLabel,
+              cwa: row.payload.cwa,
+              wassceAggregate: row.matchedStudent.wassceAggregate ?? null,
+              importBatchReference: batchReference,
+              sourceFileName: payload.fileName || null
+            }
           });
         } catch (error) {
           rejectedRows.push({
@@ -705,6 +878,191 @@ export function createStudentService({ repositories }) {
             fullName: row.payload.fullName,
             issues: [error.message]
           });
+        }
+      }
+
+      emitImportProgress(progress, {
+        phase: "importing",
+        processedRows: 0,
+        totalRows: importCandidates.length,
+        message: "Importing matched CWA rows into academic history..."
+      });
+
+      if (importCandidates.length) {
+        const bulkUpsert = repositories.students.upsertAcademicHistoryEntries;
+        const candidateGroupsByKey = new Map();
+        const latestCandidateByKey = new Map();
+        for (const candidate of importCandidates) {
+          const importKey = buildAcademicHistoryImportKey(candidate.input);
+          candidateGroupsByKey.set(importKey, [
+            ...(candidateGroupsByKey.get(importKey) || []),
+            candidate
+          ]);
+          latestCandidateByKey.set(importKey, candidate);
+        }
+        const uniqueCandidates = Array.from(latestCandidateByKey.entries()).map(
+          ([importKey, candidate]) => ({ ...candidate, importKey })
+        );
+
+        if (bulkUpsert) {
+          let processedImportRows = 0;
+
+          for (const candidateBatch of chunkItems(
+            uniqueCandidates,
+            ACADEMIC_HISTORY_IMPORT_BATCH_SIZE
+          )) {
+            const batchRowCount = candidateBatch.reduce((total, candidate) => {
+              return total + (candidateGroupsByKey.get(candidate.importKey) || [candidate]).length;
+            }, 0);
+            const nextProcessedRows = Math.min(
+              processedImportRows + batchRowCount,
+              importCandidates.length
+            );
+            const optimisticProcessedRows =
+              nextProcessedRows >= importCandidates.length
+                ? Math.max(processedImportRows, importCandidates.length - 1)
+                : nextProcessedRows;
+            if (optimisticProcessedRows > processedImportRows) {
+              emitImportProgress(progress, {
+                phase: "importing",
+                processedRows: optimisticProcessedRows,
+                totalRows: importCandidates.length,
+                message: `Saving matched CWA rows ${processedImportRows + 1}-${nextProcessedRows} of ${importCandidates.length}...`
+              });
+            }
+
+            try {
+              const results = await bulkUpsert.call(
+                repositories.students,
+                candidateBatch.map((candidate) => candidate.input)
+              );
+              for (let index = 0; index < candidateBatch.length; index += 1) {
+                const candidate = candidateBatch[index];
+                const groupedCandidates = candidateGroupsByKey.get(candidate.importKey) || [candidate];
+                const result = results[index] || {};
+                const item = result.item || null;
+                const previousRecord = result.previousRecord || null;
+                processedImportRows += groupedCandidates.length;
+                if (!item) {
+                  for (const groupedCandidate of groupedCandidates) {
+                    rejectedRows.push({
+                      rowNumber: groupedCandidate.row.rowNumber,
+                      indexNumber: groupedCandidate.row.payload.indexNumber,
+                      fullName: groupedCandidate.row.payload.fullName,
+                      issues: ["Academic history row could not be saved."]
+                    });
+                  }
+                  continue;
+                }
+
+                for (const groupedCandidate of groupedCandidates) {
+                  importedRows.push({
+                    rowNumber: groupedCandidate.row.rowNumber,
+                    item
+                  });
+                }
+                if (previousRecord) {
+                  updatedRows += 1;
+                }
+                batchChanges.push({
+                  profileId: item?.id || null,
+                  actionType: previousRecord ? "updated" : "created",
+                  previousRecord,
+                  nextRecord: item
+                });
+              }
+            } catch (error) {
+              for (const candidate of candidateBatch) {
+                const groupedCandidates = candidateGroupsByKey.get(candidate.importKey) || [candidate];
+                processedImportRows += groupedCandidates.length;
+                for (const groupedCandidate of groupedCandidates) {
+                  rejectedRows.push({
+                    rowNumber: groupedCandidate.row.rowNumber,
+                    indexNumber: groupedCandidate.row.payload.indexNumber,
+                    fullName: groupedCandidate.row.payload.fullName,
+                    issues: [error.message]
+                  });
+                }
+              }
+            }
+            emitImportProgress(progress, {
+              phase: "importing",
+              processedRows: processedImportRows,
+              totalRows: importCandidates.length,
+              message:
+                processedImportRows >= importCandidates.length
+                  ? "Finished processing matched CWA rows."
+                  : "Importing matched CWA rows into academic history..."
+            });
+          }
+        } else {
+          let processedImportRows = 0;
+          const reportProcessedRow = () => {
+            emitImportProgress(progress, {
+              phase: "importing",
+              processedRows: processedImportRows,
+              totalRows: importCandidates.length,
+              message:
+                processedImportRows >= importCandidates.length
+                  ? "Finished processing matched CWA rows."
+                  : "Importing matched CWA rows into academic history..."
+            });
+          };
+
+          for (const candidate of uniqueCandidates) {
+            const groupedCandidates = candidateGroupsByKey.get(candidate.importKey) || [candidate];
+            try {
+              const previousRecord = repositories.students.findAcademicHistoryRecord
+                ? await repositories.students.findAcademicHistoryRecord({
+                    studentId: candidate.input.studentId,
+                    academicYearLabel: candidate.input.academicYearLabel,
+                    semesterLabel: candidate.input.semesterLabel,
+                    program: candidate.input.program
+                  })
+                : null;
+              const item = await repositories.students.upsertAcademicHistoryEntry(candidate.input);
+              if (!item) {
+                for (const groupedCandidate of groupedCandidates) {
+                  rejectedRows.push({
+                    rowNumber: groupedCandidate.row.rowNumber,
+                    indexNumber: groupedCandidate.row.payload.indexNumber,
+                    fullName: groupedCandidate.row.payload.fullName,
+                    issues: ["Academic history row could not be saved."]
+                  });
+                }
+              } else {
+                for (const groupedCandidate of groupedCandidates) {
+                  importedRows.push({
+                    rowNumber: groupedCandidate.row.rowNumber,
+                    item
+                  });
+                }
+                if (previousRecord) {
+                  updatedRows += 1;
+                }
+                batchChanges.push({
+                  profileId: item?.id || null,
+                  actionType: previousRecord ? "updated" : "created",
+                  previousRecord,
+                  nextRecord: item
+                });
+              }
+            } catch (error) {
+              for (const groupedCandidate of groupedCandidates) {
+                rejectedRows.push({
+                  rowNumber: groupedCandidate.row.rowNumber,
+                  indexNumber: groupedCandidate.row.payload.indexNumber,
+                  fullName: groupedCandidate.row.payload.fullName,
+                  issues: [error.message]
+                });
+              }
+            }
+
+            for (let index = 0; index < groupedCandidates.length; index += 1) {
+              processedImportRows += 1;
+              reportProcessedRow();
+            }
+          }
         }
       }
 
@@ -885,7 +1243,7 @@ export function createStudentService({ repositories }) {
 
       return {
         summary,
-        message: `Cleared ${summary.deletedRows} imported academic history record(s) for ${payload.semesterLabel} in ${payload.academicYearLabel}.`
+        message: `Cleared ${summary.deletedRows} academic history record(s) for ${payload.semesterLabel} in ${payload.academicYearLabel}.`
       };
     }
   };

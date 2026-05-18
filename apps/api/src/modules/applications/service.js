@@ -18,6 +18,26 @@ const APPLICATION_MESSAGE_SIGNATURE = [
 
 let applicationsExportWorkbookFactoryPromise = null;
 
+function emitImportProgress(progress, event = {}) {
+  if (typeof progress !== "function") {
+    return;
+  }
+  const processedRows = Math.max(0, Number(event.processedRows || 0));
+  const totalRows = Math.max(0, Number(event.totalRows || 0));
+  progress({
+    phase: event.phase || "importing",
+    processedRows,
+    totalRows,
+    percent:
+      event.percent !== undefined
+        ? Math.max(0, Math.min(100, Math.round(Number(event.percent || 0))))
+        : totalRows > 0
+          ? Math.max(0, Math.min(100, Math.round((processedRows / totalRows) * 100)))
+          : 0,
+    message: event.message || "Importing application rows..."
+  });
+}
+
 async function loadApplicationsExportWorkbookFactory() {
   if (!applicationsExportWorkbookFactoryPromise) {
     applicationsExportWorkbookFactoryPromise = import("./exportWorkbook.js")
@@ -839,6 +859,45 @@ export function createApplicationService({ repositories }) {
       : "pending_only";
   }
 
+  function getSingleApplicationIdentifierMatch(matches, issues, label) {
+    if (!matches.length) {
+      return null;
+    }
+    if (matches.length > 1) {
+      issues.push(`This ${label} matched more than one registry student.`);
+      return null;
+    }
+    return matches[0];
+  }
+
+  function resolveApplicationMatchedStudent(row, lookup) {
+    const issues = [...row.issues];
+    const referenceMatches = row.payload.studentReferenceId
+      ? lookup.byReferenceId.get(row.payload.studentReferenceId) || []
+      : [];
+    const indexMatches = row.payload.indexNumber
+      ? lookup.byIndexNumber.get(row.payload.indexNumber) || []
+      : [];
+    const referenceStudent = getSingleApplicationIdentifierMatch(
+      referenceMatches,
+      issues,
+      "student reference ID"
+    );
+    const indexStudent = getSingleApplicationIdentifierMatch(indexMatches, issues, "index number");
+
+    if (referenceStudent && indexStudent && String(referenceStudent.id) !== String(indexStudent.id)) {
+      issues.push("Student reference ID and index number matched different registry students.");
+      return { issues, matchedStudent: null };
+    }
+
+    const matchedStudent = referenceStudent || indexStudent || null;
+    if (!matchedStudent && !issues.length) {
+      issues.push("No matching student was found in the registry for this reference ID or index number.");
+    }
+
+    return { issues, matchedStudent };
+  }
+
   async function assessImportPreview(payload) {
     await validateContext(payload);
     const criteria = await repositories.applicationCriteria.getBySchemeCycle(
@@ -850,34 +909,34 @@ export function createApplicationService({ repositories }) {
     const studentReferenceIds = preview.rows
       .map((row) => row.payload.studentReferenceId)
       .filter(Boolean);
+    const indexNumbers = preview.rows
+      .map((row) => row.payload.indexNumber)
+      .filter(Boolean);
     const studentLookup = await repositories.students.findExistingByIdentifierBatch({
       studentReferenceIds,
-      indexNumbers: []
+      indexNumbers
     });
-    const matchedStudents = Array.from(studentLookup.byReferenceId.values())
-      .flat()
-      .reduce((map, item) => {
-        if (!map.has(item.studentReferenceId)) {
-          map.set(item.studentReferenceId, item);
-        }
-        return map;
-      }, new Map());
+    const rowsWithMatches = preview.rows.map((row) => {
+      const { issues, matchedStudent } = resolveApplicationMatchedStudent(row, {
+        byReferenceId: studentLookup.byReferenceId || new Map(),
+        byIndexNumber: studentLookup.byIndexNumber || new Map()
+      });
+      return {
+        ...row,
+        issues,
+        matchedStudent
+      };
+    });
     const existingApplications = await repositories.applications.findExistingForStudents(
-      Array.from(new Set(Array.from(matchedStudents.values()).map((item) => item.id))),
+      Array.from(new Set(rowsWithMatches.map((row) => row.matchedStudent?.id).filter(Boolean))),
       payload.schemeId,
       payload.cycleId
     );
 
-    const rows = preview.rows.map((row) => {
+    const rows = rowsWithMatches.map((row) => {
       const issues = [...row.issues];
       const warnings = [];
-      const matchedStudent = row.payload.studentReferenceId
-        ? matchedStudents.get(row.payload.studentReferenceId) || null
-        : null;
-
-      if (!matchedStudent) {
-        issues.push("No matching student was found in the registry for this reference ID.");
-      }
+      const matchedStudent = row.matchedStudent || null;
 
       const existingApplication =
         matchedStudent ? existingApplications.get(matchedStudent.id) || null : null;
@@ -1765,7 +1824,13 @@ export function createApplicationService({ repositories }) {
       });
       return enrichApplication(created);
     },
-    async previewImport(payload) {
+    async previewImport(payload, progress) {
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        message: "Matching application rows to registry students..."
+      });
       const preview = await assessImportPreview(payload);
       await repositories.applications.replaceImportIssues({
         schemeId: String(payload.schemeId || "").trim(),
@@ -1781,12 +1846,25 @@ export function createApplicationService({ repositories }) {
             issues: row.issues || []
           }))
       });
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: preview.summary.totalRows,
+        totalRows: preview.summary.totalRows,
+        message: "Applications preview ready."
+      });
       return buildPreviewResponse(preview);
     },
-    async importRows(payload, actor) {
+    async importRows(payload, actor, progress) {
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        message: "Matching application rows to registry students..."
+      });
       const preview = await assessImportPreview(payload);
       const importedRows = [];
       const rejectedRows = [];
+      const totalRows = preview.rows.length;
 
       for (const row of preview.rows) {
         if (row.status !== "valid") {
@@ -1796,6 +1874,12 @@ export function createApplicationService({ repositories }) {
             fullName: row.payload.fullName,
             payload: row.payload,
             issues: row.issues
+          });
+          emitImportProgress(progress, {
+            phase: "importing",
+            processedRows: importedRows.length + rejectedRows.length,
+            totalRows,
+            message: "Importing valid application rows..."
           });
           continue;
         }
@@ -1930,6 +2014,12 @@ export function createApplicationService({ repositories }) {
             issues: [error.message]
           });
         }
+        emitImportProgress(progress, {
+          phase: "importing",
+          processedRows: importedRows.length + rejectedRows.length,
+          totalRows,
+          message: "Importing valid application rows..."
+        });
       }
 
       await repositories.applications.replaceImportIssues({
@@ -1969,14 +2059,33 @@ export function createApplicationService({ repositories }) {
       });
       return result;
     },
-    async previewInterviewImport(payload) {
+    async previewInterviewImport(payload, progress) {
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        message: "Matching interview rows to applications..."
+      });
       const preview = await assessInterviewImportPreview(payload, repositories, validateContext);
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: preview.summary.totalRows,
+        totalRows: preview.summary.totalRows,
+        message: "Interview preview ready."
+      });
       return buildPreviewResponse(preview);
     },
-    async importInterviewRows(payload, actor) {
+    async importInterviewRows(payload, actor, progress) {
+      emitImportProgress(progress, {
+        phase: "validating",
+        processedRows: 0,
+        totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        message: "Matching interview rows to applications..."
+      });
       const preview = await assessInterviewImportPreview(payload, repositories, validateContext);
       const importedRows = [];
       const rejectedRows = [];
+      const totalRows = preview.rows.length;
 
       for (const row of preview.rows) {
         if (row.status !== "valid" || !row.matchedApplication) {
@@ -1986,6 +2095,12 @@ export function createApplicationService({ repositories }) {
             indexNumber: row.payload.indexNumber,
             fullName: row.payload.fullName,
             issues: row.issues
+          });
+          emitImportProgress(progress, {
+            phase: "importing",
+            processedRows: importedRows.length + rejectedRows.length,
+            totalRows,
+            message: "Importing matched interview rows..."
           });
           continue;
         }
@@ -2049,6 +2164,12 @@ export function createApplicationService({ repositories }) {
             issues: [error.message]
           });
         }
+        emitImportProgress(progress, {
+          phase: "importing",
+          processedRows: importedRows.length + rejectedRows.length,
+          totalRows,
+          message: "Importing matched interview rows..."
+        });
       }
 
       const result = {

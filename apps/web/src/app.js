@@ -346,6 +346,7 @@ const state = {
   session: null,
   sessionRestorePending: false,
   accessUsers: [],
+  accessEditingUserId: null,
   dashboard: null,
   searchResults: [],
   selectedStudent: null,
@@ -1165,6 +1166,27 @@ function renderAccessUsers() {
           .join(" ") || "Reviewer";
       const alternateRole = item.roleCode === "admin" ? "reviewer" : "admin";
       const alternateRoleLabel = alternateRole === "admin" ? "Make admin" : "Set reviewer";
+      const isEditingIdentity = String(state.accessEditingUserId || "") === String(item.id || "");
+      const identityForm = isEditingIdentity
+        ? `
+          <form class="access-identity-form" data-access-identity-form data-access-user-id="${escapeHtml(item.id)}">
+            <div class="detail-grid">
+              <label class="field">
+                <span>Full name</span>
+                <input name="fullName" type="text" value="${escapeHtml(item.fullName || "")}" />
+              </label>
+              <label class="field">
+                <span>Username</span>
+                <input name="username" type="text" value="${escapeHtml(item.username || "")}" />
+              </label>
+            </div>
+            <div class="action-row">
+              <button class="action-button primary" type="submit">Save identity</button>
+              <button class="action-button ghost" type="button" data-access-action="cancel-identity" data-access-user-id="${escapeHtml(item.id)}">Cancel</button>
+            </div>
+          </form>
+        `
+        : "";
       return `
         <article class="search-result-card fade-in access-user-card">
           <div class="search-result-heading">
@@ -1192,6 +1214,9 @@ function renderAccessUsers() {
             </div>
           </div>
           <div class="action-row">
+              <button class="action-button tertiary" type="button" data-access-action="edit-identity" data-access-user-id="${escapeHtml(
+                item.id
+              )}">Edit identity</button>
               <button class="action-button tertiary" type="button" data-access-action="role" data-access-user-id="${escapeHtml(
                 item.id
               )}" data-access-role="${escapeHtml(alternateRole)}"${
@@ -1211,6 +1236,7 @@ function renderAccessUsers() {
                 isProtectedAdmin ? " disabled" : ""
               }>Remove</button>
             </div>
+            ${identityForm}
           </article>
         `;
     })
@@ -1344,8 +1370,25 @@ async function handleAccessManagementSubmit(event) {
   }
 }
 
-async function handleAccessAction(button) {
-  if (!button || getCurrentActorRole() !== "admin") {
+function syncCurrentActorIdentity(updatedUser = {}) {
+  if (
+    !state.session?.actor ||
+    String(state.session.actor.userId || "") !== String(updatedUser.id || "")
+  ) {
+    return;
+  }
+
+  state.session.actor.fullName = updatedUser.fullName || "";
+  state.session.actor.username = updatedUser.username || "";
+  if (elements.loginUsername) {
+    elements.loginUsername.value = updatedUser.username || "";
+  }
+  persistConnectionState();
+  renderAccessShell();
+}
+
+async function handleAccessIdentitySubmit(form) {
+  if (!form || getCurrentActorRole() !== "admin") {
     return;
   }
 
@@ -1358,9 +1401,89 @@ async function handleAccessAction(button) {
     return;
   }
 
+  const userId = String(form.dataset.accessUserId || "").trim();
+  const formData = new FormData(form);
+  const fullName = String(formData.get("fullName") || "").trim();
+  const username = String(formData.get("username") || "").trim();
+  if (!userId || !fullName || !username) {
+    if (elements.accessManagementMessage) {
+      elements.accessManagementMessage.textContent = "Full name and username are required.";
+      elements.accessManagementMessage.className = "inline-note tone-error";
+    }
+    return;
+  }
+
+  const submitButton = form.querySelector('button[type="submit"]');
+  if (submitButton) {
+    submitButton.disabled = true;
+  }
+  if (elements.accessManagementMessage) {
+    elements.accessManagementMessage.textContent = "Updating staff identity...";
+    elements.accessManagementMessage.className = "inline-note tone-warning";
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/auth/users/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({ fullName, username })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.message || "Unable to update the staff identity.");
+    }
+
+    syncCurrentActorIdentity(result.item || {});
+    state.accessEditingUserId = null;
+    if (elements.accessManagementMessage) {
+      elements.accessManagementMessage.textContent = `${result.item?.fullName || fullName} was updated.`;
+      elements.accessManagementMessage.className = "inline-note tone-success";
+    }
+    await loadAccessUsers();
+  } catch (error) {
+    if (elements.accessManagementMessage) {
+      elements.accessManagementMessage.textContent = error.message || "Unable to update staff identity.";
+      elements.accessManagementMessage.className = "inline-note tone-error";
+    }
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+    }
+  }
+}
+
+async function handleAccessAction(button) {
+  if (!button || getCurrentActorRole() !== "admin") {
+    return;
+  }
+
   const userId = String(button.dataset.accessUserId || "").trim();
   const action = String(button.dataset.accessAction || "").trim();
   if (!userId || !action) {
+    return;
+  }
+
+  if (action === "edit-identity") {
+    state.accessEditingUserId = userId;
+    renderAccessUsers();
+    return;
+  }
+
+  if (action === "cancel-identity") {
+    state.accessEditingUserId = null;
+    renderAccessUsers();
+    return;
+  }
+
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    if (elements.accessManagementMessage) {
+      elements.accessManagementMessage.textContent = "Connection is not ready yet. Refresh and try again.";
+      elements.accessManagementMessage.className = "inline-note tone-error";
+    }
     return;
   }
 
@@ -14352,6 +14475,13 @@ function bindEvents() {
     const actionButton = event.target.closest("[data-access-action]");
     if (actionButton) {
       void handleAccessAction(actionButton);
+    }
+  });
+  elements.accessManagementList?.addEventListener("submit", (event) => {
+    const identityForm = event.target.closest("[data-access-identity-form]");
+    if (identityForm) {
+      event.preventDefault();
+      void handleAccessIdentitySubmit(identityForm);
     }
   });
   for (const button of elements.themeButtons) {

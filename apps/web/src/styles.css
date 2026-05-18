@@ -1887,3 +1887,10 @@ body[data-theme="dark"] #logoutButton.action-button.danger {
 .access-user-card {
   gap: 1rem;
 }
+
+.access-identity-form {
+  display: grid;
+  gap: 0.8rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}

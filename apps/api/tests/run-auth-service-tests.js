@@ -65,6 +65,7 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
       email: user.email ?? null,
       passwordHash: user.passwordHash ?? "existing-hash",
       isActive: user.isActive ?? true,
+      isBootstrapAdmin: Boolean(user.isBootstrapAdmin),
       createdAtOrder: index
     }))
   };
@@ -111,6 +112,7 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
           email: user.email,
           password_hash: user.passwordHash,
           is_active: user.isActive,
+          is_bootstrap_admin: user.isBootstrapAdmin,
           role_code: user.roleCode,
           created_at_order: user.createdAtOrder
         }));
@@ -121,6 +123,8 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
           rows = rows.filter((row) => row.email === String(params[0] || "").trim());
         } else if (sql.includes("WHERE u.id = $1::BIGINT")) {
           rows = rows.filter((row) => row.id === String(params[0] || "").trim());
+        } else if (sql.includes("WHERE u.is_bootstrap_admin = TRUE")) {
+          rows = rows.filter((row) => row.is_bootstrap_admin === true);
         } else if (sql.includes("WHERE u.username IS NOT NULL")) {
           rows = rows.filter((row) => row.username !== null);
         }
@@ -130,7 +134,7 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
       }
 
       if (sql.startsWith("UPDATE users AS u SET")) {
-        const [userId, roleCode, fullName, username, email, isActive] = params;
+        const [userId, roleCode, fullName, username, email, isActive, isBootstrapAdmin] = params;
         const row = state.users.find((item) => String(item.id) === String(userId));
         if (!row || !state.roles.some((role) => role.code === roleCode)) {
           return { rows: [] };
@@ -141,6 +145,9 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
         row.username = username;
         row.email = email || null;
         row.isActive = Boolean(isActive);
+        if (isBootstrapAdmin !== null && isBootstrapAdmin !== undefined) {
+          row.isBootstrapAdmin = Boolean(isBootstrapAdmin);
+        }
 
         return {
           rows: [
@@ -151,6 +158,7 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
               email: row.email,
               password_hash: row.passwordHash,
               is_active: row.isActive,
+              is_bootstrap_admin: row.isBootstrapAdmin,
               role_code: row.roleCode
             }
           ]
@@ -175,6 +183,7 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
               email: row.email,
               password_hash: row.passwordHash,
               is_active: row.isActive,
+              is_bootstrap_admin: row.isBootstrapAdmin,
               role_code: row.roleCode
             }
           ]
@@ -182,7 +191,7 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
       }
 
       if (sql.startsWith("INSERT INTO users (")) {
-        const [roleCode, fullName, username, email, passwordHash, isActive] = params;
+        const [roleCode, fullName, username, email, passwordHash, isActive, isBootstrapAdmin] = params;
         const role = state.roles.find((item) => item.code === roleCode);
         if (!role) {
           return { rows: [] };
@@ -196,6 +205,7 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
           email: email || null,
           passwordHash,
           isActive: Boolean(isActive),
+          isBootstrapAdmin: Boolean(isBootstrapAdmin),
           createdAtOrder: state.users.length
         };
         state.users.push(row);
@@ -209,6 +219,7 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
               email: row.email,
               password_hash: row.passwordHash,
               is_active: row.isActive,
+              is_bootstrap_admin: row.isBootstrapAdmin,
               role_code: row.roleCode
             }
           ]
@@ -229,11 +240,12 @@ function createMockAuthDatabase({ users = [], roles = [] } = {}) {
               id: String(row.id),
               full_name: row.fullName,
               username: row.username,
-              email: row.email,
-              password_hash: row.passwordHash,
-              is_active: row.isActive,
-              role_code: row.roleCode
-            }
+            email: row.email,
+            password_hash: row.passwordHash,
+            is_active: row.isActive,
+            is_bootstrap_admin: row.isBootstrapAdmin,
+            role_code: row.roleCode
+          }
           ]
         };
       }
@@ -1313,7 +1325,7 @@ async function lastActiveAdminCannotBeDeletedOrDemoted() {
   );
 }
 
-async function protectedBootstrapAdminCannotBeRenamedDemotedDeactivatedOrDeleted() {
+async function protectedBootstrapAdminIdentityCanBeEditedButRoleStatusAndDeletionStayProtected() {
   const repository = createAuthRepository({ database: { enabled: false } });
   const service = createAuthService({
     config: createBaseConfig({
@@ -1349,18 +1361,30 @@ async function protectedBootstrapAdminCannotBeRenamedDemotedDeactivatedOrDeleted
   const protectedAdmin = listedUsers.find((item) => item.username === "admin");
   assert.equal(protectedAdmin?.isProtectedAdmin, true);
 
+  const renamedProtectedAdmin = await service.updateUser(
+    protectedAdmin.id,
+    {
+      fullName: "Don Pablo",
+      username: "aeking"
+    },
+    login.actor
+  );
+  assert.equal(renamedProtectedAdmin.fullName, "Don Pablo");
+  assert.equal(renamedProtectedAdmin.username, "aeking");
+  assert.equal(renamedProtectedAdmin.isProtectedAdmin, true);
+
   await assert.rejects(
     () =>
       service.updateUser(
-        protectedAdmin.id,
+        renamedProtectedAdmin.id,
         {
-          username: "renamed-admin"
+          username: "second-admin"
         },
         login.actor
       ),
     (error) => {
       assert.ok(error instanceof ConflictError);
-      assert.match(error.message, /protected admin/i);
+      assert.match(error.message, /Username is already in use/i);
       return true;
     }
   );
@@ -1368,7 +1392,7 @@ async function protectedBootstrapAdminCannotBeRenamedDemotedDeactivatedOrDeleted
   await assert.rejects(
     () =>
       service.updateUser(
-        protectedAdmin.id,
+        renamedProtectedAdmin.id,
         {
           roleCode: "reviewer"
         },
@@ -1384,7 +1408,7 @@ async function protectedBootstrapAdminCannotBeRenamedDemotedDeactivatedOrDeleted
   await assert.rejects(
     () =>
       service.updateUser(
-        protectedAdmin.id,
+        renamedProtectedAdmin.id,
         {
           status: "inactive"
         },
@@ -1398,7 +1422,7 @@ async function protectedBootstrapAdminCannotBeRenamedDemotedDeactivatedOrDeleted
   );
 
   await assert.rejects(
-    () => service.deleteUser(protectedAdmin.id, login.actor),
+    () => service.deleteUser(renamedProtectedAdmin.id, login.actor),
     (error) => {
       assert.ok(error instanceof ConflictError);
       assert.match(error.message, /protected admin/i);
@@ -1407,6 +1431,57 @@ async function protectedBootstrapAdminCannotBeRenamedDemotedDeactivatedOrDeleted
   );
 
   assert.equal(reviewerAdmin.roleCode, "admin");
+}
+
+async function renamedBootstrapAdminRemainsProtectedAcrossBootstrapHydration() {
+  const repository = createAuthRepository({ database: { enabled: false } });
+  const config = createBaseConfig({
+    auth: {
+      mode: "password",
+      requiredForWrite: true,
+      sessionSecret: "protected-admin-secret",
+      devTokens: [],
+      bootstrapAdmin: {
+        fullName: "Platform Admin",
+        username: "admin",
+        password: "StrongPass!23"
+      }
+    }
+  });
+  const firstService = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+
+  await firstService.ensureBootstrapAdmin();
+  const login = await firstService.login({ username: "admin", password: "StrongPass!23" });
+  const protectedAdmin = (await firstService.listUsers(login.actor)).find(
+    (item) => item.username === "admin"
+  );
+  await firstService.updateUser(
+    protectedAdmin.id,
+    {
+      fullName: "Don Pablo",
+      username: "aeking"
+    },
+    login.actor
+  );
+
+  const secondService = createAuthService({
+    config,
+    repository,
+    users: []
+  });
+  await secondService.ensureBootstrapAdmin();
+
+  const users = await repository.listUsers();
+  assert.equal(users.length, 1);
+  assert.equal(users[0].username, "aeking");
+  const renamedLogin = await secondService.login({ username: "aeking", password: "StrongPass!23" });
+  const renamedUsers = await secondService.listUsers(renamedLogin.actor);
+  const renamedProtectedAdmin = renamedUsers.find((item) => item.username === "aeking");
+  assert.equal(renamedProtectedAdmin?.isProtectedAdmin, true);
 }
 
 function reviewerCannotAccessRestrictedModules() {
@@ -1658,7 +1733,8 @@ await weakPasswordsAreRejectedForBootstrapAndManagedAccounts();
 await passwordSessionsSurviveFreshServiceInstances();
 await passwordResetInvalidatesExistingSessionTokensAcrossServiceInstances();
 await lastActiveAdminCannotBeDeletedOrDemoted();
-await protectedBootstrapAdminCannotBeRenamedDemotedDeactivatedOrDeleted();
+await protectedBootstrapAdminIdentityCanBeEditedButRoleStatusAndDeletionStayProtected();
+await renamedBootstrapAdminRemainsProtectedAcrossBootstrapHydration();
 reviewerCannotAccessRestrictedModules();
 initialMigrationMatchesSchemaFile();
 

@@ -2354,6 +2354,41 @@ export function createApplicationService({ repositories }) {
         application: await enrichApplication(await repositories.applications.getById(id))
       };
     },
+    async removeNotReviewed(filters, actor) {
+      if (actor?.roleCode !== "admin") {
+        throw new ValidationError("Only admins can remove yet-to-review applications in bulk.");
+      }
+
+      const { scheme, cycle } = await validateContext(filters);
+      const result = await repositories.applications.removeNotReviewed({
+        schemeId: String(filters.schemeId || "").trim(),
+        cycleId: String(filters.cycleId || "").trim()
+      });
+      const deletedCount = Number(result?.deletedCount || 0);
+
+      await recordAuditEvent(repositories.audit, {
+        actor,
+        actionCode: "applications.not_reviewed_deleted",
+        entityType: "application",
+        entityId: `${String(filters.schemeId || "").trim()}:${String(filters.cycleId || "").trim()}`,
+        summary: "Yet-to-review application records were bulk deleted.",
+        metadata: {
+          schemeId: String(filters.schemeId || "").trim(),
+          schemeName: scheme.name,
+          cycleId: String(filters.cycleId || "").trim(),
+          cycleLabel: cycle.academicYearLabel || cycle.label || "",
+          deletedCount,
+          deletedApplicationIds: Array.isArray(result?.ids) ? result.ids : []
+        }
+      });
+
+      return {
+        removed: true,
+        deletedCount,
+        schemeId: String(filters.schemeId || "").trim(),
+        cycleId: String(filters.cycleId || "").trim()
+      };
+    },
     async remove(id, actor) {
       const existing = await repositories.applications.getById(id);
       if (!existing) {

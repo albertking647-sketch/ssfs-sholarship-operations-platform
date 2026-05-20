@@ -538,6 +538,44 @@ function createSampleRepository() {
         removed: true
       };
     },
+    async removeNotReviewed(input) {
+      const idsToRemove = applications
+        .filter((item) => {
+          const record = mapApplicationRecord(item);
+          return (
+            String(record.schemeId) === String(input.schemeId) &&
+            String(record.cycleId) === String(input.cycleId) &&
+            record.qualificationStatus === "not_reviewed"
+          );
+        })
+        .map((item) => String(item.id));
+
+      for (let index = applications.length - 1; index >= 0; index -= 1) {
+        if (idsToRemove.includes(String(applications[index].id))) {
+          applications.splice(index, 1);
+        }
+      }
+      for (let itemIndex = recommendations.length - 1; itemIndex >= 0; itemIndex -= 1) {
+        if (idsToRemove.includes(String(recommendations[itemIndex].applicationId))) {
+          recommendations.splice(itemIndex, 1);
+        }
+      }
+      for (const item of messageBatchItems) {
+        if (idsToRemove.includes(String(item.applicationId || ""))) {
+          item.applicationId = null;
+        }
+      }
+      for (const item of importIssues) {
+        if (idsToRemove.includes(String(item.linkedApplicationId || ""))) {
+          item.linkedApplicationId = null;
+        }
+      }
+
+      return {
+        deletedCount: idsToRemove.length,
+        ids: idsToRemove
+      };
+    },
     async bulkUpdateInterview(input) {
       const matchingApplications = applications.filter(
         (item) => String(item.schemeId) === String(input.schemeId) && String(item.cycleId) === String(input.cycleId)
@@ -1741,6 +1779,49 @@ function createPostgresRepository(database) {
             removed: true
           }
         : null;
+    },
+    async removeNotReviewed(input) {
+      const deletedIds = await database.withTransaction(async (transaction) => {
+        const result = await transaction.query(
+          `
+            WITH removable AS (
+              SELECT a.id
+              FROM applications a
+              WHERE a.scheme_id::text = $1
+                AND a.cycle_id::text = $2
+                AND ${buildQualificationStatusExpression("a")} = 'not_reviewed'
+            ),
+            cleared_messages AS (
+              UPDATE application_message_batch_items
+              SET application_id = NULL,
+                  updated_at = NOW()
+              WHERE application_id IN (SELECT id FROM removable)
+              RETURNING id
+            ),
+            cleared_issues AS (
+              UPDATE application_import_issues
+              SET linked_application_id = NULL
+              WHERE linked_application_id IN (SELECT id FROM removable)
+              RETURNING id
+            ),
+            deleted AS (
+              DELETE FROM applications
+              WHERE id IN (SELECT id FROM removable)
+              RETURNING id::text AS id
+            )
+            SELECT COALESCE(array_agg(id), ARRAY[]::text[]) AS ids
+            FROM deleted
+          `,
+          [input.schemeId, input.cycleId]
+        );
+
+        return result.rows[0]?.ids || [];
+      });
+
+      return {
+        deletedCount: deletedIds.length,
+        ids: deletedIds
+      };
     },
     async bulkUpdateInterview(input) {
       const matchingApplications = await list({

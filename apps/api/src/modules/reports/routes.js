@@ -7,8 +7,11 @@ export function createReportRoutes({ services }) {
       path: "/api/reports/dashboard",
       auth: "required",
       roles: ["admin", "reviewer"],
-      async handler({ res }) {
-        const dashboard = await services.reports.getDashboard();
+      async handler({ res, url }) {
+        const dashboard = await services.reports.getDashboard({
+          reviewerSchemeId: url.searchParams.get("reviewerSchemeId") || "",
+          reviewerAcademicYearLabel: url.searchParams.get("reviewerAcademicYearLabel") || ""
+        });
 
         return sendJson(res, 200, {
           ok: true,

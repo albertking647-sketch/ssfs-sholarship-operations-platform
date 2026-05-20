@@ -346,7 +346,9 @@ const state = {
   session: null,
   sessionRestorePending: false,
   accessUsers: [],
+  accessEditingUserId: null,
   dashboard: null,
+  dashboardReviewerFilters: { schemeId: "", academicYearLabel: "" },
   searchResults: [],
   selectedStudent: null,
   flaggedResults: [],
@@ -390,6 +392,9 @@ const elements = {
   dashboardActivityFeed: document.querySelector("#dashboardActivityFeed"),
   dashboardActivityToggleButton: document.querySelector("#dashboardActivityToggleButton"),
   dashboardReviewerLeaderboard: document.querySelector("#dashboardReviewerLeaderboard"),
+  dashboardReviewerSchemeFilter: document.querySelector("#dashboardReviewerSchemeFilter"),
+  dashboardReviewerAcademicYearFilter: document.querySelector("#dashboardReviewerAcademicYearFilter"),
+  dashboardReviewerResetButton: document.querySelector("#dashboardReviewerResetButton"),
   dashboardBeneficiaryMetricCards: document.querySelector("#dashboardBeneficiaryMetricCards"),
   dashboardBeneficiarySupportChart: document.querySelector("#dashboardBeneficiarySupportChart"),
   dashboardBeneficiarySchemeChart: document.querySelector("#dashboardBeneficiarySchemeChart"),
@@ -1165,6 +1170,27 @@ function renderAccessUsers() {
           .join(" ") || "Reviewer";
       const alternateRole = item.roleCode === "admin" ? "reviewer" : "admin";
       const alternateRoleLabel = alternateRole === "admin" ? "Make admin" : "Set reviewer";
+      const isEditingIdentity = String(state.accessEditingUserId || "") === String(item.id || "");
+      const identityForm = isEditingIdentity
+        ? `
+          <form class="access-identity-form" data-access-identity-form data-access-user-id="${escapeHtml(item.id)}">
+            <div class="detail-grid">
+              <label class="field">
+                <span>Full name</span>
+                <input name="fullName" type="text" value="${escapeHtml(item.fullName || "")}" />
+              </label>
+              <label class="field">
+                <span>Username</span>
+                <input name="username" type="text" value="${escapeHtml(item.username || "")}" />
+              </label>
+            </div>
+            <div class="action-row">
+              <button class="action-button primary" type="submit">Save identity</button>
+              <button class="action-button ghost" type="button" data-access-action="cancel-identity" data-access-user-id="${escapeHtml(item.id)}">Cancel</button>
+            </div>
+          </form>
+        `
+        : "";
       return `
         <article class="search-result-card fade-in access-user-card">
           <div class="search-result-heading">
@@ -1192,6 +1218,9 @@ function renderAccessUsers() {
             </div>
           </div>
           <div class="action-row">
+              <button class="action-button tertiary" type="button" data-access-action="edit-identity" data-access-user-id="${escapeHtml(
+                item.id
+              )}">Edit identity</button>
               <button class="action-button tertiary" type="button" data-access-action="role" data-access-user-id="${escapeHtml(
                 item.id
               )}" data-access-role="${escapeHtml(alternateRole)}"${
@@ -1211,6 +1240,7 @@ function renderAccessUsers() {
                 isProtectedAdmin ? " disabled" : ""
               }>Remove</button>
             </div>
+            ${identityForm}
           </article>
         `;
     })
@@ -1344,8 +1374,25 @@ async function handleAccessManagementSubmit(event) {
   }
 }
 
-async function handleAccessAction(button) {
-  if (!button || getCurrentActorRole() !== "admin") {
+function syncCurrentActorIdentity(updatedUser = {}) {
+  if (
+    !state.session?.actor ||
+    String(state.session.actor.userId || "") !== String(updatedUser.id || "")
+  ) {
+    return;
+  }
+
+  state.session.actor.fullName = updatedUser.fullName || "";
+  state.session.actor.username = updatedUser.username || "";
+  if (elements.loginUsername) {
+    elements.loginUsername.value = updatedUser.username || "";
+  }
+  persistConnectionState();
+  renderAccessShell();
+}
+
+async function handleAccessIdentitySubmit(form) {
+  if (!form || getCurrentActorRole() !== "admin") {
     return;
   }
 
@@ -1358,9 +1405,89 @@ async function handleAccessAction(button) {
     return;
   }
 
+  const userId = String(form.dataset.accessUserId || "").trim();
+  const formData = new FormData(form);
+  const fullName = String(formData.get("fullName") || "").trim();
+  const username = String(formData.get("username") || "").trim();
+  if (!userId || !fullName || !username) {
+    if (elements.accessManagementMessage) {
+      elements.accessManagementMessage.textContent = "Full name and username are required.";
+      elements.accessManagementMessage.className = "inline-note tone-error";
+    }
+    return;
+  }
+
+  const submitButton = form.querySelector('button[type="submit"]');
+  if (submitButton) {
+    submitButton.disabled = true;
+  }
+  if (elements.accessManagementMessage) {
+    elements.accessManagementMessage.textContent = "Updating staff identity...";
+    elements.accessManagementMessage.className = "inline-note tone-warning";
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/auth/users/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({ fullName, username })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.message || "Unable to update the staff identity.");
+    }
+
+    syncCurrentActorIdentity(result.item || {});
+    state.accessEditingUserId = null;
+    if (elements.accessManagementMessage) {
+      elements.accessManagementMessage.textContent = `${result.item?.fullName || fullName} was updated.`;
+      elements.accessManagementMessage.className = "inline-note tone-success";
+    }
+    await loadAccessUsers();
+  } catch (error) {
+    if (elements.accessManagementMessage) {
+      elements.accessManagementMessage.textContent = error.message || "Unable to update staff identity.";
+      elements.accessManagementMessage.className = "inline-note tone-error";
+    }
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+    }
+  }
+}
+
+async function handleAccessAction(button) {
+  if (!button || getCurrentActorRole() !== "admin") {
+    return;
+  }
+
   const userId = String(button.dataset.accessUserId || "").trim();
   const action = String(button.dataset.accessAction || "").trim();
   if (!userId || !action) {
+    return;
+  }
+
+  if (action === "edit-identity") {
+    state.accessEditingUserId = userId;
+    renderAccessUsers();
+    return;
+  }
+
+  if (action === "cancel-identity") {
+    state.accessEditingUserId = null;
+    renderAccessUsers();
+    return;
+  }
+
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
+    if (elements.accessManagementMessage) {
+      elements.accessManagementMessage.textContent = "Connection is not ready yet. Refresh and try again.";
+      elements.accessManagementMessage.className = "inline-note tone-error";
+    }
     return;
   }
 
@@ -6612,6 +6739,98 @@ function getDashboardMetricCards(data) {
   ];
 }
 
+function getDashboardReviewerFilterState() {
+  return state.dashboardReviewerFilters || { schemeId: "", academicYearLabel: "" };
+}
+
+function getDashboardReviewerFilterOptions(dashboard) {
+  const schemeMap = new Map();
+  const academicYearSet = new Set();
+  const schemeProgress = Array.isArray(dashboard?.schemeProgress) ? dashboard.schemeProgress : [];
+
+  for (const item of schemeProgress) {
+    const schemeId = String(item.schemeId || "").trim();
+    const schemeName = String(item.schemeName || "").trim();
+    const academicYearLabel = String(item.academicYearLabel || "").trim();
+    if (schemeId && schemeName) {
+      schemeMap.set(schemeId, schemeName);
+    }
+    if (academicYearLabel) {
+      academicYearSet.add(academicYearLabel);
+    }
+  }
+
+  return {
+    schemes: [...schemeMap.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((left, right) => left.label.localeCompare(right.label)),
+    academicYears: [...academicYearSet]
+      .sort((left, right) => right.localeCompare(left))
+      .map((value) => ({ value, label: value }))
+  };
+}
+
+function renderDashboardReviewerFilterOptions(dashboard) {
+  const filters = getDashboardReviewerFilterState();
+  const options = getDashboardReviewerFilterOptions(dashboard);
+
+  if (filters.schemeId && !options.schemes.some((item) => item.value === filters.schemeId)) {
+    options.schemes.push({ value: filters.schemeId, label: filters.schemeId });
+  }
+  if (
+    filters.academicYearLabel &&
+    !options.academicYears.some((item) => item.value === filters.academicYearLabel)
+  ) {
+    options.academicYears.push({
+      value: filters.academicYearLabel,
+      label: filters.academicYearLabel
+    });
+  }
+
+  if (elements.dashboardReviewerSchemeFilter) {
+    elements.dashboardReviewerSchemeFilter.innerHTML = [
+      `<option value="">All schemes</option>`,
+      ...options.schemes.map(
+        (item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`
+      )
+    ].join("");
+    elements.dashboardReviewerSchemeFilter.value = filters.schemeId || "";
+  }
+
+  if (elements.dashboardReviewerAcademicYearFilter) {
+    elements.dashboardReviewerAcademicYearFilter.innerHTML = [
+      `<option value="">All years</option>`,
+      ...options.academicYears.map(
+        (item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`
+      )
+    ].join("");
+    elements.dashboardReviewerAcademicYearFilter.value = filters.academicYearLabel || "";
+  }
+
+  if (elements.dashboardReviewerResetButton) {
+    elements.dashboardReviewerResetButton.disabled = !filters.schemeId && !filters.academicYearLabel;
+  }
+}
+
+function handleDashboardReviewerFilterChange() {
+  state.dashboardReviewerFilters = {
+    schemeId: elements.dashboardReviewerSchemeFilter?.value || "",
+    academicYearLabel: elements.dashboardReviewerAcademicYearFilter?.value || ""
+  };
+  void loadDashboard();
+}
+
+function resetDashboardReviewerFilters() {
+  state.dashboardReviewerFilters = { schemeId: "", academicYearLabel: "" };
+  if (elements.dashboardReviewerSchemeFilter) {
+    elements.dashboardReviewerSchemeFilter.value = "";
+  }
+  if (elements.dashboardReviewerAcademicYearFilter) {
+    elements.dashboardReviewerAcademicYearFilter.value = "";
+  }
+  void loadDashboard();
+}
+
 function renderDashboard(data = state.dashboard) {
   const dashboard = data || {
       metrics: {},
@@ -6661,6 +6880,7 @@ function renderDashboard(data = state.dashboard) {
       .join("");
 
   renderDashboardBeneficiarySection(dashboard);
+  renderDashboardReviewerFilterOptions(dashboard);
 
   elements.dashboardDecisionChart.innerHTML = createDashboardDecisionChart(dashboard.metrics || {});
   elements.dashboardSchemeChart.innerHTML = createDashboardSchemeChart(
@@ -6813,6 +7033,8 @@ function renderDashboard(data = state.dashboard) {
   const reviewerLeaderboard = Array.isArray(dashboard.reviewerLeaderboard)
     ? dashboard.reviewerLeaderboard
     : [];
+  const reviewerFilters = getDashboardReviewerFilterState();
+  const reviewerFiltersActive = Boolean(reviewerFilters.schemeId || reviewerFilters.academicYearLabel);
   elements.dashboardReviewerLeaderboard.innerHTML = reviewerLeaderboard.length
     ? reviewerLeaderboard
         .map(
@@ -6837,7 +7059,11 @@ function renderDashboard(data = state.dashboard) {
           `
         )
         .join("")
-    : `<p class="empty-state">Reviewer workload will appear here after review decisions are saved.</p>`;
+    : `<p class="empty-state">${
+        reviewerFiltersActive
+          ? "No reviewer decisions match these filters."
+          : "Reviewer workload will appear here after review decisions are saved."
+      }</p>`;
 
   for (const button of document.querySelectorAll("[data-dashboard-action]")) {
     button.addEventListener("click", () => {
@@ -7049,7 +7275,16 @@ async function loadDashboard() {
   setDashboardMessage("Loading dashboard metrics and activity...", "warning");
 
   try {
-    const response = await fetch(`${apiBaseUrl}/api/reports/dashboard`, {
+    const dashboardUrl = new URL(`${apiBaseUrl}/api/reports/dashboard`);
+    const reviewerFilters = getDashboardReviewerFilterState();
+    if (reviewerFilters.schemeId) {
+      dashboardUrl.searchParams.set("reviewerSchemeId", reviewerFilters.schemeId);
+    }
+    if (reviewerFilters.academicYearLabel) {
+      dashboardUrl.searchParams.set("reviewerAcademicYearLabel", reviewerFilters.academicYearLabel);
+    }
+
+    const response = await fetch(dashboardUrl.toString(), {
       headers: {
         ...getAuthHeaders()
       }
@@ -7060,6 +7295,12 @@ async function loadDashboard() {
     }
 
     state.dashboard = payload.dashboard || null;
+    if (payload.dashboard?.reviewerLeaderboardFilters) {
+      state.dashboardReviewerFilters = {
+        schemeId: payload.dashboard.reviewerLeaderboardFilters.schemeId || "",
+        academicYearLabel: payload.dashboard.reviewerLeaderboardFilters.academicYearLabel || ""
+      };
+    }
     renderDashboard(state.dashboard);
     setDashboardMessage("Dashboard is up to date.", "success");
   } catch (error) {
@@ -8693,6 +8934,18 @@ function renderApplicationExportCards(summary = state.applicationReviewSummary) 
             >
               Export ${escapeHtml(item.label)}
             </button>
+            ${
+              item.status === "not_reviewed"
+                ? `<button
+                    class="action-button danger"
+                    type="button"
+                    data-application-remove-not-reviewed
+                    ${disabled ? "disabled" : ""}
+                  >
+                    Remove Yet to Review
+                  </button>`
+                : ""
+            }
           </div>
         </article>
       `;
@@ -8704,6 +8957,13 @@ function renderApplicationExportCards(summary = state.applicationReviewSummary) 
   )) {
     button.addEventListener("click", () => {
       void handleApplicationExport(button.dataset.applicationExportStatus);
+    });
+  }
+  for (const button of elements.applicationExportCards.querySelectorAll(
+    "[data-application-remove-not-reviewed]"
+  )) {
+    button.addEventListener("click", () => {
+      void handleRemoveNotReviewedApplications();
     });
   }
 }
@@ -12246,6 +12506,77 @@ async function handleApplicationExport(qualificationStatus) {
   }
 }
 
+async function handleRemoveNotReviewedApplications() {
+  const apiBaseUrl = getApiBaseUrl();
+  const context = getActiveApplicationContext();
+  const notReviewedCount = Number(state.applicationReviewSummary?.notReviewedCount || 0);
+
+  if (!apiBaseUrl) {
+    setApplicationExportMessage("Enter the API URL first.", "error");
+    return;
+  }
+  if (!canExportApplications()) {
+    setApplicationExportMessage("Only admins can remove yet-to-review applications.", "error");
+    return;
+  }
+  if (!context.schemeId || !context.cycleId) {
+    setApplicationExportMessage(
+      "Choose the active scheme and academic year before removing yet-to-review applications.",
+      "error"
+    );
+    return;
+  }
+  if (notReviewedCount <= 0) {
+    setApplicationExportMessage("There are no yet-to-review applications in this scope.", "warning");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Remove ${notReviewedCount} yet-to-review application${notReviewedCount === 1 ? "" : "s"} from the selected scheme and academic year? Reviewed applications will be kept.`
+  );
+  if (!confirmed) {
+    setApplicationExportMessage("Yet-to-review removal cancelled.", "warning");
+    return;
+  }
+
+  const actionButtons = Array.from(
+    elements.applicationExportCards.querySelectorAll(
+      "[data-application-export-status], [data-application-remove-not-reviewed]"
+    )
+  );
+  actionButtons.forEach((button) => {
+    button.disabled = true;
+  });
+  setApplicationExportMessage("Removing yet-to-review applications from this scope...", "warning");
+
+  try {
+    const query = buildApplicationFilterParams();
+    const response = await fetch(`${apiBaseUrl}/api/applications/not-reviewed?${query.toString()}`, {
+      method: "DELETE",
+      headers: {
+        ...getAuthHeaders()
+      }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "Unable to remove yet-to-review applications.");
+    }
+
+    setApplicationExportMessage(
+      `Removed ${payload.deletedCount || 0} yet-to-review application${Number(payload.deletedCount || 0) === 1 ? "" : "s"} from this scheme and academic year.`,
+      "success"
+    );
+    await loadApplicationReviewSummary();
+    await loadApplicationReviewResults();
+    await loadApplicationCwaCoverage();
+    await loadDashboard();
+  } catch (error) {
+    setApplicationExportMessage(error.message, "error");
+  } finally {
+    renderApplicationExportCards();
+  }
+}
+
 async function postApplicationInterviewImport(endpoint) {
   const apiBaseUrl = getApiBaseUrl();
   const files = Array.from(elements.applicationInterviewFile.files || []);
@@ -14354,6 +14685,13 @@ function bindEvents() {
       void handleAccessAction(actionButton);
     }
   });
+  elements.accessManagementList?.addEventListener("submit", (event) => {
+    const identityForm = event.target.closest("[data-access-identity-form]");
+    if (identityForm) {
+      event.preventDefault();
+      void handleAccessIdentitySubmit(identityForm);
+    }
+  });
   for (const button of elements.themeButtons) {
     button.addEventListener("click", () => setTheme(button.dataset.themeChoice));
   }
@@ -15559,6 +15897,9 @@ function bindEvents() {
     state.dashboardActivityHidden = !state.dashboardActivityHidden;
     renderDashboardActivityVisibility();
   });
+  elements.dashboardReviewerSchemeFilter?.addEventListener("change", handleDashboardReviewerFilterChange);
+  elements.dashboardReviewerAcademicYearFilter?.addEventListener("change", handleDashboardReviewerFilterChange);
+  elements.dashboardReviewerResetButton?.addEventListener("click", resetDashboardReviewerFilters);
   elements.academicHistoryTimelineToggleButton?.addEventListener("click", () => {
     state.academicHistoryTimelineHidden = !state.academicHistoryTimelineHidden;
     renderAcademicHistoryTimelineVisibility();

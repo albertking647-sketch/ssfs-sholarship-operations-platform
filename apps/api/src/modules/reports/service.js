@@ -48,6 +48,15 @@ function getAcademicYearStart(value) {
   return match ? Number(match[1]) : 0;
 }
 
+function normalizeDashboardReviewerFilters(filters = {}) {
+  return {
+    schemeId: String(filters.reviewerSchemeId || filters.schemeId || "").trim(),
+    academicYearLabel: normalizeAcademicYearLabel(
+      filters.reviewerAcademicYearLabel || filters.academicYearLabel || ""
+    )
+  };
+}
+
 async function resolveCurrentBeneficiaryYearLabel(repositories) {
   const activeSchemes = (await repositories.schemes.list())
     .filter((item) => String(item.status || "active").toLowerCase() === "active")
@@ -226,7 +235,8 @@ async function buildFoodBankSupportSummary(repositories, currentAcademicYearLabe
   };
 }
 
-async function buildSampleDashboard(config, repositories) {
+async function buildSampleDashboard(config, repositories, filters = {}) {
+  const reviewerFilters = normalizeDashboardReviewerFilters(filters);
   const activeSchemes = schemes.filter((item) => (item.status || "active") === "active");
   const activeSchemeIds = new Set(activeSchemes.map((item) => item.id));
   const activeApplications = applications.filter((item) => activeSchemeIds.has(item.schemeId));
@@ -348,8 +358,17 @@ async function buildSampleDashboard(config, repositories) {
     .sort((left, right) => new Date(right.timestamp || 0) - new Date(left.timestamp || 0))
     .slice(0, 10);
 
+  const reviewerLeaderboardApplications = activeApplications.filter((application) => {
+    const scheme = schemes.find((item) => item.id === application.schemeId);
+    const academicYearLabel = normalizeAcademicYearLabel(application.cycle || scheme?.academicYearLabel || "");
+    return (
+      (!reviewerFilters.schemeId || application.schemeId === reviewerFilters.schemeId) &&
+      (!reviewerFilters.academicYearLabel || academicYearLabel === reviewerFilters.academicYearLabel)
+    );
+  });
+
   const reviewerLeaderboardMap = new Map();
-  for (const application of activeApplications) {
+  for (const application of reviewerLeaderboardApplications) {
     const meta = parseReviewerMetadata(application.reviewerNotes);
     if (!meta.reviewDecision) continue;
 
@@ -401,11 +420,13 @@ async function buildSampleDashboard(config, repositories) {
     schemeProgress,
     recentActivity,
     pendingActions,
-    reviewerLeaderboard
+    reviewerLeaderboard,
+    reviewerLeaderboardFilters: reviewerFilters
   };
 }
 
-async function buildDatabaseDashboard({ repositories, database, config }) {
+async function buildDatabaseDashboard({ repositories, database, config, filters = {} }) {
+  const reviewerFilters = normalizeDashboardReviewerFilters(filters);
   const [allSchemes, waitlistedEntries] = await Promise.all([
     repositories.schemes.list(),
     repositories.waitlist.list({ status: "awaiting_support" })
@@ -462,6 +483,20 @@ async function buildDatabaseDashboard({ repositories, database, config }) {
     }
   );
 
+  const reviewerFilterClauses = [];
+  const reviewerFilterParams = [];
+  if (reviewerFilters.schemeId) {
+    reviewerFilterParams.push(reviewerFilters.schemeId);
+    reviewerFilterClauses.push(`a.scheme_id::text = $${reviewerFilterParams.length}`);
+  }
+  if (reviewerFilters.academicYearLabel) {
+    reviewerFilterParams.push(reviewerFilters.academicYearLabel);
+    reviewerFilterClauses.push(`cycle.academic_year_label = $${reviewerFilterParams.length}`);
+  }
+  const reviewerFilterSql = reviewerFilterClauses.length
+    ? `\n          AND ${reviewerFilterClauses.join("\n          AND ")}`
+    : "";
+
   const [nameMismatchResult, reviewerLeaderboardResult, recentDecisionResult, recentUploadResult, recentSchemeResult] =
     await Promise.all([
       database.query(`
@@ -494,13 +529,15 @@ async function buildDatabaseDashboard({ repositories, database, config }) {
           COUNT(*) FILTER (WHERE (a.reviewer_notes::jsonb ->> 'reviewDecision') = 'disqualified')::int AS disqualified_count,
           MAX(COALESCE(NULLIF(a.reviewer_notes::jsonb ->> 'reviewUpdatedAt', '')::timestamptz, a.updated_at)) AS last_decision_at
         FROM applications a
+        LEFT JOIN application_cycles cycle ON cycle.id = a.cycle_id
         WHERE a.reviewer_notes IS NOT NULL
           AND a.reviewer_notes ~ '^\\s*\\{'
           AND NULLIF(a.reviewer_notes::jsonb ->> 'reviewDecision', '') IS NOT NULL
+          ${reviewerFilterSql}
         GROUP BY 1, 2
         ORDER BY decision_count DESC, last_decision_at DESC
         LIMIT 10
-      `),
+      `, reviewerFilterParams),
       database.query(`
         SELECT
           a.id::text AS application_id,
@@ -663,7 +700,8 @@ async function buildDatabaseDashboard({ repositories, database, config }) {
     schemeProgress: schemeProgress.sort((left, right) => left.schemeName.localeCompare(right.schemeName)),
     recentActivity,
     pendingActions,
-    reviewerLeaderboard
+    reviewerLeaderboard,
+    reviewerLeaderboardFilters: reviewerFilters
   };
 }
 
@@ -760,16 +798,16 @@ export function createReportService({ repositories, database, config }) {
         foodBankSupport: foodBankSupport || null
       };
     },
-    async getDashboard() {
+    async getDashboard(filters = {}) {
       if (!database.enabled) {
-        const dashboard = await buildSampleDashboard(config, repositories);
+        const dashboard = await buildSampleDashboard(config, repositories, filters);
         dashboard.beneficiarySupport = await repositories.beneficiaries.getDashboardData({
           currentYearLabel: await resolveCurrentBeneficiaryYearLabel(repositories)
         });
         return dashboard;
       }
 
-      const dashboard = await buildDatabaseDashboard({ repositories, database, config });
+      const dashboard = await buildDatabaseDashboard({ repositories, database, config, filters });
       dashboard.beneficiarySupport = await repositories.beneficiaries.getDashboardData({
         currentYearLabel: await resolveCurrentBeneficiaryYearLabel(repositories)
       });

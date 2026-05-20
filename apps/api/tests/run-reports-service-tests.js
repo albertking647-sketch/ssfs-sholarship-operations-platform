@@ -275,10 +275,91 @@ async function dashboardFallsBackToLatestImportedBeneficiaryYearWhenActiveYearIs
   assert.equal(result.beneficiarySupport.previousYears[0].label, "2025/2026 Academic Year");
 }
 
+async function dashboardReviewerLeaderboardFiltersBySchemeAndAcademicYear() {
+  const repositories = createRepositories();
+  repositories.schemes = {
+    async list() {
+      return [
+        {
+          id: "scheme-1",
+          name: "SRC KBN",
+          academicYearLabel: "2026/2027 Academic Year",
+          status: "active"
+        },
+        {
+          id: "scheme-2",
+          name: "GNPC Scholarship",
+          academicYearLabel: "2025/2026 Academic Year",
+          status: "active"
+        }
+      ];
+    }
+  };
+
+  const leaderboardQueries = [];
+  const service = createReportService({
+    repositories,
+    database: {
+      enabled: true,
+      async query(sql, params = []) {
+        if (sql.includes("FROM applications a") && sql.includes("GROUP BY 1, 2")) {
+          leaderboardQueries.push({ sql, params });
+          return {
+            rows: params.includes("scheme-2") && params.includes("2025/2026 Academic Year")
+              ? [
+                  {
+                    reviewer_id: "reviewer-2",
+                    reviewer_name: "Filtered Reviewer",
+                    decision_count: 2,
+                    qualified_count: 1,
+                    pending_count: 0,
+                    disqualified_count: 1,
+                    last_decision_at: "2026-05-01T00:00:00.000Z"
+                  }
+                ]
+              : [
+                  {
+                    reviewer_id: "reviewer-1",
+                    reviewer_name: "All Reviewers",
+                    decision_count: 10,
+                    qualified_count: 8,
+                    pending_count: 1,
+                    disqualified_count: 1,
+                    last_decision_at: "2026-05-02T00:00:00.000Z"
+                  }
+                ]
+          };
+        }
+
+        return { rows: [{ count: 0 }] };
+      }
+    },
+    config: { auth: { devTokens: [] } }
+  });
+
+  const result = await service.getDashboard({
+    reviewerSchemeId: "scheme-2",
+    reviewerAcademicYearLabel: "2025/2026 Academic Year"
+  });
+
+  assert.equal(result.reviewerLeaderboard.length, 1);
+  assert.equal(result.reviewerLeaderboard[0].reviewerName, "Filtered Reviewer");
+  assert.equal(result.reviewerLeaderboard[0].decisionCount, 2);
+  assert.deepEqual(result.reviewerLeaderboardFilters, {
+    schemeId: "scheme-2",
+    academicYearLabel: "2025/2026 Academic Year"
+  });
+  assert.equal(leaderboardQueries.length, 1);
+  assert.match(leaderboardQueries[0].sql, /a\.scheme_id::text = \$1/u);
+  assert.match(leaderboardQueries[0].sql, /cycle\.academic_year_label = \$2/u);
+  assert.deepEqual(leaderboardQueries[0].params, ["scheme-2", "2025/2026 Academic Year"]);
+}
+
 async function main() {
   await beneficiarySummaryReportIncludesComparisonsAndAmounts();
   await beneficiarySummaryExportBuildsWorkbook();
   await dashboardFallsBackToLatestImportedBeneficiaryYearWhenActiveYearIsEmpty();
+  await dashboardReviewerLeaderboardFiltersBySchemeAndAcademicYear();
   console.log("reports-service-tests: ok");
 }
 

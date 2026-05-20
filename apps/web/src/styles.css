@@ -772,6 +772,18 @@ body[data-theme="dark"] .action-button.primary:hover {
   gap: 12px;
 }
 
+.dashboard-reviewer-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  margin: 2px 0 12px;
+}
+
+.dashboard-reviewer-filter-bar .field {
+  margin: 0;
+}
+
 .dashboard-metric-button,
 .dashboard-progress-card,
 .dashboard-alert-card,
@@ -1535,6 +1547,7 @@ tfoot td {
   .hero, .workspace-grid, .results-grid, .import-results-grid,
   .placeholder-grid, .detail-grid, .detail-flags, .search-meta,
   .application-context-grid, .summary-cards-wide { grid-template-columns: 1fr; }
+  .dashboard-reviewer-filter-bar { grid-template-columns: 1fr; }
   .field-span-2 { grid-column: auto; }
 }
 
@@ -1886,4 +1899,11 @@ body[data-theme="dark"] #logoutButton.action-button.danger {
 
 .access-user-card {
   gap: 1rem;
+}
+
+.access-identity-form {
+  display: grid;
+  gap: 0.8rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
 }

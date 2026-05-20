@@ -129,6 +129,56 @@ async function removesApplicationAndWritesAuditEvent() {
   assert.equal(audit.events[0].metadata.studentReferenceId, "21770907");
 }
 
+async function removesScopedNotReviewedApplicationsAndWritesAuditEvent() {
+  const audit = createAuditRepository();
+  const removeCalls = [];
+  const service = createApplicationService({
+    repositories: {
+      audit,
+      schemes: {
+        async getById(id) {
+          return id === "scheme-1" ? { id, name: "SRC KBN Bursary" } : null;
+        }
+      },
+      cycles: {
+        async getById(id) {
+          return id === "cycle-1"
+            ? { id, label: "2026/2027 Academic Year", academicYearLabel: "2026/2027 Academic Year" }
+            : null;
+        }
+      },
+      applications: {
+        async removeNotReviewed(filters) {
+          removeCalls.push(filters);
+          return {
+            deletedCount: 7,
+            ids: ["application-1", "application-2", "application-3"]
+          };
+        }
+      }
+    }
+  });
+
+  const result = await service.removeNotReviewed(
+    { schemeId: "scheme-1", cycleId: "cycle-1" },
+    {
+      userId: "admin-1",
+      fullName: "Admin Officer",
+      roleCode: "admin"
+    }
+  );
+
+  assert.deepEqual(removeCalls, [{ schemeId: "scheme-1", cycleId: "cycle-1" }]);
+  assert.equal(result.removed, true);
+  assert.equal(result.deletedCount, 7);
+  assert.equal(result.schemeId, "scheme-1");
+  assert.equal(result.cycleId, "cycle-1");
+  assert.equal(audit.events.length, 1);
+  assert.equal(audit.events[0].actionCode, "applications.not_reviewed_deleted");
+  assert.equal(audit.events[0].entityId, "scheme-1:cycle-1");
+  assert.equal(audit.events[0].metadata.deletedCount, 7);
+}
+
 async function deleteRouteRemovesApplicationForReviewer() {
   const removed = [];
   const app = createApp(
@@ -161,7 +211,62 @@ async function deleteRouteRemovesApplicationForReviewer() {
   assert.deepEqual(removed, [{ id: "application-1", actorRole: "reviewer" }]);
 }
 
+async function deleteRouteRemovesNotReviewedApplicationsForAdmin() {
+  const removed = [];
+  const app = createApp(
+    createBaseRuntime({
+      authService: {
+        async resolveRequestActor() {
+          return {
+            userId: "admin-1",
+            fullName: "Admin Officer",
+            roleCode: "admin"
+          };
+        }
+      },
+      services: {
+        applications: {
+          async removeNotReviewed(filters, actor) {
+            removed.push({ filters, actorRole: actor.roleCode });
+            return {
+              removed: true,
+              deletedCount: 4,
+              schemeId: filters.schemeId,
+              cycleId: filters.cycleId
+            };
+          }
+        }
+      }
+    })
+  );
+
+  const response = await invokeApp(app, {
+    method: "DELETE",
+    url: "/api/applications/not-reviewed?schemeId=scheme-1&cycleId=cycle-1",
+    headers: {
+      host: "127.0.0.1:4300"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(JSON.parse(response.body), {
+    ok: true,
+    removed: true,
+    deletedCount: 4,
+    schemeId: "scheme-1",
+    cycleId: "cycle-1"
+  });
+  assert.deepEqual(removed, [
+    {
+      filters: { schemeId: "scheme-1", cycleId: "cycle-1" },
+      actorRole: "admin"
+    }
+  ]);
+}
+
 await removesApplicationAndWritesAuditEvent();
+await removesScopedNotReviewedApplicationsAndWritesAuditEvent();
 await deleteRouteRemovesApplicationForReviewer();
+await deleteRouteRemovesNotReviewedApplicationsForAdmin();
 
 console.log("applications-removal-tests: ok");

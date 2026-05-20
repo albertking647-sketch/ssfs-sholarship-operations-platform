@@ -31,7 +31,8 @@ function mapUser(row) {
     passwordHash: row.password_hash ?? row.passwordHash,
     roleCode: row.role_code ?? row.roleCode,
     status: isActive ? "active" : "inactive",
-    isActive
+    isActive,
+    isBootstrapAdmin: Boolean(row.is_bootstrap_admin ?? row.isBootstrapAdmin)
   };
 }
 
@@ -80,6 +81,10 @@ function createSampleAuthRepository() {
       const match = users.find((user) => user.email === normalizedEmail);
       return match ? cloneUser(match) : null;
     },
+    async findBootstrapAdmin() {
+      const match = users.find((user) => user.isBootstrapAdmin);
+      return match ? cloneUser(match) : null;
+    },
     async countActiveAdmins() {
       return users.filter((user) => user.roleCode === "admin" && user.isActive).length;
     },
@@ -92,7 +97,8 @@ function createSampleAuthRepository() {
         passwordHash: input.passwordHash,
         roleCode: input.roleCode,
         status: normalizeStatus(input.status),
-        isActive: normalizeStatus(input.status) === "active"
+        isActive: normalizeStatus(input.status) === "active",
+        isBootstrapAdmin: Boolean(input.isBootstrapAdmin)
       };
 
       nextId += 1;
@@ -114,7 +120,11 @@ function createSampleAuthRepository() {
         email: input.email || null,
         roleCode: input.roleCode,
         status: normalizeStatus(input.status),
-        isActive: normalizeStatus(input.status) === "active"
+        isActive: normalizeStatus(input.status) === "active",
+        isBootstrapAdmin:
+          input.isBootstrapAdmin === undefined
+            ? users[index].isBootstrapAdmin
+            : Boolean(input.isBootstrapAdmin)
       };
 
       return cloneUser(users[index]);
@@ -220,6 +230,7 @@ function createPostgresAuthRepository({ database }) {
           u.email,
           u.password_hash,
           u.is_active,
+          u.is_bootstrap_admin,
           r.code AS role_code
         FROM users u
         INNER JOIN roles r ON r.id = u.role_id
@@ -239,6 +250,7 @@ function createPostgresAuthRepository({ database }) {
             u.email,
             u.password_hash,
             u.is_active,
+            u.is_bootstrap_admin,
             r.code AS role_code
           FROM users u
           INNER JOIN roles r ON r.id = u.role_id
@@ -261,6 +273,7 @@ function createPostgresAuthRepository({ database }) {
             u.email,
             u.password_hash,
             u.is_active,
+            u.is_bootstrap_admin,
             r.code AS role_code
           FROM users u
           INNER JOIN roles r ON r.id = u.role_id
@@ -283,6 +296,7 @@ function createPostgresAuthRepository({ database }) {
             u.email,
             u.password_hash,
             u.is_active,
+            u.is_bootstrap_admin,
             r.code AS role_code
           FROM users u
           INNER JOIN roles r ON r.id = u.role_id
@@ -290,6 +304,29 @@ function createPostgresAuthRepository({ database }) {
           LIMIT 1
         `,
         [String(email || "").trim()]
+      );
+
+      return result.rows[0] ? mapUser(result.rows[0]) : null;
+    },
+    async findBootstrapAdmin() {
+      await ensureRoles();
+      const result = await database.query(
+        `
+          SELECT
+            u.id::text AS id,
+            u.full_name,
+            u.username,
+            u.email,
+            u.password_hash,
+            u.is_active,
+            u.is_bootstrap_admin,
+            r.code AS role_code
+          FROM users u
+          INNER JOIN roles r ON r.id = u.role_id
+          WHERE u.is_bootstrap_admin = TRUE
+          ORDER BY u.created_at ASC, u.id ASC
+          LIMIT 1
+        `
       );
 
       return result.rows[0] ? mapUser(result.rows[0]) : null;
@@ -316,7 +353,8 @@ function createPostgresAuthRepository({ database }) {
             username,
             email,
             password_hash,
-            is_active
+            is_active,
+            is_bootstrap_admin
           )
           SELECT
             r.id,
@@ -324,7 +362,8 @@ function createPostgresAuthRepository({ database }) {
             $3,
             NULLIF($4, ''),
             $5,
-            $6
+            $6,
+            $7
           FROM roles r
           WHERE r.code = $1
           RETURNING
@@ -334,6 +373,7 @@ function createPostgresAuthRepository({ database }) {
             email,
             password_hash,
             is_active,
+            is_bootstrap_admin,
             (
               SELECT code
               FROM roles
@@ -346,7 +386,8 @@ function createPostgresAuthRepository({ database }) {
           input.username,
           input.email || "",
           input.passwordHash,
-          normalizeStatus(input.status) === "active"
+          normalizeStatus(input.status) === "active",
+          Boolean(input.isBootstrapAdmin)
         ]
       );
 
@@ -367,6 +408,7 @@ function createPostgresAuthRepository({ database }) {
             username = $4,
             email = NULLIF($5, ''),
             is_active = $6,
+            is_bootstrap_admin = COALESCE($7::BOOLEAN, u.is_bootstrap_admin),
             updated_at = NOW()
           FROM roles AS r
           WHERE u.id = $1::BIGINT
@@ -378,6 +420,7 @@ function createPostgresAuthRepository({ database }) {
             u.email,
             u.password_hash,
             u.is_active,
+            u.is_bootstrap_admin,
             (
               SELECT code
               FROM roles
@@ -390,7 +433,8 @@ function createPostgresAuthRepository({ database }) {
           input.fullName,
           input.username,
           input.email || "",
-          normalizeStatus(input.status) === "active"
+          normalizeStatus(input.status) === "active",
+          input.isBootstrapAdmin === undefined ? null : Boolean(input.isBootstrapAdmin)
         ]
       );
 
@@ -411,6 +455,7 @@ function createPostgresAuthRepository({ database }) {
             email,
             password_hash,
             is_active,
+            is_bootstrap_admin,
             (
               SELECT code
               FROM roles
@@ -434,6 +479,7 @@ function createPostgresAuthRepository({ database }) {
             email,
             password_hash,
             is_active,
+            is_bootstrap_admin,
             (
               SELECT code
               FROM roles

@@ -241,6 +241,9 @@ export function createAuthService({ config, users = [], repository = null, clock
   }
 
   function isProtectedBootstrapAdminUser(user) {
+    if (user?.isBootstrapAdmin) {
+      return true;
+    }
     const protectedUsername = String(protectedBootstrapAdmin.username || "").trim().toLowerCase();
     const currentUsername = String(user?.username || "").trim().toLowerCase();
 
@@ -554,6 +557,22 @@ export function createAuthService({ config, users = [], repository = null, clock
         ? await repository.countActiveAdmins()
         : 0;
       const requiresBootstrapAdmin = runtime.isProduction && activeAdminCount <= 0;
+      const existingBootstrapAdmin =
+        typeof repository.findBootstrapAdmin === "function"
+          ? await repository.findBootstrapAdmin()
+          : null;
+      if (existingBootstrapAdmin) {
+        if (
+          requiresBootstrapAdmin &&
+          (existingBootstrapAdmin.roleCode !== "admin" ||
+            existingBootstrapAdmin.status !== "active")
+        ) {
+          throw new Error(
+            "The configured bootstrap admin exists but is not an active admin account."
+          );
+        }
+        return existingBootstrapAdmin;
+      }
 
       if (!bootstrapAdmin.fullName || !bootstrapAdmin.username || !bootstrapAdmin.password) {
         if (requiresBootstrapAdmin) {
@@ -576,6 +595,16 @@ export function createAuthService({ config, users = [], repository = null, clock
             "BOOTSTRAP_ADMIN_USERNAME already exists but is not an active admin account."
           );
         }
+        if (!existingUser.isBootstrapAdmin && typeof repository.updateUser === "function") {
+          return repository.updateUser(existingUser.id, {
+            fullName: existingUser.fullName,
+            username: existingUser.username,
+            email: existingUser.email || null,
+            roleCode: existingUser.roleCode,
+            status: existingUser.status,
+            isBootstrapAdmin: true
+          });
+        }
         return existingUser;
       }
 
@@ -585,7 +614,8 @@ export function createAuthService({ config, users = [], repository = null, clock
         username: bootstrapAdmin.username,
         passwordHash,
         roleCode: "admin",
-        status: "active"
+        status: "active",
+        isBootstrapAdmin: true
       });
     },
     async ensureDevTokenUsers() {
@@ -713,16 +743,16 @@ export function createAuthService({ config, users = [], repository = null, clock
       await assertUsernameAvailable(normalizedInput.username, currentUser.id);
       await assertEmailAvailable(normalizedInput.email, currentUser.id);
 
+      const isProtectedAdmin = isProtectedBootstrapAdminUser(currentUser);
       if (
-        isProtectedBootstrapAdminUser(currentUser) &&
+        isProtectedAdmin &&
         (
-          normalizedInput.username !== currentUser.username ||
           normalizedInput.roleCode !== "admin" ||
           normalizedInput.status !== "active"
         )
       ) {
         throw new ConflictError(
-          "The protected admin account cannot be renamed, deactivated, or removed from the admin role."
+          "The protected admin account cannot be deactivated or removed from the admin role."
         );
       }
 
@@ -738,7 +768,10 @@ export function createAuthService({ config, users = [], repository = null, clock
         }
       }
 
-      const updatedUser = await repository.updateUser(currentUser.id, normalizedInput);
+      const updatedUser = await repository.updateUser(currentUser.id, {
+        ...normalizedInput,
+        isBootstrapAdmin: currentUser.isBootstrapAdmin || isProtectedAdmin
+      });
       if (!updatedUser) {
         throw new NotFoundError("User account was not found.");
       }

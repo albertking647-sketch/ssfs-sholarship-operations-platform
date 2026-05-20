@@ -325,6 +325,26 @@ export function createApplicationRoutes({ config, services }) {
     },
     {
       method: "DELETE",
+      path: "/api/applications/not-reviewed",
+      auth: "required",
+      roles: ["admin"],
+      async handler({ actor, res, url }) {
+        const result = await services.applications.removeNotReviewed(
+          {
+            schemeId: url.searchParams.get("schemeId") || "",
+            cycleId: url.searchParams.get("cycleId") || ""
+          },
+          actor
+        );
+
+        return sendJson(res, 200, {
+          ok: true,
+          ...result
+        });
+      }
+    },
+    {
+      method: "DELETE",
       path: "/api/applications/:applicationId",
       auth: "required",
       roles: ["admin", "reviewer"],
